@@ -9,8 +9,11 @@ import com.mehdiacho.yap.data.AppDatabase
 import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.data.SessionRepository
 import com.mehdiacho.yap.data.TranscriptionClient
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -18,6 +21,10 @@ import java.util.UUID
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: SessionRepository
     val allSessions: StateFlow<List<Session>>
+
+    // Emits a session id to open right after a recording is captured (post-capture flow).
+    private val _navigateToSession = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val navigateToSession: SharedFlow<String> = _navigateToSession.asSharedFlow()
 
     init {
         val sessionDao = AppDatabase.getDatabase(application).sessionDao()
@@ -49,6 +56,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 status = "TRANSCRIBING"
             )
             repository.insertSession(session)
+            _navigateToSession.tryEmit(session.id) // open the note immediately (shows "Transcribing…")
 
             try {
                 val r = TranscriptionClient.transcribe(java.io.File(audioPath))

@@ -79,15 +79,6 @@ fun CaptureScreen(viewModel: MainViewModel) {
         }
     }
 
-    // Save confirmation.
-    LaunchedEffect(Unit) {
-        RecordingBus.events.collect { event ->
-            if (event is RecorderEvent.Finished) {
-                Toast.makeText(context, "Recording saved to Library", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     Box(Modifier.fillMaxSize()) {
         if (state.status == RecorderStatus.IDLE) {
             IdleContent(onRecord = ::requestAndStart)

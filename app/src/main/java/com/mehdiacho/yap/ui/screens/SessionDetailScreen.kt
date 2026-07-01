@@ -131,14 +131,23 @@ fun SessionDetailScreen(
         ) {
             val content = if (viewMode == "Formatted") currentSession.formattedText ?: currentSession.draftText
             else currentSession.draftText
-            if (content.isBlank()) {
-                Text(
-                    "Transcription will appear here once processed.",
-                    fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Normal
-                )
-            } else {
-                Text(content, fontSize = 15.sp, lineHeight = 24.sp, color = MaterialTheme.colorScheme.onBackground)
+            when {
+                currentSession.status == "TRANSCRIBING" -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Transcribing…", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                content.isBlank() -> {
+                    Text(
+                        "No transcription available.",
+                        fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                else -> {
+                    Text(content, fontSize = 15.sp, lineHeight = 24.sp, color = MaterialTheme.colorScheme.onBackground)
+                }
             }
         }
 

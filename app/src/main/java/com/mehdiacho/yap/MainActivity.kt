@@ -54,6 +54,13 @@ fun MainScreen(viewModel: MainViewModel) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
+    // Post-capture: open the freshly captured note (shows the "Transcribing…" state).
+    LaunchedEffect(Unit) {
+        viewModel.navigateToSession.collect { sessionId ->
+            navController.navigate(Routes.createSessionDetailRoute(sessionId))
+        }
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
