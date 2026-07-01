@@ -1,5 +1,6 @@
 package com.mehdiacho.yap
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -36,20 +37,32 @@ import com.mehdiacho.yap.ui.theme.YapTheme
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
+    private val autoStart = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true) autoStart.value = true
         setContent {
             YapTheme {
-                MainScreen(viewModel)
+                MainScreen(viewModel, autoStart)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_START_RECORDING, false)) autoStart.value = true
+    }
+
+    companion object {
+        const val EXTRA_START_RECORDING = "start_recording"
     }
 }
 
 @Composable
-fun MainScreen(viewModel: MainViewModel) {
+fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = mutableStateOf(false)) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -58,6 +71,13 @@ fun MainScreen(viewModel: MainViewModel) {
     LaunchedEffect(Unit) {
         viewModel.navigateToSession.collect { sessionId ->
             navController.navigate(Routes.createSessionDetailRoute(sessionId))
+        }
+    }
+
+    // Quick Settings tile / external entry: jump to Capture so it can auto-start recording.
+    LaunchedEffect(autoStart.value) {
+        if (autoStart.value) {
+            navController.navigate(Routes.CAPTURE) { launchSingleTop = true }
         }
     }
 
@@ -119,7 +139,7 @@ fun MainScreen(viewModel: MainViewModel) {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Routes.CAPTURE) {
-                CaptureScreen(viewModel = viewModel)
+                CaptureScreen(viewModel = viewModel, autoStart = autoStart)
             }
             composable(Routes.LIBRARY) {
                 LibraryScreen(viewModel = viewModel) { sessionId ->

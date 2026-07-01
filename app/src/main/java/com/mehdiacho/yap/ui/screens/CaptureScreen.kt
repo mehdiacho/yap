@@ -45,7 +45,7 @@ private const val WAVE_STEP_MS = 70L // ~14 bars/sec — calm scroll
 private const val WAVE_MIN = 0.05f
 
 @Composable
-fun CaptureScreen(viewModel: MainViewModel) {
+fun CaptureScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean>? = null) {
     val context = LocalContext.current
     val state by RecordingBus.state.collectAsState()
 
@@ -62,6 +62,14 @@ fun CaptureScreen(viewModel: MainViewModel) {
             arrayOf(Manifest.permission.RECORD_AUDIO)
         }
         permissionLauncher.launch(perms)
+    }
+
+    // Auto-start when launched from the Quick Settings tile (or other external entry).
+    LaunchedEffect(autoStart?.value) {
+        if (autoStart?.value == true && state.status == RecorderStatus.IDLE) {
+            requestAndStart()
+            autoStart.value = false
+        }
     }
 
     // Rolling waveform history, advanced at a fixed calm cadence (independent of the
