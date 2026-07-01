@@ -1,28 +1,25 @@
 package com.mehdiacho.yap.ui.screens
 
 import android.Manifest
-import android.content.Intent
-import android.os.Bundle
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,211 +28,184 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mehdiacho.yap.audio.RecorderStatus
+import com.mehdiacho.yap.audio.RecordingBus
+import com.mehdiacho.yap.audio.RecordingController
 import com.mehdiacho.yap.ui.MainViewModel
-import com.mehdiacho.yap.ui.theme.RecordingColorLight
-import kotlinx.coroutines.delay
+import com.mehdiacho.yap.ui.theme.YapTheme
+
+private const val WAVE_BARS = 48
 
 @Composable
 fun CaptureScreen(viewModel: MainViewModel) {
-    var isRecording by remember { mutableStateOf(false) }
-    var isPaused by remember { mutableStateOf(false) }
-    var draftText by remember { mutableStateOf("") }
-    var recordingTime by remember { mutableIntStateOf(0) }
-    
     val context = LocalContext.current
-    val speechRecognizer = remember { SpeechRecognizer.createSpeechRecognizer(context) }
-    
+    val state by RecordingBus.state.collectAsState()
+
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            isRecording = true
-            startListening(context, speechRecognizer) { partial ->
-                draftText = partial
-            }
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result[Manifest.permission.RECORD_AUDIO] == true) {
+            RecordingController.start(context)
         }
     }
 
-    LaunchedEffect(isRecording, isPaused) {
-        if (isRecording && !isPaused) {
-            while (true) {
-                delay(1000)
-                recordingTime++
-            }
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        if (isRecording) {
-            Text(
-                text = if (isPaused) "Paused" else "Recording",
-                color = if (isPaused) MaterialTheme.colorScheme.onSurfaceVariant else RecordingColorLight,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 16.dp)
-            )
-            val minutes = recordingTime / 60
-            val seconds = recordingTime % 60
-            Text(
-                text = String.format("%d:%02d", minutes, seconds),
-                fontSize = 44.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            // Live Draft Area
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .padding(16.dp)
-            ) {
-                Column {
-                    Text(
-                        "LIVE DRAFT",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = draftText.ifEmpty { "Listening..." },
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp,
-                        modifier = Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())
-                    )
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Pause/Resume Button
-                Box(
-                    modifier = Modifier
-                        .size(58.dp)
-                        .clip(CircleShape)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                        .clickable { isPaused = !isPaused },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                        contentDescription = "Pause/Resume",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                
-                // Stop/Save Button
-                Box(
-                    modifier = Modifier
-                        .size(96.dp)
-                        .clip(CircleShape)
-                        .background(if (isPaused) Color.White else RecordingColorLight)
-                        .border(if (isPaused) 3.dp else 0.dp, RecordingColorLight, CircleShape)
-                        .clickable {
-                            isRecording = false
-                            isPaused = false
-                            recordingTime = 0
-                            speechRecognizer.stopListening()
-                            viewModel.saveDraftSession(draftText)
-                            draftText = ""
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isPaused) {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = "Resume",
-                            tint = RecordingColorLight,
-                            modifier = Modifier.size(50.dp)
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(Color.White)
-                        )
-                    }
-                }
-                
-                Spacer(modifier = Modifier.size(58.dp))
-            }
+    fun requestAndStart() {
+        val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            Spacer(modifier = Modifier.weight(1f))
-            Box(
-                modifier = Modifier
-                    .size(132.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .clickable {
-                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.Mic,
-                    contentDescription = "Record",
-                    tint = Color.White,
-                    modifier = Modifier.size(62.dp)
-                )
-            }
-            Spacer(modifier = Modifier.height(20.dp))
-            Text(
-                "Tap to record",
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-                color = MaterialTheme.colorScheme.onBackground
+            arrayOf(Manifest.permission.RECORD_AUDIO)
+        }
+        permissionLauncher.launch(perms)
+    }
+
+    // Rolling amplitude history for the waveform.
+    val bars = remember { mutableStateListOf<Float>().apply { repeat(WAVE_BARS) { add(0.08f) } } }
+    LaunchedEffect(state.amplitude, state.status) {
+        if (state.status == RecorderStatus.RECORDING) {
+            bars.removeAt(0)
+            bars.add(state.amplitude.coerceIn(0.08f, 1f))
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+        if (state.status == RecorderStatus.IDLE) {
+            IdleContent(onRecord = ::requestAndStart)
+        } else {
+            RecordingContent(
+                paused = state.status == RecorderStatus.PAUSED,
+                elapsedMs = state.elapsedMs,
+                bars = bars,
+                onPauseResume = {
+                    if (state.status == RecorderStatus.PAUSED) RecordingController.resume(context)
+                    else RecordingController.pause(context)
+                },
+                onStop = { RecordingController.stop(context) },
             )
-            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }
 
-private fun startListening(
-    context: android.content.Context,
-    speechRecognizer: SpeechRecognizer,
-    onResult: (String) -> Unit
-) {
-    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+@Composable
+private fun IdleContent(onRecord: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(132.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+                .clickable { onRecord() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.Mic, "Record", tint = Color.White, modifier = Modifier.size(62.dp))
+        }
+        Spacer(Modifier.height(20.dp))
+        Text(
+            "Tap to record",
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 15.sp,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
     }
-    speechRecognizer.setRecognitionListener(object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {}
-        override fun onBeginningOfSpeech() {}
-        override fun onRmsChanged(rmsdB: Float) {}
-        override fun onBufferReceived(buffer: ByteArray?) {}
-        override fun onEndOfSpeech() {}
-        override fun onError(error: Int) {}
-        override fun onResults(results: Bundle?) {
-            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            if (!matches.isNullOrEmpty()) {
-                onResult(matches[0])
+}
+
+@Composable
+private fun RecordingContent(
+    paused: Boolean,
+    elapsedMs: Long,
+    bars: SnapshotStateList<Float>,
+    onPauseResume: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val recording = YapTheme.extended.recording
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(24.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(9.dp).clip(CircleShape)
+                    .background(if (paused) MaterialTheme.colorScheme.onSurfaceVariant else recording)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (paused) "Paused" else "Recording",
+                color = if (paused) MaterialTheme.colorScheme.onSurfaceVariant else recording,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            formatElapsed(elapsedMs),
+            fontSize = 46.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+
+        Spacer(Modifier.weight(1f))
+
+        // Waveform
+        Row(
+            modifier = Modifier.fillMaxWidth().height(72.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            bars.forEach { amp ->
+                Box(
+                    Modifier
+                        .width(4.dp)
+                        .height((8 + amp * 56).dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(if (paused) MaterialTheme.colorScheme.outlineVariant else recording)
+                )
             }
         }
-        override fun onPartialResults(partialResults: Bundle?) {
-            val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            if (!matches.isNullOrEmpty()) {
-                onResult(matches[0])
+
+        Spacer(Modifier.weight(1f))
+
+        // Controls
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(58.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                    .clickable { onPauseResume() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                    contentDescription = if (paused) "Resume" else "Pause",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+            Spacer(Modifier.width(36.dp))
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(recording)
+                    .clickable { onStop() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Stop, "Stop & save", tint = Color.White, modifier = Modifier.size(40.dp))
             }
         }
-        override fun onEvent(eventType: Int, params: Bundle?) {}
-    })
-    speechRecognizer.startListening(intent)
+    }
+}
+
+private fun formatElapsed(ms: Long): String {
+    val totalSec = ms / 1000
+    return "%d:%02d".format(totalSec / 60, totalSec % 60)
 }

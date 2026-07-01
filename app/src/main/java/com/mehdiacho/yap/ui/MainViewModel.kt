@@ -3,6 +3,8 @@ package com.mehdiacho.yap.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mehdiacho.yap.audio.RecorderEvent
+import com.mehdiacho.yap.audio.RecordingBus
 import com.mehdiacho.yap.data.AppDatabase
 import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.data.SessionRepository
@@ -24,6 +26,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             SharingStarted.WhileSubscribed(5000),
             emptyList()
         )
+
+        // Persist a real session whenever a recording finishes.
+        viewModelScope.launch {
+            RecordingBus.events.collect { event ->
+                if (event is RecorderEvent.Finished) {
+                    saveRecording(event.filePath, event.durationMs)
+                }
+            }
+        }
+    }
+
+    private fun saveRecording(audioPath: String, durationMs: Long) {
+        viewModelScope.launch {
+            val session = Session(
+                id = UUID.randomUUID().toString(),
+                title = "Recording",
+                draftText = "", // on-device transcription draft comes in the next step
+                audioPath = audioPath,
+                durationMs = durationMs,
+                status = "DRAFT"
+            )
+            repository.insertSession(session)
+        }
     }
 
     fun getSessionById(id: String): StateFlow<Session?> {
