@@ -1,8 +1,10 @@
 package com.mehdiacho.yap
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.core.content.IntentCompat
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -43,6 +45,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true) autoStart.value = true
+        intent?.let { handleShare(it) }
         setContent {
             YapTheme {
                 MainScreen(viewModel, autoStart)
@@ -54,6 +57,24 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra(EXTRA_START_RECORDING, false)) autoStart.value = true
+        handleShare(intent)
+    }
+
+    /** Handle audio/video/text shared into Yap from another app. */
+    private fun handleShare(intent: Intent) {
+        if (intent.action != Intent.ACTION_SEND) return
+        val type = intent.type ?: return
+        when {
+            type.startsWith("audio/") || type.startsWith("video/") -> {
+                val uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                if (uri != null) viewModel.importSharedAudio(uri, type)
+            }
+            type == "text/plain" -> {
+                intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }?.let {
+                    viewModel.importSharedText(it)
+                }
+            }
+        }
     }
 
     companion object {

@@ -32,10 +32,10 @@ object TranscriptionClient {
         if (auth.currentUser == null) awaitTask(auth.signInAnonymously())
     }
 
-    suspend fun transcribe(file: File): TranscriptionResult {
+    suspend fun transcribe(file: File, mimeType: String = "audio/wav"): TranscriptionResult {
         ensureSignedIn()
         val b64 = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
-        val payload = hashMapOf<String, Any>("audioBase64" to b64, "mimeType" to "audio/wav")
+        val payload = hashMapOf<String, Any>("audioBase64" to b64, "mimeType" to mimeType)
         val result = awaitTask(functions.getHttpsCallable("transcribeSession").call(payload))
 
         @Suppress("UNCHECKED_CAST")

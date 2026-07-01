@@ -1,6 +1,8 @@
 package com.mehdiacho.yap.ui
 
 import android.app.Application
+import android.media.MediaMetadataRetriever
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mehdiacho.yap.audio.RecorderEvent
@@ -14,8 +16,10 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -46,35 +50,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun saveRecording(audioPath: String, durationMs: Long) {
+        viewModelScope.launch { startTranscription(audioPath, durationMs, "audio/wav") }
+    }
+
+    /** Import an audio/video file shared into Yap from another app, then transcribe it. */
+    fun importSharedAudio(uri: Uri, mimeType: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val ctx = getApplication<Application>()
+                val ext = mimeType.substringAfter('/', "bin").take(5)
+                val dir = File(ctx.filesDir, "recordings").apply { mkdirs() }
+                val file = File(dir, "shared_${System.currentTimeMillis()}.$ext")
+                ctx.contentResolver.openInputStream(uri)?.use { input ->
+                    file.outputStream().use { input.copyTo(it) }
+                } ?: return@launch
+                val durationMs = runCatching {
+                    val mmr = MediaMetadataRetriever()
+                    mmr.setDataSource(ctx, uri)
+                    val d = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                    mmr.release()
+                    d
+                }.getOrDefault(0L)
+                startTranscription(file.absolutePath, durationMs, mimeType)
+            } catch (e: Exception) {
+                // best-effort; a failed import simply doesn't create a note
+            }
+        }
+    }
+
+    /** Import shared plain text as a note (no transcription). */
+    fun importSharedText(text: String) {
         viewModelScope.launch {
             val session = Session(
                 id = UUID.randomUUID().toString(),
-                title = "Transcribing…",
-                draftText = "",
-                audioPath = audioPath,
-                durationMs = durationMs,
-                status = "TRANSCRIBING"
+                title = "Shared note",
+                draftText = text,
+                formattedText = text,
+                status = "DONE"
             )
             repository.insertSession(session)
-            _navigateToSession.tryEmit(session.id) // open the note immediately (shows "Transcribing…")
+            _navigateToSession.tryEmit(session.id)
+        }
+    }
 
-            try {
-                val r = TranscriptionClient.transcribe(java.io.File(audioPath))
-                repository.updateSession(
-                    session.copy(
-                        title = r.name.ifBlank { "Recording" },
-                        draftText = r.rawText,
-                        formattedText = r.formattedText,
-                        category = r.category.ifBlank { "Memo" },
-                        topicCluster = r.topicCluster.ifBlank { "General" },
-                        status = "DONE"
-                    )
+    private suspend fun startTranscription(audioPath: String, durationMs: Long, mimeType: String) {
+        val session = Session(
+            id = UUID.randomUUID().toString(),
+            title = "Transcribing…",
+            draftText = "",
+            audioPath = audioPath,
+            durationMs = durationMs,
+            status = "TRANSCRIBING"
+        )
+        repository.insertSession(session)
+        _navigateToSession.tryEmit(session.id) // open the note immediately (shows "Transcribing…")
+
+        try {
+            val r = TranscriptionClient.transcribe(File(audioPath), mimeType)
+            repository.updateSession(
+                session.copy(
+                    title = r.name.ifBlank { "Recording" },
+                    draftText = r.rawText,
+                    formattedText = r.formattedText,
+                    category = r.category.ifBlank { "Memo" },
+                    topicCluster = r.topicCluster.ifBlank { "General" },
+                    status = "DONE"
                 )
-            } catch (e: Exception) {
-                repository.updateSession(
-                    session.copy(title = "Recording", status = "FAILED")
-                )
-            }
+            )
+        } catch (e: Exception) {
+            repository.updateSession(session.copy(title = "Recording", status = "FAILED"))
         }
     }
 
