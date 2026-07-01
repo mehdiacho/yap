@@ -8,6 +8,7 @@ import com.mehdiacho.yap.audio.RecordingBus
 import com.mehdiacho.yap.data.AppDatabase
 import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.data.SessionRepository
+import com.mehdiacho.yap.data.TranscriptionClient
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -41,13 +42,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val session = Session(
                 id = UUID.randomUUID().toString(),
-                title = "Recording",
-                draftText = "", // on-device transcription draft comes in the next step
+                title = "Transcribing…",
+                draftText = "",
                 audioPath = audioPath,
                 durationMs = durationMs,
-                status = "DRAFT"
+                status = "TRANSCRIBING"
             )
             repository.insertSession(session)
+
+            try {
+                val r = TranscriptionClient.transcribe(java.io.File(audioPath))
+                repository.updateSession(
+                    session.copy(
+                        title = r.name.ifBlank { "Recording" },
+                        draftText = r.rawText,
+                        formattedText = r.formattedText,
+                        category = r.category.ifBlank { "Memo" },
+                        topicCluster = r.topicCluster.ifBlank { "General" },
+                        status = "DONE"
+                    )
+                )
+            } catch (e: Exception) {
+                repository.updateSession(
+                    session.copy(title = "Recording", status = "FAILED")
+                )
+            }
         }
     }
 
