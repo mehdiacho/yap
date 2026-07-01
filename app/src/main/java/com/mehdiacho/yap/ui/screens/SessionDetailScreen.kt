@@ -154,6 +154,8 @@ private fun AudioPlayerBar(audioPath: String?, fallbackDurationMs: Long) {
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableIntStateOf(0) }
     var durationMs by remember { mutableIntStateOf(fallbackDurationMs.toInt()) }
+    var seeking by remember { mutableStateOf(false) }
+    var seekPos by remember { mutableFloatStateOf(0f) }
 
     DisposableEffect(audioPath) {
         if (available) {
@@ -197,17 +199,24 @@ private fun AudioPlayerBar(audioPath: String?, fallbackDurationMs: Long) {
                 tint = if (available) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Spacer(Modifier.width(12.dp))
-        val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-        Box(
-            modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.primary))
-        }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(8.dp))
+        val sliderValue = if (seeking) seekPos else positionMs.toFloat()
+        Slider(
+            value = sliderValue,
+            onValueChange = { seeking = true; seekPos = it },
+            onValueChangeFinished = {
+                val target = seekPos.toInt()
+                runCatching { player.seekTo(target) }
+                positionMs = target
+                seeking = false
+            },
+            valueRange = 0f..(if (durationMs > 0) durationMs.toFloat() else 1f),
+            enabled = available && durationMs > 0,
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(Modifier.width(8.dp))
         Text(
-            "${fmt(positionMs)} / ${fmt(durationMs)}",
+            "${fmt(if (seeking) seekPos.toInt() else positionMs)} / ${fmt(durationMs)}",
             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
