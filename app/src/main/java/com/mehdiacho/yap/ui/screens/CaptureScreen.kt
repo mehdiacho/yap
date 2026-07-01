@@ -2,6 +2,7 @@ package com.mehdiacho.yap.ui.screens
 
 import android.Manifest
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -28,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mehdiacho.yap.audio.RecorderEvent
 import com.mehdiacho.yap.audio.RecorderStatus
 import com.mehdiacho.yap.audio.RecordingBus
 import com.mehdiacho.yap.audio.RecordingController
@@ -58,12 +60,22 @@ fun CaptureScreen(viewModel: MainViewModel) {
         permissionLauncher.launch(perms)
     }
 
-    // Rolling amplitude history for the waveform.
-    val bars = remember { mutableStateListOf<Float>().apply { repeat(WAVE_BARS) { add(0.08f) } } }
-    LaunchedEffect(state.amplitude, state.status) {
+    // Rolling amplitude history for the waveform — advance one bar per audio buffer
+    // (keyed on elapsedMs, which ticks with every ~20ms recorded chunk => smooth motion).
+    val bars = remember { mutableStateListOf<Float>().apply { repeat(WAVE_BARS) { add(0.06f) } } }
+    LaunchedEffect(state.elapsedMs) {
         if (state.status == RecorderStatus.RECORDING) {
             bars.removeAt(0)
-            bars.add(state.amplitude.coerceIn(0.08f, 1f))
+            bars.add(state.amplitude.coerceIn(0.06f, 1f))
+        }
+    }
+
+    // Confirm the save when a recording finishes.
+    LaunchedEffect(Unit) {
+        RecordingBus.events.collect { event ->
+            if (event is RecorderEvent.Finished) {
+                Toast.makeText(context, "Recording saved to Library", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

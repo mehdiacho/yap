@@ -1,5 +1,6 @@
 package com.mehdiacho.yap.ui.screens
 
+import android.media.MediaPlayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -8,9 +9,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,6 +24,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.ui.MainViewModel
+import com.mehdiacho.yap.ui.theme.YapTheme
+import kotlinx.coroutines.delay
+import java.io.File
 
 @Composable
 fun SessionDetailScreen(
@@ -29,16 +34,16 @@ fun SessionDetailScreen(
     sessionId: String,
     onBack: () -> Unit
 ) {
-    val session by viewModel.getSessionById(sessionId).collectAsState()
+    // Stable flow: remember by id so we don't recreate the StateFlow every recomposition
+    // (that was causing the screen to jitter / recompose infinitely).
+    val sessionFlow = remember(sessionId) { viewModel.getSessionById(sessionId) }
+    val session by sessionFlow.collectAsState()
     var viewMode by remember { mutableStateOf("Formatted") }
 
     if (session == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
     }
-
     val currentSession = session!!
 
     Column(
@@ -48,178 +53,167 @@ fun SessionDetailScreen(
     ) {
         // Header
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 16.dp, start = 16.dp, end = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp, start = 16.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Icon(
-                Icons.Default.ArrowBack,
-                contentDescription = "Back",
+                Icons.AutoMirrored.Filled.ArrowBack, "Back",
                 modifier = Modifier.clickable { onBack() },
                 tint = MaterialTheme.colorScheme.onBackground
             )
-            
             val isRefined = currentSession.status == "REFINED"
-            val statusColor = if (isRefined) Color(0xFF0F5132) else MaterialTheme.colorScheme.onSurfaceVariant
-            val statusBg = if (isRefined) Color(0xFFB8F0CF) else MaterialTheme.colorScheme.surfaceVariant
-            
+            val statusColor = if (isRefined) YapTheme.extended.onRefinedContainer else MaterialTheme.colorScheme.onSurfaceVariant
+            val statusBg = if (isRefined) YapTheme.extended.refinedContainer else MaterialTheme.colorScheme.surfaceVariant
             Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(statusBg)
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(statusBg)
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (isRefined) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = statusColor, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.CheckCircle, null, tint = statusColor, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
                 }
+                Text(currentSession.status, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+            Icon(Icons.Default.MoreVert, "More", tint = MaterialTheme.colorScheme.onBackground)
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Column(Modifier.padding(horizontal = 22.dp)) {
+            Text(
+                currentSession.title, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground, lineHeight = 30.sp
+            )
+            Spacer(Modifier.height(12.dp))
+            Box(
+                modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
                 Text(
-                    text = currentSession.status,
-                    color = statusColor,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
+                    currentSession.category, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    fontSize = 12.sp, fontWeight = FontWeight.Bold
                 )
             }
-            
-            Icon(Icons.Default.MoreVert, contentDescription = "More", tint = MaterialTheme.colorScheme.onBackground)
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Title & Tags
-        Column(modifier = Modifier.padding(horizontal = 22.dp)) {
-            Text(
-                text = currentSession.title,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                lineHeight = 30.sp
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
+        Spacer(Modifier.height(16.dp))
+
+        // Formatted / Raw toggle
+        Row(
+            modifier = Modifier.padding(horizontal = 22.dp).fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(4.dp)
+        ) {
+            listOf("Formatted", "Raw").forEach { mode ->
                 Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                        .background(if (viewMode == mode) MaterialTheme.colorScheme.surface else Color.Transparent)
+                        .clickable { viewMode = mode }.padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        currentSession.category,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        mode,
+                        fontWeight = if (viewMode == mode) FontWeight.Bold else FontWeight.Normal,
+                        color = if (viewMode == mode) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp
                     )
                 }
             }
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Toggle
-        Row(
-            modifier = Modifier
-                .padding(horizontal = 22.dp)
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(4.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (viewMode == "Formatted") MaterialTheme.colorScheme.surface else Color.Transparent)
-                    .clickable { viewMode = "Formatted" }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "Formatted",
-                    fontWeight = if (viewMode == "Formatted") FontWeight.Bold else FontWeight.Normal,
-                    color = if (viewMode == "Formatted") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 14.sp
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (viewMode == "Raw") MaterialTheme.colorScheme.surface else Color.Transparent)
-                    .clickable { viewMode = "Raw" }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "Raw",
-                    fontWeight = if (viewMode == "Raw") FontWeight.Bold else FontWeight.Normal,
-                    color = if (viewMode == "Raw") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 14.sp
-                )
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
+
+        Spacer(Modifier.height(16.dp))
+
         // Content
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 22.dp)
-                .verticalScroll(rememberScrollState())
+            modifier = Modifier.weight(1f).padding(horizontal = 22.dp).verticalScroll(rememberScrollState())
         ) {
-            val content = if (viewMode == "Formatted") {
-                currentSession.formattedText ?: currentSession.draftText
-            } else {
-                currentSession.draftText
-            }
-            
-            Text(
-                text = content,
-                fontSize = 15.sp,
-                lineHeight = 24.sp,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-        }
-        
-        // Audio Player Bar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(horizontal = 22.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White)
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.3f)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.primary)
+            val content = if (viewMode == "Formatted") currentSession.formattedText ?: currentSession.draftText
+            else currentSession.draftText
+            if (content.isBlank()) {
+                Text(
+                    "Transcription will appear here once processed.",
+                    fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Normal
                 )
+            } else {
+                Text(content, fontSize = 15.sp, lineHeight = 24.sp, color = MaterialTheme.colorScheme.onBackground)
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Text("0:00", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        // Real audio player
+        AudioPlayerBar(audioPath = currentSession.audioPath, fallbackDurationMs = currentSession.durationMs)
+    }
+}
+
+@Composable
+private fun AudioPlayerBar(audioPath: String?, fallbackDurationMs: Long) {
+    val available = audioPath != null && File(audioPath).exists()
+    val player = remember { MediaPlayer() }
+    var isPlaying by remember { mutableStateOf(false) }
+    var positionMs by remember { mutableIntStateOf(0) }
+    var durationMs by remember { mutableIntStateOf(fallbackDurationMs.toInt()) }
+
+    DisposableEffect(audioPath) {
+        if (available) {
+            runCatching {
+                player.reset()
+                player.setDataSource(audioPath)
+                player.prepare()
+                durationMs = player.duration
+                player.setOnCompletionListener {
+                    isPlaying = false; positionMs = 0; player.seekTo(0)
+                }
+            }
+        }
+        onDispose { runCatching { player.release() } }
+    }
+
+    LaunchedEffect(isPlaying) {
+        while (isPlaying) {
+            positionMs = runCatching { player.currentPosition }.getOrDefault(positionMs)
+            delay(100)
         }
     }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(horizontal = 22.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(44.dp).clip(CircleShape)
+                .background(if (available) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                .clickable(enabled = available) {
+                    if (isPlaying) { player.pause(); isPlaying = false }
+                    else { player.start(); isPlaying = true }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = if (isPlaying) "Pause" else "Play",
+                tint = if (available) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+        Box(
+            modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.primary))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            "${fmt(positionMs)} / ${fmt(durationMs)}",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+private fun fmt(ms: Int): String {
+    val s = ms / 1000
+    return "%d:%02d".format(s / 60, s % 60)
 }

@@ -18,12 +18,12 @@ import com.mehdiacho.yap.MainActivity
 import java.io.File
 import java.io.RandomAccessFile
 import kotlin.concurrent.thread
-import kotlin.math.abs
+import kotlin.math.log10
+import kotlin.math.sqrt
 
 /**
  * Real audio capture via AudioRecord, written to a 16 kHz mono PCM WAV file.
  * Runs as a microphone foreground service so recording survives screen-off / backgrounding.
- * This replaces the previous SpeechRecognizer-dictation approach (which produced no audio).
  */
 class RecordingService : Service() {
 
@@ -37,6 +37,8 @@ class RecordingService : Service() {
     private const val NOTIF_ID = 1001
     private const val SAMPLE_RATE = 16000
     private const val BYTE_RATE = SAMPLE_RATE * 2 // mono, 16-bit
+    private const val READ_CHUNK = 640 // ~20 ms  -> ~50 meter updates/sec
+    private const val DB_FLOOR = 50f   // quietest level mapped to 0
   }
 
   @Volatile private var status = RecorderStatus.IDLE
@@ -47,8 +49,8 @@ class RecordingService : Service() {
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
       ACTION_START -> startRecording()
-      ACTION_PAUSE -> if (status == RecorderStatus.RECORDING) { status = RecorderStatus.PAUSED; pushState(0f) }
-      ACTION_RESUME -> if (status == RecorderStatus.PAUSED) { status = RecorderStatus.RECORDING; pushState(0f) }
+      ACTION_PAUSE -> if (status == RecorderStatus.RECORDING) { status = RecorderStatus.PAUSED; pushState(0f); refreshNotification() }
+      ACTION_RESUME -> if (status == RecorderStatus.PAUSED) { status = RecorderStatus.RECORDING; pushState(0f); refreshNotification() }
       ACTION_STOP -> status = RecorderStatus.IDLE
     }
     return START_STICKY
@@ -68,11 +70,11 @@ class RecordingService : Service() {
       val minBuf = AudioRecord.getMinBufferSize(
         SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
       )
-      val bufSize = maxOf(minBuf, SAMPLE_RATE / 5 * 2) // ~200ms
       val recorder = try {
         AudioRecord(
           MediaRecorder.AudioSource.MIC, SAMPLE_RATE,
-          AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufSize
+          AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+          maxOf(minBuf, READ_CHUNK * 4)
         )
       } catch (e: SecurityException) {
         fail("mic-permission"); return@thread
@@ -84,7 +86,7 @@ class RecordingService : Service() {
       val raf = RandomAccessFile(file, "rw")
       raf.write(ByteArray(44)) // header placeholder
       var dataBytes = 0L
-      val buf = ByteArray(bufSize)
+      val buf = ByteArray(READ_CHUNK) // small read -> frequent meter updates
       recorder.startRecording()
       try {
         while (status != RecorderStatus.IDLE) {
@@ -93,9 +95,9 @@ class RecordingService : Service() {
           if (status == RecorderStatus.RECORDING) {
             raf.write(buf, 0, n)
             dataBytes += n
-            pushState(peakAmplitude(buf, n), dataBytes)
+            pushState(rmsAmplitude(buf, n), dataBytes)
           } else {
-            pushState(0f, dataBytes) // paused: discard frames, hold elapsed
+            pushState(0f, dataBytes) // paused: hold elapsed, drop level
           }
         }
       } finally {
@@ -125,23 +127,28 @@ class RecordingService : Service() {
   private fun pushState(amplitude: Float, dataBytes: Long = -1L) {
     val cur = RecordingBus.current()
     val elapsed = if (dataBytes >= 0) dataBytes * 1000 / BYTE_RATE else cur.elapsedMs
-    val smoothed = cur.amplitude * 0.55f + amplitude * 0.45f
+    val smoothed = cur.amplitude * 0.35f + amplitude * 0.65f // responsive
     RecordingBus.update(RecorderUiState(status, elapsed, smoothed))
   }
 
-  // ---- WAV helpers ----
-
-  private fun peakAmplitude(buf: ByteArray, n: Int): Float {
-    var peak = 0
+  /** Perceptual level 0..1 from RMS mapped through a dB floor (good visual response at arm's length). */
+  private fun rmsAmplitude(buf: ByteArray, n: Int): Float {
+    var sumSq = 0.0
+    var count = 0
     var i = 0
     while (i + 1 < n) {
-      val sample = (buf[i].toInt() and 0xff) or (buf[i + 1].toInt() shl 8)
-      val v = abs(sample)
-      if (v > peak) peak = v
+      val s = (buf[i].toInt() and 0xff) or (buf[i + 1].toInt() shl 8)
+      sumSq += (s * s).toDouble()
+      count++
       i += 2
     }
-    return (peak / 32768f).coerceIn(0f, 1f)
+    if (count == 0) return 0f
+    val rms = sqrt(sumSq / count)
+    val db = 20.0 * log10(rms / 32768.0 + 1e-7) // ~ -140..0
+    return ((db + DB_FLOOR) / DB_FLOOR).toFloat().coerceIn(0f, 1f)
   }
+
+  // ---- WAV header ----
 
   private fun writeWavHeader(raf: RandomAccessFile, dataLen: Long) {
     val h = ByteArray(44)
@@ -152,26 +159,17 @@ class RecordingService : Service() {
     raf.seek(0); raf.write(h)
   }
 
-  private fun ascii(b: ByteArray, off: Int, s: String) {
-    for (i in s.indices) b[off + i] = s[i].code.toByte()
+  private fun ascii(b: ByteArray, off: Int, s: String) { for (i in s.indices) b[off + i] = s[i].code.toByte() }
+  private fun intLE(b: ByteArray, o: Int, v: Int) {
+    b[o] = (v and 0xff).toByte(); b[o + 1] = (v shr 8 and 0xff).toByte()
+    b[o + 2] = (v shr 16 and 0xff).toByte(); b[o + 3] = (v shr 24 and 0xff).toByte()
   }
-
-  private fun intLE(b: ByteArray, off: Int, v: Int) {
-    b[off] = (v and 0xff).toByte()
-    b[off + 1] = (v shr 8 and 0xff).toByte()
-    b[off + 2] = (v shr 16 and 0xff).toByte()
-    b[off + 3] = (v shr 24 and 0xff).toByte()
-  }
-
-  private fun shortLE(b: ByteArray, off: Int, v: Int) {
-    b[off] = (v and 0xff).toByte()
-    b[off + 1] = (v shr 8 and 0xff).toByte()
-  }
+  private fun shortLE(b: ByteArray, o: Int, v: Int) { b[o] = (v and 0xff).toByte(); b[o + 1] = (v shr 8 and 0xff).toByte() }
 
   // ---- Foreground notification ----
 
   private fun startForegroundCompat() {
-    val notif = buildNotification()
+    val notif = buildNotification(paused = false)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       ServiceCompat.startForeground(this, NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
     } else {
@@ -179,23 +177,35 @@ class RecordingService : Service() {
     }
   }
 
-  private fun buildNotification(): Notification {
+  private fun refreshNotification() {
+    if (worker == null) return
+    getSystemService(NotificationManager::class.java)
+      ?.notify(NOTIF_ID, buildNotification(paused = status == RecorderStatus.PAUSED))
+  }
+
+  private fun pi(action: String, req: Int): PendingIntent = PendingIntent.getService(
+    this, req, Intent(this, RecordingService::class.java).setAction(action),
+    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+  )
+
+  private fun buildNotification(paused: Boolean): Notification {
     val contentIntent = PendingIntent.getActivity(
       this, 0, Intent(this, MainActivity::class.java),
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
-    val stopIntent = PendingIntent.getService(
-      this, 1, Intent(this, RecordingService::class.java).setAction(ACTION_STOP),
-      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-    return NotificationCompat.Builder(this, CHANNEL_ID)
-      .setContentTitle("Recording…")
-      .setContentText("Capturing your idea")
+    val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+      .setContentTitle(if (paused) "Paused" else "Recording…")
+      .setContentText("Yap · capturing your idea")
       .setSmallIcon(android.R.drawable.ic_btn_speak_now)
       .setOngoing(true)
       .setContentIntent(contentIntent)
-      .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop & save", stopIntent)
-      .build()
+    if (paused) {
+      builder.addAction(android.R.drawable.ic_media_play, "Resume", pi(ACTION_RESUME, 2))
+    } else {
+      builder.addAction(android.R.drawable.ic_media_pause, "Pause", pi(ACTION_PAUSE, 3))
+    }
+    builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop & save", pi(ACTION_STOP, 1))
+    return builder.build()
   }
 
   private fun createChannel() {
