@@ -1,4 +1,4 @@
-package com.example
+package com.mehdiacho.yap
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -26,13 +26,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.example.navigation.Routes
-import com.example.ui.MainViewModel
-import com.example.ui.screens.CaptureScreen
-import com.example.ui.screens.LibraryScreen
-import com.example.ui.screens.SessionDetailScreen
-import com.example.ui.screens.SettingsScreen
-import com.example.ui.theme.MyApplicationTheme
+import com.mehdiacho.yap.navigation.Routes
+import com.mehdiacho.yap.ui.MainViewModel
+import com.mehdiacho.yap.ui.screens.CaptureScreen
+import com.mehdiacho.yap.ui.screens.LibraryScreen
+import com.mehdiacho.yap.ui.screens.SessionDetailScreen
+import com.mehdiacho.yap.ui.screens.SettingsScreen
+import com.mehdiacho.yap.ui.theme.YapTheme
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -41,7 +41,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MyApplicationTheme {
+            YapTheme {
                 MainScreen(viewModel)
             }
         }

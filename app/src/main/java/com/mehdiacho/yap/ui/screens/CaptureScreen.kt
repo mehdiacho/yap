@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.mehdiacho.yap.ui.screens
 
 import android.Manifest
 import android.content.Intent
@@ -31,8 +31,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.MainViewModel
-import com.example.ui.theme.RecordingColorLight
+import com.mehdiacho.yap.ui.MainViewModel
+import com.mehdiacho.yap.ui.theme.RecordingColorLight
 import kotlinx.coroutines.delay
 
 @Composable

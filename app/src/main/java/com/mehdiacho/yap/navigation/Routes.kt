@@ -1,4 +1,4 @@
-package com.example.navigation
+package com.mehdiacho.yap.navigation
 
 object Routes {
     const val CAPTURE = "capture"

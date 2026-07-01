@@ -1,11 +1,11 @@
-package com.example.ui
+package com.mehdiacho.yap.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.AppDatabase
-import com.example.data.Session
-import com.example.data.SessionRepository
+import com.mehdiacho.yap.data.AppDatabase
+import com.mehdiacho.yap.data.Session
+import com.mehdiacho.yap.data.SessionRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn

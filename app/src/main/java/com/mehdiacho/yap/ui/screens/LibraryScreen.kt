@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.mehdiacho.yap.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,8 +23,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.Session
-import com.example.ui.MainViewModel
+import com.mehdiacho.yap.data.Session
+import com.mehdiacho.yap.ui.MainViewModel
 
 @Composable
 fun LibraryScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
