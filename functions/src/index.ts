@@ -31,9 +31,11 @@ export const transcribeSession = onCall(
     let audio: Buffer;
     if (data.storagePath) {
       try {
-        const [buf] = await admin.storage().bucket().file(data.storagePath).download();
+        const bucket = process.env.STORAGE_BUCKET || "yap-mehdiacho.firebasestorage.app";
+        const [buf] = await admin.storage().bucket(bucket).file(data.storagePath).download();
         audio = buf;
-      } catch (e) {
+      } catch (e: any) {
+        console.error("storage download failed", { path: data.storagePath, message: e?.message });
         throw new HttpsError("not-found", `Could not read audio at ${data.storagePath}`);
       }
     } else if (data.audioBase64) {

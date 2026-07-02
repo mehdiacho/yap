@@ -98,6 +98,8 @@ dependencies {
   implementation(libs.firebase.appcheck.recaptcha)
   implementation("com.google.firebase:firebase-auth")
   implementation("com.google.firebase:firebase-functions")
+  implementation("com.google.firebase:firebase-storage")
+  implementation("com.google.firebase:firebase-firestore")
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)

@@ -1,9 +1,12 @@
 package com.mehdiacho.yap.data
 
+import android.net.Uri
 import android.util.Base64
+import android.util.Log
 import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
 import kotlin.coroutines.resume
@@ -34,8 +37,19 @@ object TranscriptionClient {
 
     suspend fun transcribe(file: File, mimeType: String = "audio/wav"): TranscriptionResult {
         ensureSignedIn()
-        val b64 = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
-        val payload = hashMapOf<String, Any>("audioBase64" to b64, "mimeType" to mimeType)
+        // Preferred: upload to Cloud Storage, pass the path (no inline size ceiling).
+        // Fallback: inline base64 if the upload fails and the file is small enough.
+        val payload: HashMap<String, Any> = try {
+            val uid = auth.currentUser!!.uid
+            val path = "users/$uid/audio/${file.name}"
+            val ref = FirebaseStorage.getInstance().reference.child(path)
+            awaitTask(ref.putFile(Uri.fromFile(file)))
+            hashMapOf("storagePath" to path, "mimeType" to mimeType)
+        } catch (e: Exception) {
+            Log.w("Yap", "storage upload failed, falling back to inline: ${e.message}")
+            val b64 = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+            hashMapOf("audioBase64" to b64, "mimeType" to mimeType)
+        }
         val result = awaitTask(functions.getHttpsCallable("transcribeSession").call(payload))
 
         @Suppress("UNCHECKED_CAST")
