@@ -169,7 +169,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         } catch (e: Exception) {
             Log.e("Yap", "transcription failed for $audioPath ($mimeType): ${e.message}", e)
-            repository.upsert(session.copy(title = "Recording", status = "FAILED"))
+            val quotaHit = (e as? com.google.firebase.functions.FirebaseFunctionsException)?.code ==
+                com.google.firebase.functions.FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED
+            repository.upsert(
+                if (quotaHit) session.copy(title = "Monthly limit reached", status = "QUOTA")
+                else session.copy(title = "Recording", status = "FAILED")
+            )
         }
     }
 

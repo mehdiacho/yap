@@ -36,6 +36,7 @@ import com.mehdiacho.yap.ui.screens.CaptureScreen
 import com.mehdiacho.yap.ui.screens.LibraryScreen
 import com.mehdiacho.yap.ui.screens.SessionDetailScreen
 import com.mehdiacho.yap.ui.screens.SettingsScreen
+import com.mehdiacho.yap.ui.screens.SubscriptionScreen
 import com.mehdiacho.yap.ui.theme.YapTheme
 
 class MainActivity : ComponentActivity() {
@@ -198,16 +199,25 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                 }
             }
             composable(Routes.SETTINGS) {
-                SettingsScreen(onSignInClick = { navController.navigate(Routes.AUTH) })
+                SettingsScreen(
+                    onSignInClick = { navController.navigate(Routes.AUTH) },
+                    onOpenSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
+                )
             }
             composable(Routes.AUTH) {
                 AuthScreen(onBack = { navController.popBackStack() })
             }
+            composable(Routes.SUBSCRIPTION) {
+                SubscriptionScreen(onBack = { navController.popBackStack() })
+            }
             composable(Routes.SESSION_DETAIL) { backStackEntry ->
                 val sessionId = backStackEntry.arguments?.getString("sessionId") ?: return@composable
-                SessionDetailScreen(viewModel = viewModel, sessionId = sessionId) {
-                    navController.popBackStack()
-                }
+                SessionDetailScreen(
+                    viewModel = viewModel,
+                    sessionId = sessionId,
+                    onOpenSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
+                    onBack = { navController.popBackStack() },
+                )
             }
         }
     }

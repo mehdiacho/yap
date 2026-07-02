@@ -33,7 +33,8 @@ import java.io.File
 fun SessionDetailScreen(
     viewModel: MainViewModel,
     sessionId: String,
-    onBack: () -> Unit
+    onOpenSubscription: () -> Unit = {},
+    onBack: () -> Unit,
 ) {
     // Stable flow: remember by id so we don't recreate the StateFlow every recomposition
     // (that was causing the screen to jitter / recompose infinitely).
@@ -133,6 +134,26 @@ fun SessionDetailScreen(
             val content = if (viewMode == "Formatted") currentSession.formattedText ?: currentSession.draftText
             else currentSession.draftText
             when {
+                currentSession.status == "QUOTA" -> {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.errorContainer).padding(16.dp)
+                    ) {
+                        Text(
+                            "Monthly transcription limit reached",
+                            fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Your recording is saved — it can be transcribed after you upgrade, redeem a code, or when your cycle resets.",
+                            fontSize = 13.sp, lineHeight = 18.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = onOpenSubscription) { Text("View plans & usage") }
+                    }
+                }
                 currentSession.status == "TRANSCRIBING" -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)

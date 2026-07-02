@@ -28,7 +28,10 @@ import com.mehdiacho.yap.data.AudioCache
 import com.mehdiacho.yap.data.AuthManager
 
 @Composable
-fun SettingsScreen(onSignInClick: () -> Unit = {}) {
+fun SettingsScreen(
+    onSignInClick: () -> Unit = {},
+    onOpenSubscription: () -> Unit = {},
+) {
     val user by AuthManager.authState().collectAsState(initial = AuthManager.currentUser)
     val signedIn = user != null && user?.isAnonymous == false
     Column(
@@ -108,7 +111,7 @@ fun SettingsScreen(onSignInClick: () -> Unit = {}) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         
-        SettingsItem(icon = Icons.Default.WorkspacePremium, title = "Subscription & Usage")
+        SettingsItem(icon = Icons.Default.WorkspacePremium, title = "Subscription & Usage", onClick = onOpenSubscription)
         SettingsItem(icon = Icons.Default.Mic, title = "Capture")
         
         Spacer(modifier = Modifier.height(24.dp))
@@ -186,13 +189,14 @@ private fun ClearDownloadsItem() {
 }
 
 @Composable
-fun SettingsItem(icon: ImageVector, title: String) {
+fun SettingsItem(icon: ImageVector, title: String, onClick: () -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surface)
+            .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
