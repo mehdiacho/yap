@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.CloudSync
@@ -20,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +35,20 @@ import com.mehdiacho.yap.ui.MainViewModel
 @Composable
 fun LibraryScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
     val sessions by viewModel.allSessions.collectAsState()
+    var query by remember { androidx.compose.runtime.mutableStateOf("") }
+    val filtered = remember(sessions, query) {
+        if (query.isBlank()) sessions
+        else {
+            val q = query.trim().lowercase()
+            sessions.filter { s ->
+                s.title.lowercase().contains(q) ||
+                    s.draftText.lowercase().contains(q) ||
+                    (s.formattedText?.lowercase()?.contains(q) == true) ||
+                    s.category.lowercase().contains(q) ||
+                    s.topicCluster.lowercase().contains(q)
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -48,23 +64,34 @@ fun LibraryScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        // Search Bar (Mock)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(26.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Search notes", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
-        }
+        // Search — filters title, transcript, formatted text, category, and cluster.
+        TextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("Search notes", fontSize = 14.sp) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    Icon(
+                        Icons.Default.Close, contentDescription = "Clear",
+                        modifier = Modifier.clickable { query = "" }
+                    )
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(26.dp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        if (sessions.isEmpty()) {
+        if (filtered.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
@@ -74,9 +101,16 @@ fun LibraryScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit
                         tint = MaterialTheme.colorScheme.outlineVariant
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("No notes yet", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    Text(
+                        if (query.isBlank()) "No notes yet" else "No matches",
+                        fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Tap the mic to capture your first idea.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                    Text(
+                        if (query.isBlank()) "Tap the mic to capture your first idea."
+                        else "Nothing matches \"$query\".",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp
+                    )
                 }
             }
         } else {
@@ -84,7 +118,7 @@ fun LibraryScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit
                 contentPadding = PaddingValues(bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(sessions) { session ->
+                items(filtered) { session ->
                     SessionCard(session, onClick = { onNavigateToDetail(session.id) })
                 }
             }
