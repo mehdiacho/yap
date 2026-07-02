@@ -54,6 +54,8 @@ fun SessionDetailScreen(
     var showEditTitle by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var titleDraft by remember { mutableStateOf("") }
+    var editingBody by remember { mutableStateOf(false) }
+    var bodyDraft by remember { mutableStateOf("") }
     fun currentText(): String =
         if (viewMode == "Formatted") currentSession.formattedText ?: currentSession.draftText
         else currentSession.draftText
@@ -98,6 +100,10 @@ fun SessionDetailScreen(
                     DropdownMenuItem(
                         text = { Text("Edit title") },
                         onClick = { menuOpen = false; titleDraft = currentSession.title; showEditTitle = true }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Edit text") },
+                        onClick = { menuOpen = false; bodyDraft = currentText(); editingBody = true }
                     )
                     DropdownMenuItem(
                         text = { Text("Copy text") },
@@ -209,6 +215,33 @@ fun SessionDetailScreen(
         }
 
         Spacer(Modifier.height(16.dp))
+
+        // Body editor (replaces the content area while active)
+        if (editingBody) {
+            Column(Modifier.weight(1f).padding(horizontal = 22.dp)) {
+                OutlinedTextField(
+                    value = bodyDraft,
+                    onValueChange = { bodyDraft = it },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, lineHeight = 22.sp),
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { editingBody = false }) { Text("Cancel") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = {
+                        val updated = if (viewMode == "Formatted")
+                            currentSession.copy(formattedText = bodyDraft)
+                        else currentSession.copy(draftText = bodyDraft)
+                        viewModel.updateSession(updated)
+                        editingBody = false
+                    }) { Text("Save") }
+                }
+            }
+            return@Column
+        }
 
         // Content
         Column(
