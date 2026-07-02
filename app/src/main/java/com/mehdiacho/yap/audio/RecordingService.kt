@@ -66,6 +66,7 @@ class RecordingService : Service() {
     discardRequested = false
     status = RecorderStatus.RECORDING
     RecordingBus.update(RecorderUiState(RecorderStatus.RECORDING, 0L, 0f))
+    LiveDraftEngine.start(this) // fed-stream live draft (no-op below API 33 / no recognizer)
 
     val dir = File(filesDir, "recordings").apply { mkdirs() }
     val file = File(dir, "rec_${System.currentTimeMillis()}.wav")
@@ -99,6 +100,7 @@ class RecordingService : Service() {
           if (status == RecorderStatus.RECORDING) {
             raf.write(buf, 0, n)
             dataBytes += n
+            LiveDraftEngine.feed(buf, n) // never blocks (bounded queue)
             pushState(rmsAmplitude(buf, n), dataBytes)
           } else {
             pushState(0f, dataBytes) // paused: hold elapsed, drop level
@@ -106,6 +108,7 @@ class RecordingService : Service() {
         }
       } finally {
         recorder.stop(); recorder.release()
+        LiveDraftEngine.stop() // close the fed stream; final segments flush shortly after
         if (discardRequested) {
           raf.close()
           file.delete() // never saved

@@ -7,6 +7,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -169,7 +171,35 @@ private fun RecordingContent(
         Spacer(Modifier.height(6.dp))
         Text(formatElapsed(elapsedMs), fontSize = 46.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
 
-        Spacer(Modifier.weight(1f))
+        // Live draft — streams in from the fed-stream recognizer while you speak.
+        val draft by com.mehdiacho.yap.audio.LiveDraftEngine.draftText.collectAsState()
+        if (draft.isNotBlank()) {
+            Spacer(Modifier.height(14.dp))
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 22.dp).weight(1f)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(14.dp)
+            ) {
+                Text(
+                    "LIVE DRAFT",
+                    fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary, letterSpacing = 1.sp,
+                )
+                Spacer(Modifier.height(6.dp))
+                val scroll = androidx.compose.foundation.rememberScrollState()
+                LaunchedEffect(draft) { scroll.animateScrollTo(scroll.maxValue) }
+                Text(
+                    draft,
+                    fontSize = 15.sp, lineHeight = 22.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.verticalScroll(scroll),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
 
         // Full-width, edge-to-edge, center-mirrored waveform.
         Canvas(modifier = Modifier.fillMaxWidth().height(96.dp)) {
