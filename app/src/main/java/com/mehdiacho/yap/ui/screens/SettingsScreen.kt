@@ -63,22 +63,23 @@ fun SettingsScreen(onSignInClick: () -> Unit = {}) {
                     .background(MaterialTheme.colorScheme.primary),
                 contentAlignment = Alignment.Center
             ) {
-                val initial = when {
-                    signedIn -> (user?.displayName ?: user?.email ?: "U").first().uppercaseChar().toString()
-                    else -> "G"
-                }
+                // displayName can be a non-null EMPTY string — never .first() it blindly.
+                val label = user?.displayName?.takeIf { it.isNotBlank() }
+                    ?: user?.email?.takeIf { it.isNotBlank() }
+                val initial = if (signedIn) (label?.firstOrNull()?.uppercaseChar() ?: 'U').toString() else "G"
                 Text(initial, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 if (signedIn) {
                     Text(
-                        user?.displayName ?: user?.email ?: "Account",
+                        user?.displayName?.takeIf { it.isNotBlank() }
+                            ?: user?.email?.takeIf { it.isNotBlank() } ?: "Account",
                         fontWeight = FontWeight.Bold, fontSize = 16.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        user?.email ?: "Synced across devices",
+                        user?.email?.takeIf { it.isNotBlank() } ?: "Synced across devices",
                         fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {

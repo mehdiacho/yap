@@ -15,11 +15,16 @@ Not bugs — conscious "later" decisions so they don't get lost.
   notification (prompting for any needed permission). Lets you keep scrolling in the source app.
   — *requested 2026-07-02.*
 
-- **Online-only notes + local eviction.** Let a note live cloud-only to save device space:
-  downloaded audio that hasn't been accessed for N days gets deleted locally (stays in cloud).
-  Related: decide (for the user, not a setting) whether opening a note may auto-load its audio —
-  keep Settings small; prefer sensible defaults. — *requested 2026-07-02. Partially shipped:
-  tap-to-download player (no auto-stream) + cloud/local indicator on cards.*
+- **"Make available offline" model (OneDrive-style).** The full picture, per user 2026-07-02:
+  - Everything lives in the cloud by default (for signed-in, opted-in users). The card icon is
+    about presence on THIS device: phone icon = offline-ready here, cloud icon = online-only here.
+  - A recording **made on this device** defaults to *available offline* on that device (it was
+    born local — don't upload-then-evict). User can later demote it to "keep online only".
+  - Cloud-only audio can be pulled on demand ("make available offline"); pulled copies that go
+    unused for N days get evicted locally (stay in cloud) IF the note is set online-only.
+  - Optional per-note "never upload" mark for sensitive recordings.
+  - Keep Settings small: prefer sensible defaults over toggles.
+  *Shipped so far: tap-to-download player (no auto-stream) + offline/online-only card indicator.*
 
 ## Architecture hardening (interim shortcuts currently in place)
 - **Audio transport:** currently sent inline (base64) to the function. Move to Firebase Storage

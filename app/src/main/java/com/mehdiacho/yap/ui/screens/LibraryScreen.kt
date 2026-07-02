@@ -9,7 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Search
@@ -117,16 +117,18 @@ fun SessionCard(session: Session, onClick: () -> Unit) {
                 )
             }
             Spacer(modifier = Modifier.weight(1f))
-            // Where the audio lives: cloud (synced) vs this device only.
-            val hasLocal = remember(session.audioPath) {
+            // Availability on THIS device ("make available offline" model): a local copy
+            // means offline-ready (phone icon); otherwise it's online-only here (cloud icon).
+            // Everything also lives in the cloud regardless — this is about local presence.
+            val availableOffline = remember(session.audioPath) {
                 session.audioPath != null && java.io.File(session.audioPath).exists()
             }
             val inCloud = session.storagePath != null
-            if (inCloud || hasLocal) {
+            if (availableOffline || inCloud) {
                 Icon(
-                    imageVector = if (inCloud) Icons.Default.CloudDone else Icons.Default.Smartphone,
-                    contentDescription = if (inCloud) "Backed up to cloud" else "On this device only",
-                    tint = if (inCloud) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    imageVector = if (availableOffline) Icons.Default.Smartphone else Icons.Default.CloudQueue,
+                    contentDescription = if (availableOffline) "Available offline" else "Online only on this device",
+                    tint = if (availableOffline) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(16.dp)
                 )
             }
