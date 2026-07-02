@@ -28,6 +28,10 @@ I'm building a voice-notes Android app (Kotlin/Compose, minSdk 24, primary test 
 
 6. **Xiaomi/China-ROM caveats.** Anything specific about HyperOS/MIUI (with Play services sideloaded ecosystem) that affects `SpeechRecognizer` availability, on-device recognition, AICore availability, or mic arbitration that a Pixel-centric answer would miss?
 
+7. **Firebase AI Logic — any speech/on-device relevance?** Firebase AI Logic (client-side Gemini SDK) now advertises hybrid/on-device inference options. As of mid-2026: does any part of it support speech-to-text (streaming or file) on-device or hybrid? Could it play any role in a live-transcription layer, or is it text/multimodal-prompt only?
+
+8. **Server-side provider choice (side question).** Our cloud refinement runs in a Cloud Function (africa-south1) calling the Gemini Developer API with an API key. Would switching to the Vertex AI Gemini API (service account, regional endpoint — presumably europe-west from southern Africa) meaningfully improve latency or reliability, and is pricing parity close enough that it's worth it? Also confirm: the $300 GCP free-trial credit is once per new billing account (not per project), correct?
+
 ## Output format
 - Direct answers per question, each with "confidence: high/medium/low" and the source (doc page / release note / issue tracker).
 - Finish with a concrete recommendation: the architecture you would build for the requirements above, as a short decision tree ("if device supports X → use X; else → Y").
