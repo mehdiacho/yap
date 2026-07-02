@@ -13,7 +13,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
@@ -27,6 +30,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -94,9 +98,15 @@ fun CaptureScreen(
         }
     }
 
+    val sessions by viewModel.allSessions.collectAsState()
+
     Box(Modifier.fillMaxSize()) {
         if (state.status == RecorderStatus.IDLE) {
-            IdleContent(onRecord = ::requestAndStart, onOpenSpike = onOpenSpike)
+            IdleContent(
+                lastSession = sessions.firstOrNull(),
+                onRecord = ::requestAndStart,
+                onOpenSpike = onOpenSpike,
+            )
         } else {
             RecordingContent(
                 paused = state.status == RecorderStatus.PAUSED,
@@ -117,30 +127,158 @@ fun CaptureScreen(
 }
 
 @Composable
-private fun IdleContent(onRecord: () -> Unit, onOpenSpike: (() -> Unit)? = null) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Box(
-            modifier = Modifier.size(132.dp).clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary).clickable { onRecord() },
-            contentAlignment = Alignment.Center,
+private fun IdleContent(
+    lastSession: com.mehdiacho.yap.data.Session?,
+    onRecord: () -> Unit,
+    onOpenSpike: (() -> Unit)? = null,
+) {
+    val user by com.mehdiacho.yap.data.AuthManager.authState()
+        .collectAsState(initial = com.mehdiacho.yap.data.AuthManager.currentUser)
+    val name = user?.displayName?.takeIf { it.isNotBlank() }?.substringBefore(' ')
+        ?: user?.email?.takeIf { it.isNotBlank() }?.substringBefore('@')
+        ?: "there"
+    val greeting = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
+        in 5..11 -> "Good morning"
+        in 12..16 -> "Good afternoon"
+        else -> "Good evening"
+    }
+    val signedIn = user != null && user?.isAnonymous == false
+
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+        Spacer(Modifier.height(16.dp))
+        // Avatar + sync pill
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(38.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    name.firstOrNull()?.uppercaseChar()?.toString() ?: "Y",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            Row(
+                Modifier.clip(RoundedCornerShape(999.dp))
+                    .background(YapTheme.extended.refinedContainer)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.CloudDone, null,
+                    tint = YapTheme.extended.onRefinedContainer, modifier = Modifier.size(15.dp),
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    if (signedIn) "Synced" else "Guest",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = YapTheme.extended.onRefinedContainer,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(22.dp))
+        Text("$greeting, $name", style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground)
+        Spacer(Modifier.height(4.dp))
+        Text("What's on your mind?", style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        // Last note peek
+        if (lastSession != null) {
+            Spacer(Modifier.height(20.dp))
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer).padding(14.dp)
+            ) {
+                Text("LAST NOTE", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    lastSession.title, style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val done = lastSession.status == "DONE"
+                    Row(
+                        Modifier.clip(RoundedCornerShape(999.dp))
+                            .background(
+                                if (done) YapTheme.extended.refinedContainer
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .padding(horizontal = 9.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (done) {
+                            Icon(Icons.Default.CheckCircle, null,
+                                tint = YapTheme.extended.onRefinedContainer,
+                                modifier = Modifier.size(11.dp))
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(
+                            if (done) "Refined" else lastSession.status.lowercase()
+                                .replaceFirstChar { it.uppercase() },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (done) YapTheme.extended.onRefinedContainer
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(relativeTime(lastSession.createdAt),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline)
+                }
+            }
+        }
+
+        // Hero mic button
+        Column(
+            Modifier.weight(1f).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
-            Icon(Icons.Default.Mic, "Record", tint = Color.White, modifier = Modifier.size(62.dp))
+            Box(
+                modifier = Modifier
+                    .size(132.dp)
+                    .shadow(
+                        elevation = 18.dp, shape = CircleShape,
+                        spotColor = MaterialTheme.colorScheme.primary,
+                        ambientColor = MaterialTheme.colorScheme.primary,
+                    )
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable { onRecord() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Mic, "Record", tint = Color.White, modifier = Modifier.size(62.dp))
+            }
+            Spacer(Modifier.height(20.dp))
+            Text("Tap to record", style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onBackground)
+            if (onOpenSpike != null) {
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    "⚗ live-draft spike (dev)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.clickable { onOpenSpike() },
+                )
+            }
         }
-        Spacer(Modifier.height(20.dp))
-        Text("Tap to record", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onBackground)
-        if (onOpenSpike != null) {
-            Spacer(Modifier.height(28.dp))
-            Text(
-                "⚗ live-draft spike (dev)",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.clickable { onOpenSpike() },
-            )
-        }
+    }
+}
+
+private fun relativeTime(ts: Long): String {
+    val mins = (System.currentTimeMillis() - ts) / 60000
+    return when {
+        mins < 1 -> "just now"
+        mins < 60 -> "${mins}m ago"
+        mins < 60 * 24 -> "${mins / 60}h ago"
+        else -> "${mins / (60 * 24)}d ago"
     }
 }
 
@@ -169,7 +307,11 @@ private fun RecordingContent(
             )
         }
         Spacer(Modifier.height(6.dp))
-        Text(formatElapsed(elapsedMs), fontSize = 46.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+        Text(
+            formatElapsed(elapsedMs),
+            style = MaterialTheme.typography.displayLarge, // Outfit, per the kit's big timer
+            color = MaterialTheme.colorScheme.onBackground,
+        )
 
         // Live draft — streams in from the fed-stream recognizer while you speak.
         val draft by com.mehdiacho.yap.audio.LiveDraftEngine.draftText.collectAsState()
