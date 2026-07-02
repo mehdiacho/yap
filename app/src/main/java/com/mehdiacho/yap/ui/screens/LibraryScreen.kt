@@ -9,13 +9,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -111,6 +114,20 @@ fun SessionCard(session: Session, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            // Where the audio lives: cloud (synced) vs this device only.
+            val hasLocal = remember(session.audioPath) {
+                session.audioPath != null && java.io.File(session.audioPath).exists()
+            }
+            val inCloud = session.storagePath != null
+            if (inCloud || hasLocal) {
+                Icon(
+                    imageVector = if (inCloud) Icons.Default.CloudDone else Icons.Default.Smartphone,
+                    contentDescription = if (inCloud) "Backed up to cloud" else "On this device only",
+                    tint = if (inCloud) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }

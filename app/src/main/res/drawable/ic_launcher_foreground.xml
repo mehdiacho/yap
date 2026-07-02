@@ -1,8 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="66dp"
-        android:height="66dp"
-        android:drawable="@drawable/yap_icon_1782865237010"
-        android:gravity="center" />
-</layer-list>
+<!-- Yap mark from the design kit: soundwave bars + idea spark, white on the brand gradient. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.56"
+        android:scaleY="0.56"
+        android:translateX="26"
+        android:translateY="26">
+        <!-- Outer bars (slightly translucent, as in the kit) -->
+        <path
+            android:fillColor="#D1FFFFFF"
+            android:pathData="M20,46.5 a4.5,4.5 0 0 1 9,0 v7 a4.5,4.5 0 0 1 -9,0 z" />
+        <path
+            android:fillColor="#D1FFFFFF"
+            android:pathData="M76,48.5 a4.5,4.5 0 0 1 9,0 v3 a4.5,4.5 0 0 1 -9,0 z" />
+        <!-- Inner bars -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M34,36.5 a4.5,4.5 0 0 1 9,0 v27 a4.5,4.5 0 0 1 -9,0 z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M62,38.5 a4.5,4.5 0 0 1 9,0 v23 a4.5,4.5 0 0 1 -9,0 z" />
+        <!-- Spark -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M53,18 L57,40 L66,50 L57,56 L53,82 L49,56 L40,50 L49,40 Z" />
+    </group>
+</vector>

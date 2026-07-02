@@ -15,6 +15,12 @@ Not bugs — conscious "later" decisions so they don't get lost.
   notification (prompting for any needed permission). Lets you keep scrolling in the source app.
   — *requested 2026-07-02.*
 
+- **Online-only notes + local eviction.** Let a note live cloud-only to save device space:
+  downloaded audio that hasn't been accessed for N days gets deleted locally (stays in cloud).
+  Related: decide (for the user, not a setting) whether opening a note may auto-load its audio —
+  keep Settings small; prefer sensible defaults. — *requested 2026-07-02. Partially shipped:
+  tap-to-download player (no auto-stream) + cloud/local indicator on cards.*
+
 ## Architecture hardening (interim shortcuts currently in place)
 - **Audio transport:** currently sent inline (base64) to the function. Move to Firebase Storage
   upload for larger files + retention (`users/{uid}/audio/...`).

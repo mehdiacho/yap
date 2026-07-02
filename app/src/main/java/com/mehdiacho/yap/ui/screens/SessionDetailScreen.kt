@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -170,21 +171,29 @@ private fun AudioPlayerBar(audioPath: String?, storagePath: String?, fallbackDur
     var seeking by remember { mutableStateOf(false) }
     var seekPos by remember { mutableFloatStateOf(0f) }
 
-    // Source: local file when it exists; otherwise stream from Cloud Storage.
-    LaunchedEffect(audioPath, storagePath) {
-        val localOk = audioPath != null && File(audioPath).exists()
+    // Local audio prepares automatically. Cloud-only audio is NOT auto-fetched — the
+    // user taps the cloud button to load it (saves data/space when just reading).
+    val localOk = remember(audioPath) { audioPath != null && File(audioPath).exists() }
+    val remoteAvailable = !localOk && storagePath != null
+    var remoteRequested by remember(storagePath) { mutableStateOf(false) }
+    var loadingRemote by remember { mutableStateOf(false) }
+
+    LaunchedEffect(audioPath, storagePath, remoteRequested) {
         val source: String? = when {
             localOk -> audioPath
-            storagePath != null -> runCatching {
-                com.google.firebase.storage.FirebaseStorage.getInstance()
-                    .reference.child(storagePath).downloadUrl
-                    .let { task ->
-                        kotlinx.coroutines.suspendCancellableCoroutine<android.net.Uri> { cont ->
-                            task.addOnSuccessListener { cont.resume(it) {} }
-                                .addOnFailureListener { cont.cancel(it) }
-                        }
-                    }.toString()
-            }.getOrNull()
+            remoteRequested && storagePath != null -> {
+                loadingRemote = true
+                runCatching {
+                    com.google.firebase.storage.FirebaseStorage.getInstance()
+                        .reference.child(storagePath).downloadUrl
+                        .let { task ->
+                            kotlinx.coroutines.suspendCancellableCoroutine<android.net.Uri> { cont ->
+                                task.addOnSuccessListener { cont.resume(it) {} }
+                                    .addOnFailureListener { cont.cancel(it) }
+                            }
+                        }.toString()
+                }.getOrNull()
+            }
             else -> null
         }
         if (source != null) {
@@ -201,6 +210,7 @@ private fun AudioPlayerBar(audioPath: String?, storagePath: String?, fallbackDur
                 }
             }
         }
+        loadingRemote = false
     }
 
     DisposableEffect(Unit) {
@@ -221,18 +231,36 @@ private fun AudioPlayerBar(audioPath: String?, storagePath: String?, fallbackDur
     ) {
         Box(
             modifier = Modifier.size(44.dp).clip(CircleShape)
-                .background(if (available) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                .clickable(enabled = available) {
-                    if (isPlaying) { player.pause(); isPlaying = false }
-                    else { player.start(); isPlaying = true }
+                .background(
+                    when {
+                        available || remoteAvailable -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.surfaceVariant
+                    }
+                )
+                .clickable(enabled = available || (remoteAvailable && !loadingRemote)) {
+                    when {
+                        available && isPlaying -> { player.pause(); isPlaying = false }
+                        available -> { player.start(); isPlaying = true }
+                        remoteAvailable -> remoteRequested = true
+                    }
                 },
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = if (isPlaying) "Pause" else "Play",
-                tint = if (available) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            when {
+                loadingRemote -> CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White
+                )
+                !available && remoteAvailable -> Icon(
+                    Icons.Default.CloudDownload,
+                    contentDescription = "Load audio from cloud",
+                    tint = Color.White
+                )
+                else -> Icon(
+                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = if (available) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         Spacer(Modifier.width(8.dp))
         val sliderValue = if (seeking) seekPos else positionMs.toFloat()
