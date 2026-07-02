@@ -9,7 +9,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mehdiacho.yap.audio.RecorderEvent
 import com.mehdiacho.yap.audio.RecordingBus
-import com.mehdiacho.yap.data.AppDatabase
 import com.mehdiacho.yap.data.FirestoreSessionRepository
 import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.data.TranscriptionClient
@@ -50,22 +49,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
-        migrateLegacyRoomSessions()
+        backfillAudioToStorage()
     }
 
-    /** One-time copy of pre-Firestore local (Room) notes into the user's cloud store. */
-    private fun migrateLegacyRoomSessions() {
+    /**
+     * One-time backfill: upload any recording that predates Storage support (or whose
+     * upload was missed) and link its cloud location onto the session document.
+     */
+    private fun backfillAudioToStorage() {
         val prefs = getApplication<Application>().getSharedPreferences("yap", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("room_migrated", false)) return
+        if (prefs.getBoolean("audio_backfilled_v1", false)) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val dao = AppDatabase.getDatabase(getApplication()).sessionDao()
-                val legacy = dao.getAllSessions().first()
-                legacy.forEach { repository.upsert(it) }
-                prefs.edit().putBoolean("room_migrated", true).apply()
-                if (legacy.isNotEmpty()) Log.i("Yap", "migrated ${legacy.size} legacy sessions to Firestore")
+                val sessions = repository.allSessions().first()
+                val pending = sessions.filter {
+                    it.storagePath == null && it.audioPath != null && File(it.audioPath).exists()
+                }
+                var failures = 0
+                pending.forEach { s ->
+                    try {
+                        val path = TranscriptionClient.uploadAudio(File(s.audioPath!!))
+                        repository.upsert(s.copy(storagePath = path))
+                        Log.i("Yap", "backfilled audio for '${s.title}' -> $path")
+                    } catch (e: Exception) {
+                        failures++
+                        Log.w("Yap", "backfill failed for ${s.id}: ${e.message}")
+                    }
+                }
+                // Only mark done when everything uploaded, so failures retry next launch.
+                if (failures == 0) prefs.edit().putBoolean("audio_backfilled_v1", true).apply()
             } catch (e: Exception) {
-                Log.e("Yap", "legacy migration failed: ${e.message}", e)
+                Log.e("Yap", "audio backfill failed: ${e.message}", e)
             }
         }
     }
@@ -149,6 +163,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     formattedText = r.formattedText,
                     category = r.category.ifBlank { "Memo" },
                     topicCluster = r.topicCluster.ifBlank { "General" },
+                    storagePath = r.storagePath,
                     status = "DONE"
                 )
             )

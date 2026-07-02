@@ -1,16 +1,13 @@
 package com.mehdiacho.yap.data
 
-import androidx.room.Entity
-import androidx.room.PrimaryKey
-
-@Entity(tableName = "sessions")
 data class Session(
-    @PrimaryKey val id: String,
+    val id: String,
     val title: String,
     val draftText: String,
     val formattedText: String? = null,
-    val audioPath: String? = null,
-    val status: String = "DRAFT", // DRAFT, POLISHING, REFINED, OFFLINE_PENDING
+    val audioPath: String? = null,     // local file on this device (may not exist on others)
+    val storagePath: String? = null,   // canonical copy in Cloud Storage (users/{uid}/audio/…)
+    val status: String = "DRAFT",      // TRANSCRIBING, DONE, FAILED
     val createdAt: Long = System.currentTimeMillis(),
     val durationMs: Long = 0L,
     val category: String = "Memo",

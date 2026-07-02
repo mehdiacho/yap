@@ -20,6 +20,7 @@ data class TranscriptionResult(
     val category: String,
     val topicCluster: String,
     val formattedText: String,
+    val storagePath: String? = null, // where the audio landed in Cloud Storage (null if inline fallback)
 )
 
 /**
@@ -36,16 +37,23 @@ object TranscriptionClient {
         if (auth.currentUser == null) awaitTask(auth.signInAnonymously())
     }
 
+    /** Upload a recording to the user's Cloud Storage area; returns the storage path. */
+    suspend fun uploadAudio(file: File): String {
+        ensureSignedIn()
+        val uid = auth.currentUser!!.uid
+        val path = "users/$uid/audio/${file.name}"
+        awaitTask(FirebaseStorage.getInstance().reference.child(path).putFile(Uri.fromFile(file)))
+        return path
+    }
+
     suspend fun transcribe(file: File, mimeType: String = "audio/wav"): TranscriptionResult {
         ensureSignedIn()
         // Preferred: upload to Cloud Storage, pass the path (no inline size ceiling).
         // Fallback: inline base64 if the upload fails and the file is small enough.
+        var uploadedPath: String? = null
         val payload: HashMap<String, Any> = try {
-            val uid = auth.currentUser!!.uid
-            val path = "users/$uid/audio/${file.name}"
-            val ref = FirebaseStorage.getInstance().reference.child(path)
-            awaitTask(ref.putFile(Uri.fromFile(file)))
-            hashMapOf("storagePath" to path, "mimeType" to mimeType)
+            uploadedPath = uploadAudio(file)
+            hashMapOf("storagePath" to uploadedPath, "mimeType" to mimeType)
         } catch (e: Exception) {
             Log.w("Yap", "storage upload failed, falling back to inline: ${e.message}")
             val b64 = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
@@ -63,6 +71,7 @@ object TranscriptionClient {
             category = map["category"] as? String ?: "Memo",
             topicCluster = map["topicCluster"] as? String ?: "General",
             formattedText = map["formattedText"] as? String ?: "",
+            storagePath = uploadedPath,
         )
     }
 
