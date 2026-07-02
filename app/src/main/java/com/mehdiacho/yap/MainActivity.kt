@@ -31,6 +31,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.mehdiacho.yap.navigation.Routes
 import com.mehdiacho.yap.ui.MainViewModel
+import com.mehdiacho.yap.ui.screens.AuthScreen
 import com.mehdiacho.yap.ui.screens.CaptureScreen
 import com.mehdiacho.yap.ui.screens.LibraryScreen
 import com.mehdiacho.yap.ui.screens.SessionDetailScreen
@@ -197,7 +198,10 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                 }
             }
             composable(Routes.SETTINGS) {
-                SettingsScreen()
+                SettingsScreen(onSignInClick = { navController.navigate(Routes.AUTH) })
+            }
+            composable(Routes.AUTH) {
+                AuthScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.SESSION_DETAIL) { backStackEntry ->
                 val sessionId = backStackEntry.arguments?.getString("sessionId") ?: return@composable

@@ -12,8 +12,9 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,9 +23,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mehdiacho.yap.data.AuthManager
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(onSignInClick: () -> Unit = {}) {
+    val user by AuthManager.authState().collectAsState(initial = AuthManager.currentUser)
+    val signedIn = user != null && user?.isAnonymous == false
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -41,13 +45,14 @@ fun SettingsScreen() {
         
         Spacer(modifier = Modifier.height(24.dp))
         
-        // Profile
+        // Account
         Row(
             modifier = Modifier
                 .padding(horizontal = 18.dp)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(18.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable(enabled = !signedIn) { onSignInClick() }
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -58,14 +63,34 @@ fun SettingsScreen() {
                     .background(MaterialTheme.colorScheme.primary),
                 contentAlignment = Alignment.Center
             ) {
-                Text("G", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                val initial = when {
+                    signedIn -> (user?.displayName ?: user?.email ?: "U").first().uppercaseChar().toString()
+                    else -> "G"
+                }
+                Text(initial, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text("Guest User", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                Text("Local only · Upgrade to sync", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (signedIn) {
+                    Text(
+                        user?.displayName ?: user?.email ?: "Account",
+                        fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        user?.email ?: "Synced across devices",
+                        fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text("Guest", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Tap to sign in — keeps all your notes", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (signedIn) {
+                TextButton(onClick = { AuthManager.signOut() }) { Text("Sign out") }
+            } else {
+                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         
         Spacer(modifier = Modifier.height(24.dp))
