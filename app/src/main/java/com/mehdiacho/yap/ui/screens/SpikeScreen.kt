@@ -1,12 +1,21 @@
 package com.mehdiacho.yap.ui.screens
 
 import android.content.Intent
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import java.io.File
+import java.io.RandomAccessFile
+import kotlin.concurrent.thread
+import kotlin.math.log10
+import kotlin.math.sqrt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -93,6 +102,7 @@ fun SpikeScreen(onBack: () -> Unit) {
     val recState by RecordingBus.state.collectAsState()
 
     var running by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf("") } // "concurrent" or "fed"
     var onDeviceAvailable by remember { mutableStateOf<Boolean?>(null) }
     var recognizerStatus by remember { mutableStateOf("idle") }
     var partialCount by remember { mutableIntStateOf(0) }
@@ -101,6 +111,12 @@ fun SpikeScreen(onBack: () -> Unit) {
     var errors by remember { mutableStateOf(listOf<String>()) }
     var peakSinceStart by remember { mutableFloatStateOf(0f) }
     var recognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
+
+    // Test B (fed stream) state: our own single AudioRecord fanned out to WAV + recognizer pipe.
+    var fedRunning by remember { mutableStateOf(false) }
+    var fedAmp by remember { mutableFloatStateOf(0f) }
+    var fedBytes by remember { mutableLongStateOf(0L) }
+    var fedStop by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     LaunchedEffect(recState.amplitude, running) {
         if (running && recState.amplitude > peakSinceStart) peakSinceStart = recState.amplitude
@@ -165,13 +181,110 @@ fun SpikeScreen(onBack: () -> Unit) {
                     partialCount++; lastPartial = it
                 }
             }
+            override fun onSegmentResults(segmentResults: Bundle) {
+                val texts = segmentResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                Log.i(TAG, "onSegmentResults ${texts?.firstOrNull()}")
+                texts?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { finals = finals + it }
+            }
+            override fun onEndOfSegmentedSession() {
+                Log.i(TAG, "onEndOfSegmentedSession")
+                recognizerStatus = "segmented session ended"
+            }
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
         return r
     }
 
+    // ---- Test B: single AudioRecord fanned out to WAV file + recognizer pipe (API 33 blessed path)
+    fun startFed() {
+        if (Build.VERSION.SDK_INT < 33) {
+            recognizerStatus = "fed mode needs API 33+"; return
+        }
+        peakSinceStart = 0f; partialCount = 0; lastPartial = ""; finals = emptyList(); errors = emptyList()
+        fedAmp = 0f; fedBytes = 0L
+        mode = "fed"; fedRunning = true; running = true
+
+        val pipe = ParcelFileDescriptor.createPipe()
+        val readSide = pipe[0]; val writeSide = pipe[1]
+
+        val r = createRecognizer(); recognizer = r
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, readSide)
+            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, 16000)
+            putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
+        }
+        r.startListening(intent)
+        recognizerStatus = "fed: streaming"
+        Log.i(TAG, "fed mode: startListening with EXTRA_AUDIO_SOURCE pipe")
+
+        val stopFlag = java.util.concurrent.atomic.AtomicBoolean(false)
+        fedStop = { stopFlag.set(true) }
+        thread(name = "spike-fed-capture") {
+            val out = ParcelFileDescriptor.AutoCloseOutputStream(writeSide)
+            val wav = File(File(context.filesDir, "recordings").apply { mkdirs() }, "spike_fed.wav")
+            val raf = RandomAccessFile(wav, "rw"); raf.setLength(0); raf.write(ByteArray(44))
+            var dataBytes = 0L
+            val minBuf = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            val rec = try {
+                AudioRecord(MediaRecorder.AudioSource.MIC, 16000, AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, 2560))
+            } catch (e: SecurityException) {
+                Log.e(TAG, "fed: mic permission"); fedRunning = false; running = false; return@thread
+            }
+            if (rec.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e(TAG, "fed: AudioRecord init failed"); rec.release(); fedRunning = false; running = false; return@thread
+            }
+            val buf = ByteArray(640)
+            rec.startRecording()
+            try {
+                while (!stopFlag.get()) {
+                    val n = rec.read(buf, 0, buf.size)
+                    if (n <= 0) continue
+                    raf.write(buf, 0, n); dataBytes += n
+                    runCatching { out.write(buf, 0, n) }.onFailure {
+                        Log.w(TAG, "fed: pipe write failed (recognizer closed?): ${it.message}")
+                    }
+                    fedBytes = dataBytes
+                    // quick RMS->0..1
+                    var sum = 0.0; var c = 0; var i = 0
+                    while (i + 1 < n) { val s = (buf[i].toInt() and 0xff) or (buf[i+1].toInt() shl 8); sum += (s*s).toDouble(); c++; i += 2 }
+                    if (c > 0) {
+                        val db = 20.0 * log10(sqrt(sum / c) / 32768.0 + 1e-7)
+                        val a = ((db + 50) / 50.0).toFloat().coerceIn(0f, 1f)
+                        fedAmp = a; if (a > peakSinceStart) peakSinceStart = a
+                    }
+                }
+            } finally {
+                rec.stop(); rec.release()
+                runCatching { out.close() } // EOS -> recognizer finishes the segmented session
+                // finalize WAV header
+                val h = ByteArray(44)
+                fun ascii(o: Int, s: String) { for (k in s.indices) h[o + k] = s[k].code.toByte() }
+                fun i32(o: Int, v: Int) { h[o]=(v and 0xff).toByte(); h[o+1]=(v shr 8 and 0xff).toByte(); h[o+2]=(v shr 16 and 0xff).toByte(); h[o+3]=(v shr 24 and 0xff).toByte() }
+                fun i16(o: Int, v: Int) { h[o]=(v and 0xff).toByte(); h[o+1]=(v shr 8 and 0xff).toByte() }
+                ascii(0,"RIFF"); i32(4,(36+dataBytes).toInt()); ascii(8,"WAVE"); ascii(12,"fmt "); i32(16,16)
+                i16(20,1); i16(22,1); i32(24,16000); i32(28,32000); i16(32,2); i16(34,16); ascii(36,"data"); i32(40,dataBytes.toInt())
+                raf.seek(0); raf.write(h); raf.close()
+                Log.i(TAG, "fed capture ended: bytes=$dataBytes (~${dataBytes/32000}s) wav=${wav.length()}")
+                fedRunning = false
+            }
+        }
+    }
+
+    fun stopFed() {
+        fedStop?.invoke(); fedStop = null
+        running = false
+        recognizerStatus = "stream closed — waiting for final segments…"
+        // recognizer is destroyed on dispose or next start
+    }
+
     fun startSpike() {
         peakSinceStart = 0f; partialCount = 0; lastPartial = ""; finals = emptyList(); errors = emptyList()
+        mode = "concurrent"
         running = true
         RecordingController.start(context)                 // our recorder (foreground service)
         val r = createRecognizer(); recognizer = r
@@ -189,7 +302,12 @@ fun SpikeScreen(onBack: () -> Unit) {
         Log.i(TAG, "spike stopped: peakAmp=$peakSinceStart partials=$partialCount finals=${finals.size} errors=$errors")
     }
 
-    DisposableEffect(Unit) { onDispose { if (running) stopSpike() } }
+    DisposableEffect(Unit) {
+        onDispose {
+            if (running) { if (mode == "fed") stopFed() else stopSpike() }
+            recognizer?.let { runCatching { it.destroy() } }
+        }
+    }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(16.dp))
@@ -205,10 +323,20 @@ fun SpikeScreen(onBack: () -> Unit) {
         )
         Spacer(Modifier.height(16.dp))
 
-        Button(
-            onClick = { if (running) stopSpike() else startSpike() },
-            modifier = Modifier.fillMaxWidth().height(52.dp)
-        ) { Text(if (running) "Stop spike" else "Start spike") }
+        if (!running) {
+            Button(onClick = { startSpike() }, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                Text("Test A — concurrent (recorder + recognizer)")
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = { startFed() }, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                Text("Test B — fed stream (blessed, API 33)")
+            }
+        } else {
+            Button(
+                onClick = { if (mode == "fed") stopFed() else stopSpike() },
+                modifier = Modifier.fillMaxWidth().height(52.dp)
+            ) { Text("Stop test ${if (mode == "fed") "B" else "A"}") }
+        }
 
         Spacer(Modifier.height(14.dp))
 
@@ -237,7 +365,16 @@ fun SpikeScreen(onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(4.dp))
-        StatCard("Recorder (ours)", buildString {
+        if (mode == "fed") {
+            StatCard("Fan-out capture (Test B)", buildString {
+                append("capturing: $fedRunning\n")
+                append("bytes: $fedBytes (~${fedBytes / 32000}s of audio)\n")
+                append("live amplitude: %.2f  ·  peak: %.2f".format(fedAmp, peakSinceStart))
+                if (fedRunning && peakSinceStart < 0.05f && fedBytes > 64000)
+                    append("\n⚠ our AudioRecord appears SILENCED")
+            })
+        }
+        if (mode != "fed") StatCard("Recorder (ours)", buildString {
             append("status: ${recState.status}")
             append("  ·  elapsed: ${recState.elapsedMs / 1000}s\n")
             append("live amplitude: %.2f".format(recState.amplitude))
