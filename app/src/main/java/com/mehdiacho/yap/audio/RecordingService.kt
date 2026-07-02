@@ -32,6 +32,7 @@ class RecordingService : Service() {
     const val ACTION_PAUSE = "com.mehdiacho.yap.RECORD_PAUSE"
     const val ACTION_RESUME = "com.mehdiacho.yap.RECORD_RESUME"
     const val ACTION_STOP = "com.mehdiacho.yap.RECORD_STOP"
+    const val ACTION_DISCARD = "com.mehdiacho.yap.RECORD_DISCARD"
 
     private const val CHANNEL_ID = "yap_recording"
     private const val NOTIF_ID = 1001
@@ -42,6 +43,7 @@ class RecordingService : Service() {
   }
 
   @Volatile private var status = RecorderStatus.IDLE
+  @Volatile private var discardRequested = false
   private var worker: Thread? = null
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -52,6 +54,7 @@ class RecordingService : Service() {
       ACTION_PAUSE -> if (status == RecorderStatus.RECORDING) { status = RecorderStatus.PAUSED; pushState(0f); refreshNotification() }
       ACTION_RESUME -> if (status == RecorderStatus.PAUSED) { status = RecorderStatus.RECORDING; pushState(0f); refreshNotification() }
       ACTION_STOP -> status = RecorderStatus.IDLE
+      ACTION_DISCARD -> { discardRequested = true; status = RecorderStatus.IDLE }
     }
     return START_STICKY
   }
@@ -60,6 +63,7 @@ class RecordingService : Service() {
     if (worker != null) return
     createChannel()
     startForegroundCompat()
+    discardRequested = false
     status = RecorderStatus.RECORDING
     RecordingBus.update(RecorderUiState(RecorderStatus.RECORDING, 0L, 0f))
 
@@ -102,10 +106,18 @@ class RecordingService : Service() {
         }
       } finally {
         recorder.stop(); recorder.release()
-        writeWavHeader(raf, dataBytes); raf.close()
-        val durationMs = dataBytes * 1000 / BYTE_RATE
-        RecordingBus.update(RecorderUiState())
-        RecordingBus.emit(RecorderEvent.Finished(file.absolutePath, durationMs))
+        if (discardRequested) {
+          raf.close()
+          file.delete() // never saved
+          discardRequested = false
+          RecordingBus.update(RecorderUiState())
+          RecordingBus.emit(RecorderEvent.Discarded)
+        } else {
+          writeWavHeader(raf, dataBytes); raf.close()
+          val durationMs = dataBytes * 1000 / BYTE_RATE
+          RecordingBus.update(RecorderUiState())
+          RecordingBus.emit(RecorderEvent.Finished(file.absolutePath, durationMs))
+        }
         cleanup()
       }
     }

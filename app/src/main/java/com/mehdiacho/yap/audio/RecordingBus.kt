@@ -22,6 +22,7 @@ data class RecorderUiState(
 sealed interface RecorderEvent {
   data class Finished(val filePath: String, val durationMs: Long) : RecorderEvent
   data class Failed(val reason: String) : RecorderEvent
+  data object Discarded : RecorderEvent
 }
 
 /** Process-wide bridge between the recording service and the UI/ViewModel. */
@@ -43,6 +44,7 @@ object RecordingController {
   fun pause(context: Context) = send(context, RecordingService.ACTION_PAUSE)
   fun resume(context: Context) = send(context, RecordingService.ACTION_RESUME)
   fun stop(context: Context) = send(context, RecordingService.ACTION_STOP)
+  fun discard(context: Context) = send(context, RecordingService.ACTION_DISCARD)
 
   private fun send(context: Context, action: String, foreground: Boolean = false) {
     val intent = Intent(context, RecordingService::class.java).setAction(action)

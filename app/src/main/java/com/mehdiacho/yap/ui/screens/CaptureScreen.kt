@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -100,6 +101,10 @@ fun CaptureScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean>? = 
                     else RecordingController.pause(context)
                 },
                 onStop = { RecordingController.stop(context) },
+                onDiscard = {
+                    RecordingController.discard(context)
+                    Toast.makeText(context, "Recording discarded", Toast.LENGTH_SHORT).show()
+                },
             )
         }
     }
@@ -131,6 +136,7 @@ private fun RecordingContent(
     bars: SnapshotStateList<Float>,
     onPauseResume: () -> Unit,
     onStop: () -> Unit,
+    onDiscard: () -> Unit,
 ) {
     val recording = YapTheme.extended.recording
     val idle = MaterialTheme.colorScheme.outlineVariant
@@ -178,6 +184,26 @@ private fun RecordingContent(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Discard: throw away the recording, nothing is saved.
+            Box(
+                modifier = Modifier.size(58.dp).clip(CircleShape)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                    .clickable { onDiscard() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Delete, contentDescription = "Discard recording",
+                    tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(26.dp),
+                )
+            }
+            Spacer(Modifier.width(30.dp))
+            Box(
+                modifier = Modifier.size(96.dp).clip(CircleShape).background(recording).clickable { onStop() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Stop, "Stop & save", tint = Color.White, modifier = Modifier.size(40.dp))
+            }
+            Spacer(Modifier.width(30.dp))
             Box(
                 modifier = Modifier.size(58.dp).clip(CircleShape)
                     .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
@@ -189,13 +215,6 @@ private fun RecordingContent(
                     contentDescription = if (paused) "Resume" else "Pause",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp),
                 )
-            }
-            Spacer(Modifier.width(36.dp))
-            Box(
-                modifier = Modifier.size(96.dp).clip(CircleShape).background(recording).clickable { onStop() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Default.Stop, "Stop & save", tint = Color.White, modifier = Modifier.size(40.dp))
             }
         }
     }
