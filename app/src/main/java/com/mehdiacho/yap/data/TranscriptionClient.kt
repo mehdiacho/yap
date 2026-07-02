@@ -28,7 +28,8 @@ data class TranscriptionResult(
  * Uses anonymous auth so the function's auth check passes (seed of the real auth system).
  */
 object TranscriptionClient {
-    private val functions by lazy { FirebaseFunctions.getInstance() }
+    // Region must match the deployed function (africa-south1, close to home).
+    private val functions by lazy { FirebaseFunctions.getInstance("africa-south1") }
     private val auth by lazy { FirebaseAuth.getInstance() }
 
     suspend fun ensureSignedIn() {

@@ -19,7 +19,7 @@ const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
  * attestation + per-user quota enforcement are layered in later.
  */
 export const transcribeSession = onCall(
-  { secrets: [GEMINI_API_KEY], timeoutSeconds: 300, memory: "512MiB" },
+  { region: "africa-south1", secrets: [GEMINI_API_KEY], timeoutSeconds: 300, memory: "512MiB" },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Sign-in required.");
