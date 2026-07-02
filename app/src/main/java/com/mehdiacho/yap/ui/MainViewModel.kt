@@ -138,10 +138,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun startTranscription(audioPath: String, durationMs: Long, mimeType: String) {
-        val session = Session(
+        // Live draft from the fed-stream recognizer (recordings only; empty for imports).
+        val isOwnRecording = mimeType == "audio/wav"
+        var session = Session(
             id = UUID.randomUUID().toString(),
             title = "Transcribing…",
-            draftText = "",
+            draftText = if (isOwnRecording) com.mehdiacho.yap.audio.LiveDraftEngine.currentDraft() else "",
             audioPath = audioPath,
             durationMs = durationMs,
             status = "TRANSCRIBING"
@@ -152,7 +154,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Log.e("Yap", "failed to save session: ${e.message}", e)
             return
         }
-        _pendingOpen.value = session.id // open the note immediately (shows "Transcribing…")
+        _pendingOpen.value = session.id // open the note immediately (draft visible right away)
+
+        if (isOwnRecording) {
+            // Final draft segments flush a moment after the stream closes — pick them up.
+            kotlinx.coroutines.delay(2500)
+            val finalDraft = com.mehdiacho.yap.audio.LiveDraftEngine.consumeDraft()
+            if (finalDraft.length > session.draftText.length) {
+                session = session.copy(draftText = finalDraft)
+                runCatching { repository.upsert(session) }
+            }
+        }
 
         try {
             val r = TranscriptionClient.transcribe(File(audioPath), mimeType, durationMs)

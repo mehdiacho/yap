@@ -271,10 +271,23 @@ fun SessionDetailScreen(
                     }
                 }
                 currentSession.status == "TRANSCRIBING" -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(10.dp))
-                        Text("Transcribing…", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                if (currentSession.draftText.isBlank()) "Transcribing…" else "Polishing draft…",
+                                fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (currentSession.draftText.isNotBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                currentSession.draftText,
+                                fontSize = 15.sp, lineHeight = 24.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
                 content.isBlank() -> {
