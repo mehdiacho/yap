@@ -36,6 +36,7 @@ import com.mehdiacho.yap.ui.screens.CaptureScreen
 import com.mehdiacho.yap.ui.screens.LibraryScreen
 import com.mehdiacho.yap.ui.screens.SessionDetailScreen
 import com.mehdiacho.yap.ui.screens.SettingsScreen
+import com.mehdiacho.yap.ui.screens.SpikeScreen
 import com.mehdiacho.yap.ui.screens.SubscriptionScreen
 import com.mehdiacho.yap.ui.theme.YapTheme
 
@@ -191,7 +192,11 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Routes.CAPTURE) {
-                CaptureScreen(viewModel = viewModel, autoStart = autoStart)
+                CaptureScreen(
+                    viewModel = viewModel,
+                    autoStart = autoStart,
+                    onOpenSpike = { navController.navigate(Routes.SPIKE) },
+                )
             }
             composable(Routes.LIBRARY) {
                 LibraryScreen(viewModel = viewModel) { sessionId ->
@@ -209,6 +214,9 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
             }
             composable(Routes.SUBSCRIPTION) {
                 SubscriptionScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.SPIKE) {
+                SpikeScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.SESSION_DETAIL) { backStackEntry ->
                 val sessionId = backStackEntry.arguments?.getString("sessionId") ?: return@composable

@@ -46,7 +46,11 @@ private const val WAVE_STEP_MS = 70L // ~14 bars/sec — calm scroll
 private const val WAVE_MIN = 0.05f
 
 @Composable
-fun CaptureScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean>? = null) {
+fun CaptureScreen(
+    viewModel: MainViewModel,
+    autoStart: MutableState<Boolean>? = null,
+    onOpenSpike: (() -> Unit)? = null, // temporary: feasibility spike entry
+) {
     val context = LocalContext.current
     val state by RecordingBus.state.collectAsState()
 
@@ -90,7 +94,7 @@ fun CaptureScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean>? = 
 
     Box(Modifier.fillMaxSize()) {
         if (state.status == RecorderStatus.IDLE) {
-            IdleContent(onRecord = ::requestAndStart)
+            IdleContent(onRecord = ::requestAndStart, onOpenSpike = onOpenSpike)
         } else {
             RecordingContent(
                 paused = state.status == RecorderStatus.PAUSED,
@@ -111,7 +115,7 @@ fun CaptureScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean>? = 
 }
 
 @Composable
-private fun IdleContent(onRecord: () -> Unit) {
+private fun IdleContent(onRecord: () -> Unit, onOpenSpike: (() -> Unit)? = null) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -126,6 +130,15 @@ private fun IdleContent(onRecord: () -> Unit) {
         }
         Spacer(Modifier.height(20.dp))
         Text("Tap to record", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onBackground)
+        if (onOpenSpike != null) {
+            Spacer(Modifier.height(28.dp))
+            Text(
+                "⚗ live-draft spike (dev)",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.clickable { onOpenSpike() },
+            )
+        }
     }
 }
 
