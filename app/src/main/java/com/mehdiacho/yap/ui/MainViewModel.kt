@@ -155,7 +155,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _pendingOpen.value = session.id // open the note immediately (shows "Transcribing…")
 
         try {
-            val r = TranscriptionClient.transcribe(File(audioPath), mimeType)
+            val r = TranscriptionClient.transcribe(File(audioPath), mimeType, durationMs)
             repository.upsert(
                 session.copy(
                     title = r.name.ifBlank { "Recording" },

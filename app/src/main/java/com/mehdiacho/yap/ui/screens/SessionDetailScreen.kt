@@ -151,33 +151,59 @@ fun SessionDetailScreen(
             }
         }
 
-        // Real audio player
-        AudioPlayerBar(audioPath = currentSession.audioPath, fallbackDurationMs = currentSession.durationMs)
+        // Real audio player (local file, or streamed from Cloud Storage on other devices)
+        AudioPlayerBar(
+            audioPath = currentSession.audioPath,
+            storagePath = currentSession.storagePath,
+            fallbackDurationMs = currentSession.durationMs
+        )
     }
 }
 
 @Composable
-private fun AudioPlayerBar(audioPath: String?, fallbackDurationMs: Long) {
-    val available = audioPath != null && File(audioPath).exists()
+private fun AudioPlayerBar(audioPath: String?, storagePath: String?, fallbackDurationMs: Long) {
     val player = remember { MediaPlayer() }
+    var available by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableIntStateOf(0) }
     var durationMs by remember { mutableIntStateOf(fallbackDurationMs.toInt()) }
     var seeking by remember { mutableStateOf(false) }
     var seekPos by remember { mutableFloatStateOf(0f) }
 
-    DisposableEffect(audioPath) {
-        if (available) {
-            runCatching {
-                player.reset()
-                player.setDataSource(audioPath)
-                player.prepare()
-                durationMs = player.duration
-                player.setOnCompletionListener {
-                    isPlaying = false; positionMs = 0; player.seekTo(0)
+    // Source: local file when it exists; otherwise stream from Cloud Storage.
+    LaunchedEffect(audioPath, storagePath) {
+        val localOk = audioPath != null && File(audioPath).exists()
+        val source: String? = when {
+            localOk -> audioPath
+            storagePath != null -> runCatching {
+                com.google.firebase.storage.FirebaseStorage.getInstance()
+                    .reference.child(storagePath).downloadUrl
+                    .let { task ->
+                        kotlinx.coroutines.suspendCancellableCoroutine<android.net.Uri> { cont ->
+                            task.addOnSuccessListener { cont.resume(it) {} }
+                                .addOnFailureListener { cont.cancel(it) }
+                        }
+                    }.toString()
+            }.getOrNull()
+            else -> null
+        }
+        if (source != null) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    player.reset()
+                    player.setDataSource(source)
+                    player.prepare() // may hit the network; keep off the main thread
+                    durationMs = player.duration
+                    player.setOnCompletionListener {
+                        isPlaying = false; positionMs = 0; player.seekTo(0)
+                    }
+                    available = true
                 }
             }
         }
+    }
+
+    DisposableEffect(Unit) {
         onDispose { runCatching { player.release() } }
     }
 

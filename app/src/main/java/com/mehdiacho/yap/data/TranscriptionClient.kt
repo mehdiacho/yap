@@ -46,18 +46,22 @@ object TranscriptionClient {
         return path
     }
 
-    suspend fun transcribe(file: File, mimeType: String = "audio/wav"): TranscriptionResult {
+    suspend fun transcribe(
+        file: File,
+        mimeType: String = "audio/wav",
+        durationMs: Long = 0L,
+    ): TranscriptionResult {
         ensureSignedIn()
         // Preferred: upload to Cloud Storage, pass the path (no inline size ceiling).
         // Fallback: inline base64 if the upload fails and the file is small enough.
         var uploadedPath: String? = null
         val payload: HashMap<String, Any> = try {
             uploadedPath = uploadAudio(file)
-            hashMapOf("storagePath" to uploadedPath, "mimeType" to mimeType)
+            hashMapOf("storagePath" to uploadedPath, "mimeType" to mimeType, "durationMs" to durationMs)
         } catch (e: Exception) {
             Log.w("Yap", "storage upload failed, falling back to inline: ${e.message}")
             val b64 = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
-            hashMapOf("audioBase64" to b64, "mimeType" to mimeType)
+            hashMapOf("audioBase64" to b64, "mimeType" to mimeType, "durationMs" to durationMs)
         }
         val result = awaitTask(functions.getHttpsCallable("transcribeSession").call(payload))
 

@@ -8,6 +8,31 @@ admin.initializeApp();
 // Set with: firebase functions:secrets:set GEMINI_API_KEY
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 
+// Dev-phase cap; align with subscription tiers when billing lands.
+const MONTHLY_SECONDS_CAP = 3600 * 2; // 2 hours of cloud transcription / month / user
+
+/**
+ * Atomically checks and records usage in usage/{uid} (top-level collection — no
+ * client-facing security rule matches it, so users cannot reset their own meter).
+ */
+async function checkAndRecordUsage(uid: string, seconds: number): Promise<void> {
+  const ref = admin.firestore().collection("usage").doc(uid);
+  const now = new Date();
+  const cycle = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  await admin.firestore().runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    const sameCycle = snap.exists && snap.get("cycle") === cycle;
+    const used = sameCycle ? (snap.get("secondsUsed") ?? 0) : 0;
+    if (used + seconds > MONTHLY_SECONDS_CAP) {
+      throw new HttpsError(
+        "resource-exhausted",
+        `Monthly transcription limit reached (${Math.round(MONTHLY_SECONDS_CAP / 60)} min).`
+      );
+    }
+    t.set(ref, { cycle, secondsUsed: used + seconds, updatedAt: Date.now() });
+  });
+}
+
 /**
  * transcribeSession — the app uploads a recording to Storage, then calls this with
  * its path. We download the audio, run the Gemini pipeline, and return the note.
@@ -44,7 +69,19 @@ export const transcribeSession = onCall(
       throw new HttpsError("invalid-argument", "Provide storagePath or audioBase64.");
     }
 
-    console.log(`transcribeSession: mimeType=${mimeType} bytes=${audio.length}`);
+    // Duration for quota, computed server-side where possible (client claim can't lower it):
+    // WAV (16kHz mono 16-bit) is exact from byte count; for compressed formats take the
+    // larger of the client claim and a conservative size floor. Capped at 3h.
+    const claimedSec = (typeof data.durationMs === "number" ? data.durationMs : 0) / 1000;
+    const wavExactSec = audio.length / 32000;
+    const seconds =
+      mimeType === "audio/wav"
+        ? wavExactSec
+        : Math.max(claimedSec, audio.length / 32000);
+    const quotaSec = Math.ceil(Math.max(1, Math.min(seconds, 3 * 3600)));
+    await checkAndRecordUsage(request.auth.uid, quotaSec);
+
+    console.log(`transcribeSession: mimeType=${mimeType} bytes=${audio.length} sec=${quotaSec}`);
     try {
       return await transcribeAndFormalize(audio, mimeType, GEMINI_API_KEY.value());
     } catch (e: any) {
