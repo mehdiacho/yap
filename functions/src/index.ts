@@ -42,9 +42,16 @@ export const transcribeSession = onCall(
       throw new HttpsError("invalid-argument", "Provide storagePath or audioBase64.");
     }
 
+    console.log(`transcribeSession: mimeType=${mimeType} bytes=${audio.length}`);
     try {
       return await transcribeAndFormalize(audio, mimeType, GEMINI_API_KEY.value());
     } catch (e: any) {
+      console.error("transcribeSession failed", {
+        mimeType,
+        bytes: audio.length,
+        message: e?.message,
+        stack: e?.stack,
+      });
       throw new HttpsError("internal", `Transcription failed: ${e?.message ?? "unknown"}`);
     }
   }

@@ -11,11 +11,11 @@ import com.mehdiacho.yap.data.AppDatabase
 import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.data.SessionRepository
 import com.mehdiacho.yap.data.TranscriptionClient
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
+import android.util.Log
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -26,9 +26,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: SessionRepository
     val allSessions: StateFlow<List<Session>>
 
-    // Emits a session id to open right after a recording is captured (post-capture flow).
-    private val _navigateToSession = MutableSharedFlow<String>(extraBufferCapacity = 4)
-    val navigateToSession: SharedFlow<String> = _navigateToSession.asSharedFlow()
+    // Session id to open next (post-capture / share import). StateFlow so a cold-start
+    // share doesn't lose the event before the UI subscribes; consumed by the UI.
+    private val _pendingOpen = MutableStateFlow<String?>(null)
+    val pendingOpen: StateFlow<String?> = _pendingOpen.asStateFlow()
+    fun consumePendingOpen() { _pendingOpen.value = null }
 
     init {
         val sessionDao = AppDatabase.getDatabase(application).sessionDao()
@@ -89,7 +91,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 status = "DONE"
             )
             repository.insertSession(session)
-            _navigateToSession.tryEmit(session.id)
+            _pendingOpen.value = session.id
         }
     }
 
@@ -103,7 +105,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             status = "TRANSCRIBING"
         )
         repository.insertSession(session)
-        _navigateToSession.tryEmit(session.id) // open the note immediately (shows "Transcribing…")
+        _pendingOpen.value = session.id // open the note immediately (shows "Transcribing…")
 
         try {
             val r = TranscriptionClient.transcribe(File(audioPath), mimeType)
@@ -118,6 +120,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
         } catch (e: Exception) {
+            Log.e("Yap", "transcription failed for $audioPath ($mimeType): ${e.message}", e)
             repository.updateSession(session.copy(title = "Recording", status = "FAILED"))
         }
     }

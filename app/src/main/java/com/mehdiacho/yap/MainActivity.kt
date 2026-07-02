@@ -69,10 +69,10 @@ class MainActivity : ComponentActivity() {
                 val uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
                 if (uri != null) viewModel.importSharedAudio(uri, type)
             }
-            type == "text/plain" -> {
-                intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }?.let {
-                    viewModel.importSharedText(it)
-                }
+            type.startsWith("text/") -> {
+                val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+                    ?: intent.clipData?.getItemAt(0)?.coerceToText(this)?.toString()
+                text?.takeIf { it.isNotBlank() }?.let { viewModel.importSharedText(it) }
             }
         }
     }
@@ -88,10 +88,13 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // Post-capture: open the freshly captured note (shows the "Transcribing…" state).
-    LaunchedEffect(Unit) {
-        viewModel.navigateToSession.collect { sessionId ->
+    // Post-capture / share: open the freshly captured note (shows the "Transcribing…" state).
+    // StateFlow-based so a cold-start share isn't missed before this subscribes.
+    val pendingOpen by viewModel.pendingOpen.collectAsState()
+    LaunchedEffect(pendingOpen) {
+        pendingOpen?.let { sessionId ->
             navController.navigate(Routes.createSessionDetailRoute(sessionId))
+            viewModel.consumePendingOpen()
         }
     }
 
