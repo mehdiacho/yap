@@ -34,6 +34,20 @@ Not bugs — conscious "later" decisions so they don't get lost.
   3-state card icons (offline-pin / cloud-done cached / cloud online-only) + Settings → Storage →
   Clear downloads (never touches available-offline originals).*
 
+## Cross-platform strategy (decided direction: Compose Multiplatform, not Flutter)
+- Goal: phone + desktop + browser eventually. Design-kit fidelity is NOT a differentiator
+  between Flutter and Compose — both are canvas-based declarative UI; our kit is fully
+  achievable in Compose (proven: waveform, theming).
+- **Kotlin's own answer is Compose Multiplatform (KMP/CMP):** the same Compose UI now targets
+  iOS (stable) and desktop (stable), web improving. Migration is INCREMENTAL from our current
+  code: extract data layer into a KMP module, keep Compose UI, wrap Android-only pieces
+  (AudioRecord/foreground service/QS tile/widgets/share target) in expect/actual. Those native
+  entry points would need platform-specific code under Flutter too (platform channels), so
+  Flutter doesn't avoid that work — it just adds a full rewrite (new language + framework).
+- Practical order when multi-platform demand is real: (1) thin web companion on the existing
+  Firebase backend (backend is already platform-agnostic — that's the real moat),
+  (2) CMP for iOS/desktop.
+
 ## Pre-launch checklist
 - **Enable App Check (Play Integrity)** on `transcribeSession` BEFORE distributing any build:
   client attests first (debug provider + registered token for dev builds), verify accepted-token
