@@ -63,18 +63,44 @@ class MainActivity : ComponentActivity() {
     /** Handle audio/video/text shared into Yap from another app. */
     private fun handleShare(intent: Intent) {
         if (intent.action != Intent.ACTION_SEND) return
-        val type = intent.type ?: return
+        val declared = intent.type ?: "*/*"
+        val stream = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+            ?: intent.clipData?.getItemAt(0)?.uri
+
+        // Many apps (e.g. the system recorder) share audio with a generic */* or
+        // application/octet-stream type, so resolve the concrete MIME from the file itself.
+        val mime = when {
+            declared.startsWith("audio/") || declared.startsWith("video/") || declared.startsWith("text/") -> declared
+            stream != null -> contentResolver.getType(stream) ?: guessMimeFromUri(stream) ?: declared
+            else -> declared
+        }
+        android.util.Log.d("YapShare", "declared=$declared resolved=$mime stream=$stream")
+
         when {
-            type.startsWith("audio/") || type.startsWith("video/") -> {
-                val uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-                if (uri != null) viewModel.importSharedAudio(uri, type)
-            }
-            type.startsWith("text/") -> {
+            (mime.startsWith("audio/") || mime.startsWith("video/")) && stream != null ->
+                viewModel.importSharedAudio(stream, mime)
+            mime.startsWith("text/") -> {
                 val text = intent.getStringExtra(Intent.EXTRA_TEXT)
                     ?: intent.clipData?.getItemAt(0)?.coerceToText(this)?.toString()
                 text?.takeIf { it.isNotBlank() }?.let { viewModel.importSharedText(it) }
             }
+            stream != null -> {
+                // Generic type but we have a file — fall back to an extension guess.
+                val guessed = guessMimeFromUri(stream)
+                if (guessed != null && (guessed.startsWith("audio/") || guessed.startsWith("video/"))) {
+                    viewModel.importSharedAudio(stream, guessed)
+                } else {
+                    android.util.Log.w("YapShare", "unhandled share: mime=$mime stream=$stream")
+                }
+            }
         }
+    }
+
+    private fun guessMimeFromUri(uri: Uri): String? {
+        val ext = android.webkit.MimeTypeMap.getFileExtensionFromUrl(uri.toString()).lowercase()
+        return if (ext.isNotEmpty())
+            android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+        else null
     }
 
     companion object {

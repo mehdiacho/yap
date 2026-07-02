@@ -63,9 +63,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val ext = mimeType.substringAfter('/', "bin").take(5)
                 val dir = File(ctx.filesDir, "recordings").apply { mkdirs() }
                 val file = File(dir, "shared_${System.currentTimeMillis()}.$ext")
-                ctx.contentResolver.openInputStream(uri)?.use { input ->
-                    file.outputStream().use { input.copyTo(it) }
-                } ?: return@launch
+                val input = ctx.contentResolver.openInputStream(uri)
+                if (input == null) {
+                    Log.w("YapShare", "openInputStream null for $uri")
+                    return@launch
+                }
+                input.use { it.copyTo(file.outputStream()) }
+                Log.d("YapShare", "copied ${file.length()} bytes from $uri ($mimeType)")
                 val durationMs = runCatching {
                     val mmr = MediaMetadataRetriever()
                     mmr.setDataSource(ctx, uri)
