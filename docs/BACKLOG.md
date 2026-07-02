@@ -10,6 +10,10 @@ Not bugs — conscious "later" decisions so they don't get lost.
   Default TBD. — *requested 2026-07-01.*
 - **Notification media-style controls.** Real icon Pause/Stop buttons (MediaStyle / MediaSession)
   like a music player, instead of text actions.
+- **Background share-transcription (optional).** Setting: when audio is shared into Yap, don't
+  open the app — receive + transcribe silently in the background with a "received, transcribing…"
+  notification (prompting for any needed permission). Lets you keep scrolling in the source app.
+  — *requested 2026-07-02.*
 
 ## Architecture hardening (interim shortcuts currently in place)
 - **Audio transport:** currently sent inline (base64) to the function. Move to Firebase Storage

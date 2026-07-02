@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Yap</string>
+    <string name="widget_record_label">Record</string>
+    <string name="widget_record_description">One tap to capture an idea</string>
+    <string name="shortcut_record_short">New recording</string>
+    <string name="shortcut_record_long">Start a new recording</string>
 </resources>

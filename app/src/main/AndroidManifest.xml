@@ -34,7 +34,23 @@
                 <data android:mimeType="video/*" />
                 <data android:mimeType="text/*" />
             </intent-filter>
+
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <receiver
+            android:name=".widget.RecordWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_record_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_record_info" />
+        </receiver>
 
         <service
             android:name=".audio.RecordingService"
