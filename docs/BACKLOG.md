@@ -28,6 +28,8 @@ Not bugs — conscious "later" decisions so they don't get lost.
     Settings → Clear downloads). Future: auto-evict cached copies after a lengthy idle window,
     where any access resets the clock; pinned (available-offline) notes are never evicted.
   - **Legend/key** somewhere discoverable explaining the OneDrive-style icons.
+  - **Smartphone icon is reserved** for the future "local only / never upload" state
+    (offline-pin covers device-born/pinned; cloud-done covers cached downloads).
   *Shipped so far: persistent download cache (OneDrive model) + tap-to-download player +
   3-state card icons (offline-pin / cloud-done cached / cloud online-only) + Settings → Storage →
   Clear downloads (never touches available-offline originals).*

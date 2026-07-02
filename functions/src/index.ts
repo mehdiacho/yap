@@ -5,17 +5,24 @@ import { transcribeAndFormalize } from "./gemini";
 
 admin.initializeApp();
 
+export {
+  getAccountStatus,
+  redeemPromo,
+  adminSearchUser,
+  adminSetEntitlement,
+  adminCreatePromo,
+  adminListPromos,
+} from "./accounts";
+import { getEntitlement, capForPlan } from "./accounts";
+
 // Set with: firebase functions:secrets:set GEMINI_API_KEY
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 
-// Dev-phase cap; align with subscription tiers when billing lands.
-const MONTHLY_SECONDS_CAP = 3600 * 2; // 2 hours of cloud transcription / month / user
-
 /**
- * Atomically checks and records usage in usage/{uid} (top-level collection — no
- * client-facing security rule matches it, so users cannot reset their own meter).
+ * Atomically checks and records usage in usage/{uid} (clients can read theirs but never
+ * write it). The cap comes from the caller's entitlement (plan tier).
  */
-async function checkAndRecordUsage(uid: string, seconds: number): Promise<void> {
+async function checkAndRecordUsage(uid: string, seconds: number, capSeconds: number): Promise<void> {
   const ref = admin.firestore().collection("usage").doc(uid);
   const now = new Date();
   const cycle = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -23,10 +30,10 @@ async function checkAndRecordUsage(uid: string, seconds: number): Promise<void> 
     const snap = await t.get(ref);
     const sameCycle = snap.exists && snap.get("cycle") === cycle;
     const used = sameCycle ? (snap.get("secondsUsed") ?? 0) : 0;
-    if (used + seconds > MONTHLY_SECONDS_CAP) {
+    if (used + seconds > capSeconds) {
       throw new HttpsError(
         "resource-exhausted",
-        `Monthly transcription limit reached (${Math.round(MONTHLY_SECONDS_CAP / 60)} min).`
+        `Monthly transcription limit reached (${Math.round(capSeconds / 60)} min on your plan).`
       );
     }
     t.set(ref, { cycle, secondsUsed: used + seconds, updatedAt: Date.now() });
@@ -79,7 +86,8 @@ export const transcribeSession = onCall(
         ? wavExactSec
         : Math.max(claimedSec, audio.length / 32000);
     const quotaSec = Math.ceil(Math.max(1, Math.min(seconds, 3 * 3600)));
-    await checkAndRecordUsage(request.auth.uid, quotaSec);
+    const entitlement = await getEntitlement(request.auth.uid);
+    await checkAndRecordUsage(request.auth.uid, quotaSec, capForPlan(entitlement.plan));
 
     console.log(`transcribeSession: mimeType=${mimeType} bytes=${audio.length} sec=${quotaSec}`);
     try {
