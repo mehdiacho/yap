@@ -24,7 +24,19 @@ Not bugs — conscious "later" decisions so they don't get lost.
     unused for N days get evicted locally (stay in cloud) IF the note is set online-only.
   - Optional per-note "never upload" mark for sensitive recordings.
   - Keep Settings small: prefer sensible defaults over toggles.
-  *Shipped so far: tap-to-download player (no auto-stream) + offline/online-only card indicator.*
+  - **Time+activity eviction (later):** downloads persist indefinitely for now (cleared only via
+    Settings → Clear downloads). Future: auto-evict cached copies after a lengthy idle window,
+    where any access resets the clock; pinned (available-offline) notes are never evicted.
+  - **Legend/key** somewhere discoverable explaining the OneDrive-style icons.
+  *Shipped so far: persistent download cache (OneDrive model) + tap-to-download player +
+  3-state card icons (offline-pin / cloud-done cached / cloud online-only) + Settings → Storage →
+  Clear downloads (never touches available-offline originals).*
+
+## Pre-launch checklist
+- **Enable App Check (Play Integrity)** on `transcribeSession` BEFORE distributing any build:
+  client attests first (debug provider + registered token for dev builds), verify accepted-token
+  logs, then flip `enforceAppCheck: true`. Until then the function is callable by anyone who
+  extracts the Firebase config from an APK (quotas cap per-user damage only).
 
 ## Architecture hardening (interim shortcuts currently in place)
 - **Audio transport:** currently sent inline (base64) to the function. Move to Firebase Storage

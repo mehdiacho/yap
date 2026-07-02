@@ -171,28 +171,27 @@ private fun AudioPlayerBar(audioPath: String?, storagePath: String?, fallbackDur
     var seeking by remember { mutableStateOf(false) }
     var seekPos by remember { mutableFloatStateOf(0f) }
 
-    // Local audio prepares automatically. Cloud-only audio is NOT auto-fetched — the
-    // user taps the cloud button to load it (saves data/space when just reading).
+    // Local audio (original or cached download) prepares automatically. Cloud-only audio
+    // is NOT auto-fetched — the user taps the cloud button; the download then PERSISTS in
+    // the cache (OneDrive model) so reopening the note doesn't re-download.
+    val context = androidx.compose.ui.platform.LocalContext.current
     val localOk = remember(audioPath) { audioPath != null && File(audioPath).exists() }
-    val remoteAvailable = !localOk && storagePath != null
+    val cachedOk = remember(storagePath) { com.mehdiacho.yap.data.AudioCache.isCached(context, storagePath) }
+    val remoteAvailable = !localOk && !cachedOk && storagePath != null
     var remoteRequested by remember(storagePath) { mutableStateOf(false) }
     var loadingRemote by remember { mutableStateOf(false) }
 
     LaunchedEffect(audioPath, storagePath, remoteRequested) {
         val source: String? = when {
             localOk -> audioPath
+            cachedOk -> com.mehdiacho.yap.data.AudioCache.fileFor(context, storagePath!!).absolutePath
             remoteRequested && storagePath != null -> {
                 loadingRemote = true
-                runCatching {
-                    com.google.firebase.storage.FirebaseStorage.getInstance()
-                        .reference.child(storagePath).downloadUrl
-                        .let { task ->
-                            kotlinx.coroutines.suspendCancellableCoroutine<android.net.Uri> { cont ->
-                                task.addOnSuccessListener { cont.resume(it) {} }
-                                    .addOnFailureListener { cont.cancel(it) }
-                            }
-                        }.toString()
-                }.getOrNull()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        com.mehdiacho.yap.data.AudioCache.download(context, storagePath).absolutePath
+                    }.getOrNull()
+                }
             }
             else -> null
         }
@@ -201,7 +200,7 @@ private fun AudioPlayerBar(audioPath: String?, storagePath: String?, fallbackDur
                 runCatching {
                     player.reset()
                     player.setDataSource(source)
-                    player.prepare() // may hit the network; keep off the main thread
+                    player.prepare()
                     durationMs = player.duration
                     player.setOnCompletionListener {
                         isPlaying = false; positionMs = 0; player.seekTo(0)

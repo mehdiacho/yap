@@ -9,11 +9,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.OfflinePin
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -117,19 +118,30 @@ fun SessionCard(session: Session, onClick: () -> Unit) {
                 )
             }
             Spacer(modifier = Modifier.weight(1f))
-            // Availability on THIS device ("make available offline" model): a local copy
-            // means offline-ready (phone icon); otherwise it's online-only here (cloud icon).
-            // Everything also lives in the cloud regardless — this is about local presence.
+            // Availability on THIS device (OneDrive-style states):
+            //   offline-pin = available offline (device-born or pinned; never auto-cleared)
+            //   cloud-done  = downloaded copy in cache (plays offline; evictable via Clear downloads)
+            //   cloud       = online-only here (tap-to-download in the note)
+            val context = androidx.compose.ui.platform.LocalContext.current
             val availableOffline = remember(session.audioPath) {
                 session.audioPath != null && java.io.File(session.audioPath).exists()
             }
+            val cached = remember(session.storagePath) {
+                com.mehdiacho.yap.data.AudioCache.isCached(context, session.storagePath)
+            }
             val inCloud = session.storagePath != null
-            if (availableOffline || inCloud) {
-                Icon(
-                    imageVector = if (availableOffline) Icons.Default.Smartphone else Icons.Default.CloudQueue,
-                    contentDescription = if (availableOffline) "Available offline" else "Online only on this device",
-                    tint = if (availableOffline) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(16.dp)
+            when {
+                availableOffline -> Icon(
+                    Icons.Default.OfflinePin, contentDescription = "Available offline",
+                    tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(16.dp)
+                )
+                cached -> Icon(
+                    Icons.Default.CloudDone, contentDescription = "Downloaded (clearable)",
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)
+                )
+                inCloud -> Icon(
+                    Icons.Default.CloudQueue, contentDescription = "Online only on this device",
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)
                 )
             }
         }

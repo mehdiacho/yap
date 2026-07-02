@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Security
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mehdiacho.yap.data.AudioCache
 import com.mehdiacho.yap.data.AuthManager
 
 @Composable
@@ -122,8 +124,64 @@ fun SettingsScreen(onSignInClick: () -> Unit = {}) {
         
         SettingsItem(icon = Icons.Default.Security, title = "Privacy & data")
         SettingsItem(icon = Icons.Default.Palette, title = "Appearance")
-        
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            "STORAGE",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.outline,
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        ClearDownloadsItem()
+
         Spacer(modifier = Modifier.height(40.dp))
+    }
+}
+
+/** Frees space by deleting downloaded copies of online-only notes (cloud copies remain). */
+@Composable
+private fun ClearDownloadsItem() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var cacheBytes by remember { mutableLongStateOf(AudioCache.totalBytes(context)) }
+    val sizeLabel = remember(cacheBytes) {
+        when {
+            cacheBytes <= 0L -> "Nothing downloaded"
+            cacheBytes < 1_048_576L -> "%.0f KB".format(cacheBytes / 1024.0)
+            else -> "%.1f MB".format(cacheBytes / 1_048_576.0)
+        }
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(enabled = cacheBytes > 0) {
+                val freed = AudioCache.clear(context)
+                cacheBytes = AudioCache.totalBytes(context)
+                android.widget.Toast.makeText(
+                    context,
+                    "Freed %.1f MB — cloud copies are untouched".format(freed / 1_048_576.0),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Default.CloudDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Clear downloads", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                "$sizeLabel · notes marked available offline are kept",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
