@@ -29,6 +29,55 @@ import com.mehdiacho.yap.audio.RecordingController
 
 private const val TAG = "YapSpike"
 
+/** Fixed reading script = ground truth for scoring the recognizer. ~30s at normal pace. */
+private const val SCRIPT =
+    "Yap is a voice first app for capturing ideas the moment they strike. " +
+    "On Thursday the fifth of March I recorded thirty seven notes between Gaborone and Johannesburg. " +
+    "The quick brown fox jumps over the lazy dog while measuring temperatures near zero degrees. " +
+    "Please transcribe brand names like Firebase, Xiaomi, and Kotlin correctly. " +
+    "If this sentence survives with ninety five percent accuracy, the on device engine is probably good enough for a first draft."
+
+/** Normalize for fair comparison: lowercase, %->percent, digits/ordinals -> words, strip punctuation. */
+private fun normalizeTokens(text: String): List<String> {
+    val cleaned = text.lowercase()
+        .replace("%", " percent ")
+        .replace(Regex("(\\d+)(st|nd|rd|th)\\b"), "$1")
+        .replace(Regex("[^a-z0-9\\s]"), " ")
+    return cleaned.split(Regex("\\s+")).filter { it.isNotBlank() }.flatMap { tok ->
+        if (tok.all { it.isDigit() }) numberToWords(tok.toIntOrNull() ?: 0) else listOf(tok)
+    }
+}
+
+private fun numberToWords(n: Int): List<String> {
+    if (n > 9999) return listOf(n.toString())
+    val ones = listOf("zero","one","two","three","four","five","six","seven","eight","nine","ten",
+        "eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen")
+    val tens = listOf("","","twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety")
+    val out = mutableListOf<String>()
+    var v = n
+    if (v >= 1000) { out += ones[v / 1000]; out += "thousand"; v %= 1000 }
+    if (v >= 100) { out += ones[v / 100]; out += "hundred"; v %= 100 }
+    when {
+        v == 0 && out.isEmpty() -> out += "zero"
+        v in 1..19 -> out += ones[v]
+        v >= 20 -> { out += tens[v / 10]; if (v % 10 != 0) out += ones[v % 10] }
+    }
+    return out
+}
+
+/** Word error rate: Levenshtein distance over token lists / reference length. */
+private fun wordErrorRate(reference: List<String>, hypothesis: List<String>): Float {
+    if (reference.isEmpty()) return 1f
+    val d = Array(reference.size + 1) { IntArray(hypothesis.size + 1) }
+    for (i in 0..reference.size) d[i][0] = i
+    for (j in 0..hypothesis.size) d[0][j] = j
+    for (i in 1..reference.size) for (j in 1..hypothesis.size) {
+        val cost = if (reference[i - 1] == hypothesis[j - 1]) 0 else 1
+        d[i][j] = minOf(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+    }
+    return d[reference.size][hypothesis.size].toFloat() / reference.size
+}
+
 /**
  * TEMPORARY feasibility spike for block ② (on-device transcription).
  * Runs our AudioRecord-based RecordingService and Android's SpeechRecognizer at the
@@ -161,7 +210,33 @@ fun SpikeScreen(onBack: () -> Unit) {
             modifier = Modifier.fillMaxWidth().height(52.dp)
         ) { Text(if (running) "Stop spike" else "Start spike") }
 
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(14.dp))
+
+        // The reading script — the ground truth we score against.
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.primaryContainer).padding(14.dp)
+        ) {
+            Text("READ THIS ALOUD", fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Spacer(Modifier.height(6.dp))
+            Text(SCRIPT, fontSize = 15.sp, lineHeight = 23.sp,
+                color = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+
+        // Accuracy vs the script (computed after Stop, from final segments).
+        if (!running && finals.isNotEmpty()) {
+            val ref = remember(finals) { normalizeTokens(SCRIPT) }
+            val hyp = remember(finals) { normalizeTokens(finals.joinToString(" ")) }
+            val wer = remember(finals) { wordErrorRate(ref, hyp) }
+            StatCard(
+                "Accuracy vs script",
+                "word error rate: %.1f%%  (accuracy ≈ %.1f%%)\nref words: %d · heard words: %d"
+                    .format(wer * 100, (1f - wer).coerceAtLeast(0f) * 100, ref.size, hyp.size)
+            )
+        }
+
+        Spacer(Modifier.height(4.dp))
         StatCard("Recorder (ours)", buildString {
             append("status: ${recState.status}")
             append("  ·  elapsed: ${recState.elapsedMs / 1000}s\n")
