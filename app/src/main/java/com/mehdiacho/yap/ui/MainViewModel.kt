@@ -1,30 +1,39 @@
 package com.mehdiacho.yap.ui
 
 import android.app.Application
+import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mehdiacho.yap.audio.RecorderEvent
 import com.mehdiacho.yap.audio.RecordingBus
 import com.mehdiacho.yap.data.AppDatabase
+import com.mehdiacho.yap.data.FirestoreSessionRepository
 import com.mehdiacho.yap.data.Session
-import com.mehdiacho.yap.data.SessionRepository
 import com.mehdiacho.yap.data.TranscriptionClient
-import android.util.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository: SessionRepository
-    val allSessions: StateFlow<List<Session>>
+    private val repository = FirestoreSessionRepository()
+
+    val allSessions: StateFlow<List<Session>> = repository.allSessions()
+        .catch { e ->
+            Log.e("Yap", "sessions listener failed: ${e.message}", e)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Session id to open next (post-capture / share import). StateFlow so a cold-start
     // share doesn't lose the event before the UI subscribes; consumed by the UI.
@@ -33,26 +42,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun consumePendingOpen() { _pendingOpen.value = null }
 
     init {
-        val sessionDao = AppDatabase.getDatabase(application).sessionDao()
-        repository = SessionRepository(sessionDao)
-        allSessions = repository.allSessions.stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5000),
-            emptyList()
-        )
-
         // Persist a real session whenever a recording finishes.
         viewModelScope.launch {
             RecordingBus.events.collect { event ->
                 if (event is RecorderEvent.Finished) {
-                    saveRecording(event.filePath, event.durationMs)
+                    startTranscription(event.filePath, event.durationMs, "audio/wav")
                 }
+            }
+        }
+        migrateLegacyRoomSessions()
+    }
+
+    /** One-time copy of pre-Firestore local (Room) notes into the user's cloud store. */
+    private fun migrateLegacyRoomSessions() {
+        val prefs = getApplication<Application>().getSharedPreferences("yap", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("room_migrated", false)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val dao = AppDatabase.getDatabase(getApplication()).sessionDao()
+                val legacy = dao.getAllSessions().first()
+                legacy.forEach { repository.upsert(it) }
+                prefs.edit().putBoolean("room_migrated", true).apply()
+                if (legacy.isNotEmpty()) Log.i("Yap", "migrated ${legacy.size} legacy sessions to Firestore")
+            } catch (e: Exception) {
+                Log.e("Yap", "legacy migration failed: ${e.message}", e)
             }
         }
     }
 
-    private fun saveRecording(audioPath: String, durationMs: Long) {
-        viewModelScope.launch { startTranscription(audioPath, durationMs, "audio/wav") }
+    fun getSessionById(id: String): StateFlow<Session?> {
+        return repository.sessionById(id)
+            .catch { e ->
+                Log.e("Yap", "session listener failed: ${e.message}", e)
+                emit(null)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     }
 
     /** Import an audio/video file shared into Yap from another app, then transcribe it. */
@@ -79,7 +103,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }.getOrDefault(0L)
                 startTranscription(file.absolutePath, durationMs, mimeType)
             } catch (e: Exception) {
-                // best-effort; a failed import simply doesn't create a note
+                Log.e("YapShare", "import failed: ${e.message}", e)
             }
         }
     }
@@ -94,7 +118,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 formattedText = text,
                 status = "DONE"
             )
-            repository.insertSession(session)
+            repository.upsert(session)
             _pendingOpen.value = session.id
         }
     }
@@ -108,12 +132,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             durationMs = durationMs,
             status = "TRANSCRIBING"
         )
-        repository.insertSession(session)
+        try {
+            repository.upsert(session)
+        } catch (e: Exception) {
+            Log.e("Yap", "failed to save session: ${e.message}", e)
+            return
+        }
         _pendingOpen.value = session.id // open the note immediately (shows "Transcribing…")
 
         try {
             val r = TranscriptionClient.transcribe(File(audioPath), mimeType)
-            repository.updateSession(
+            repository.upsert(
                 session.copy(
                     title = r.name.ifBlank { "Recording" },
                     draftText = r.rawText,
@@ -125,59 +154,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         } catch (e: Exception) {
             Log.e("Yap", "transcription failed for $audioPath ($mimeType): ${e.message}", e)
-            repository.updateSession(session.copy(title = "Recording", status = "FAILED"))
+            repository.upsert(session.copy(title = "Recording", status = "FAILED"))
         }
     }
 
-    fun getSessionById(id: String): StateFlow<Session?> {
-        return repository.getSessionById(id).stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5000),
-            null
-        )
-    }
-
-    fun saveDraftSession(draftText: String) {
-        viewModelScope.launch {
-            val session = Session(
-                id = UUID.randomUUID().toString(),
-                title = "Idea ${System.currentTimeMillis() % 1000}",
-                draftText = draftText,
-                status = "OFFLINE_PENDING"
-            )
-            repository.insertSession(session)
-            // Mocking refinement process locally
-            mockCloudRefinement(session.id)
-        }
-    }
-
-    private fun mockCloudRefinement(sessionId: String) {
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(2000) // Simulating network
-            repository.getSessionById(sessionId).collect { session ->
-                if (session != null && session.status == "OFFLINE_PENDING") {
-                    repository.updateSession(session.copy(status = "POLISHING"))
-                    kotlinx.coroutines.delay(3000)
-                    repository.updateSession(
-                        session.copy(
-                            status = "REFINED",
-                            formattedText = session.draftText + "\n\n*Refined!*"
-                        )
-                    )
-                }
-            }
-        }
-    }
-    
     fun updateSession(session: Session) {
         viewModelScope.launch {
-            repository.updateSession(session)
+            try { repository.upsert(session) } catch (e: Exception) {
+                Log.e("Yap", "update failed: ${e.message}", e)
+            }
         }
     }
 
     fun deleteSession(id: String) {
         viewModelScope.launch {
-            repository.deleteSession(id)
+            try { repository.delete(id) } catch (e: Exception) {
+                Log.e("Yap", "delete failed: ${e.message}", e)
+            }
         }
     }
 }
