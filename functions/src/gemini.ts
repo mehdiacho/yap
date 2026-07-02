@@ -59,6 +59,91 @@ export async function transcribeAndFormalize(
   return { rawText, ...meta };
 }
 
+export interface ReviewBlock {
+  versions: string[];
+  activeIndex: number;
+}
+
+export interface ReviewedBlock {
+  blockIndex: number;
+  newText: string;
+  flagged: boolean;
+  reason?: string;
+}
+
+/**
+ * Smart Review — ported from the web app's reviewAndPropagateEdits.
+ * Takes the user's manual block corrections, propagates them across the whole
+ * document, and flags blocks where a correction would shift core meaning.
+ */
+export async function reviewAndPropagate(
+  blocks: ReviewBlock[],
+  apiKey: string
+): Promise<ReviewedBlock[]> {
+  const manualChanges = blocks
+    .map((b, i) =>
+      b.versions.length > 1
+        ? { blockIndex: i, original: b.versions[0], corrected: b.versions[b.versions.length - 1] }
+        : null
+    )
+    .filter((c): c is NonNullable<typeof c> => c !== null);
+  if (manualChanges.length === 0) return [];
+
+  const ai = new GoogleGenAI({ apiKey });
+  const prompt = `You are an expert AI text review and correction propagation system.
+The user has a transcription document split into discrete text blocks (paragraphs, headers, or bullet elements).
+The user has manually edited some blocks to fix misspelled words (names, brands, acronyms) or logical slips.
+
+Here is the list of the user's MANUAL CORRECTIONS:
+${JSON.stringify(manualChanges, null, 2)}
+
+Here is the entire active document as an array of block index and active text:
+${JSON.stringify(blocks.map((b, i) => ({ index: i, text: b.versions[b.activeIndex] })), null, 2)}
+
+Your assignment:
+1. Analyze the manual corrections to understand the pattern (spelling corrections, name changes, terminology swaps).
+2. Scan the rest of the document's blocks and propagate those corrections wherever relevant.
+3. CONTEXTUAL LOGIC AUDIT: if applying a correction would alter core semantic meaning, timeline, financial figures, or logical flow, you MUST flag that block.
+4. Return ONLY the blocks you updated (or flagged), with "flagged" true where the user should manually verify, and a helpful "reason".
+
+Return a JSON object: {"updatedBlocks":[{"blockIndex":number,"newText":"string (full corrected block text, markdown preserved)","flagged":boolean,"reason":"string (optional)"}]}
+Only pure JSON, no commentary.`;
+
+  const res = await ai.models.generateContent({
+    model: MODEL,
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          updatedBlocks: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                blockIndex: { type: Type.INTEGER },
+                newText: { type: Type.STRING },
+                flagged: { type: Type.BOOLEAN },
+                reason: { type: Type.STRING },
+              },
+              required: ["blockIndex", "newText", "flagged"],
+            },
+          },
+        },
+        required: ["updatedBlocks"],
+      },
+    },
+  });
+
+  try {
+    const text = (res.text || "{}").replace(/```json/g, "").replace(/```/g, "").trim();
+    return JSON.parse(text).updatedBlocks ?? [];
+  } catch {
+    return [];
+  }
+}
+
 async function formalize(
   ai: GoogleGenAI,
   rawText: string

@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
-import { transcribeAndFormalize } from "./gemini";
+import { transcribeAndFormalize, reviewAndPropagate, ReviewBlock } from "./gemini";
 
 admin.initializeApp();
 
@@ -100,6 +100,30 @@ export const transcribeSession = onCall(
         stack: e?.stack,
       });
       throw new HttpsError("internal", `Transcription failed: ${e?.message ?? "unknown"}`);
+    }
+  }
+);
+
+/**
+ * smartReview — propagate the user's manual block corrections across the whole
+ * document and flag semantic shifts. Request: { blocks: [{versions, activeIndex}] }
+ * Response: { updatedBlocks: [{blockIndex, newText, flagged, reason?}] }
+ */
+export const smartReview = onCall(
+  { region: "africa-south1", secrets: [GEMINI_API_KEY], timeoutSeconds: 120 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    const blocks = request.data?.blocks as ReviewBlock[] | undefined;
+    if (!Array.isArray(blocks) || blocks.length === 0) {
+      throw new HttpsError("invalid-argument", "blocks required");
+    }
+    if (blocks.length > 500) throw new HttpsError("invalid-argument", "too many blocks");
+    try {
+      const updatedBlocks = await reviewAndPropagate(blocks, GEMINI_API_KEY.value());
+      return { updatedBlocks };
+    } catch (e: any) {
+      console.error("smartReview failed", { message: e?.message });
+      throw new HttpsError("internal", `Smart review failed: ${e?.message ?? "unknown"}`);
     }
   }
 );
