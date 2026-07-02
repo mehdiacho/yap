@@ -193,4 +193,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    /** Delete the note everywhere: Firestore doc, local audio, cached download, cloud object. */
+    fun deleteSessionCompletely(session: Session) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try { repository.delete(session.id) } catch (e: Exception) {
+                Log.e("Yap", "delete doc failed: ${e.message}", e)
+                return@launch
+            }
+            session.audioPath?.let { runCatching { File(it).delete() } }
+            session.storagePath?.let { path ->
+                runCatching { com.mehdiacho.yap.data.AudioCache.fileFor(getApplication(), path).delete() }
+                runCatching {
+                    com.google.firebase.storage.FirebaseStorage.getInstance().reference.child(path).delete()
+                }
+            }
+        }
+    }
 }

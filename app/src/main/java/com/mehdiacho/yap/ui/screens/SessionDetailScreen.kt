@@ -48,6 +48,16 @@ fun SessionDetailScreen(
     }
     val currentSession = session!!
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var menuOpen by remember { mutableStateOf(false) }
+    var showEditTitle by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var titleDraft by remember { mutableStateOf("") }
+    fun currentText(): String =
+        if (viewMode == "Formatted") currentSession.formattedText ?: currentSession.draftText
+        else currentSession.draftText
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -78,7 +88,80 @@ fun SessionDetailScreen(
                 }
                 Text(currentSession.status, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
-            Icon(Icons.Default.MoreVert, "More", tint = MaterialTheme.colorScheme.onBackground)
+            Box {
+                Icon(
+                    Icons.Default.MoreVert, "More",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.clickable { menuOpen = true }
+                )
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Edit title") },
+                        onClick = { menuOpen = false; titleDraft = currentSession.title; showEditTitle = true }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Copy text") },
+                        onClick = {
+                            menuOpen = false
+                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(currentText()))
+                            android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share") },
+                        onClick = {
+                            menuOpen = false
+                            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_SUBJECT, currentSession.title)
+                                putExtra(android.content.Intent.EXTRA_TEXT, currentText())
+                            }
+                            context.startActivity(android.content.Intent.createChooser(send, "Share note"))
+                        }
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                        onClick = { menuOpen = false; showDeleteConfirm = true }
+                    )
+                }
+            }
+        }
+
+        if (showEditTitle) {
+            AlertDialog(
+                onDismissRequest = { showEditTitle = false },
+                title = { Text("Edit title") },
+                text = {
+                    OutlinedTextField(value = titleDraft, onValueChange = { titleDraft = it }, singleLine = true)
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = titleDraft.isNotBlank(),
+                        onClick = {
+                            viewModel.updateSession(currentSession.copy(title = titleDraft.trim()))
+                            showEditTitle = false
+                        }
+                    ) { Text("Save") }
+                },
+                dismissButton = { TextButton(onClick = { showEditTitle = false }) { Text("Cancel") } }
+            )
+        }
+
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text("Delete this note?") },
+                text = { Text("The note, its transcript, and its recording will be removed everywhere. This can't be undone.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showDeleteConfirm = false
+                        viewModel.deleteSessionCompletely(currentSession)
+                        onBack()
+                    }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } }
+            )
         }
 
         Spacer(Modifier.height(16.dp))
@@ -166,6 +249,10 @@ fun SessionDetailScreen(
                         "No transcription available.",
                         fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                viewMode == "Formatted" && currentSession.formattedText != null -> {
+                    // AI-formatted notes are Markdown — render them properly.
+                    com.mikepenz.markdown.m3.Markdown(content = content)
                 }
                 else -> {
                     Text(content, fontSize = 15.sp, lineHeight = 24.sp, color = MaterialTheme.colorScheme.onBackground)
