@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         if (intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true) autoStart.value = true
         intent?.let { handleShare(it) }
+        com.mehdiacho.yap.overlay.FloatingBubble.startIfEnabled(this)
         setContent {
             YapTheme {
                 MainScreen(viewModel, autoStart)

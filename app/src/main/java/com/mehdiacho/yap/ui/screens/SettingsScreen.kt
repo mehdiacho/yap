@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BubbleChart
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Mic
@@ -113,6 +114,7 @@ fun SettingsScreen(
         
         SettingsItem(icon = Icons.Default.WorkspacePremium, title = "Subscription & Usage", onClick = onOpenSubscription)
         SettingsItem(icon = Icons.Default.Mic, title = "Capture")
+        FloatingBubbleItem()
         
         Spacer(modifier = Modifier.height(24.dp))
         Text(
@@ -141,6 +143,54 @@ fun SettingsScreen(
         ClearDownloadsItem()
 
         Spacer(modifier = Modifier.height(40.dp))
+    }
+}
+
+/** Toggles the system-overlay floating mic bubble (asks for the overlay permission once). */
+@Composable
+private fun FloatingBubbleItem() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var enabled by remember { mutableStateOf(com.mehdiacho.yap.overlay.FloatingBubble.isEnabled(context)) }
+    val permLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (com.mehdiacho.yap.overlay.FloatingBubble.hasPermission(context)) {
+            com.mehdiacho.yap.overlay.FloatingBubble.enable(context); enabled = true
+        }
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Default.BubbleChart, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Floating record button", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text("A bubble on your screen to record anytime", fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(
+            checked = enabled,
+            onCheckedChange = { on ->
+                if (on) {
+                    if (com.mehdiacho.yap.overlay.FloatingBubble.hasPermission(context)) {
+                        com.mehdiacho.yap.overlay.FloatingBubble.enable(context); enabled = true
+                    } else {
+                        permLauncher.launch(
+                            android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:" + context.packageName)
+                            )
+                        )
+                    }
+                } else {
+                    com.mehdiacho.yap.overlay.FloatingBubble.disable(context); enabled = false
+                }
+            }
+        )
     }
 }
 

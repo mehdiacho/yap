@@ -55,6 +55,14 @@ Not bugs — conscious "later" decisions so they don't get lost.
   extracts the Firebase config from an APK (quotas cap per-user damage only).
 
 ## Architecture hardening (interim shortcuts currently in place)
+- **Move save-on-finish out of the Activity ViewModel.** Recording-finish → transcribe →
+  save currently lives in MainViewModel (Activity-scoped). Fine for all current entry points
+  (they bring the Activity forward) and for the floating bubble while Yap is foreground, BUT a
+  bubble recording made while Yap is fully killed could lose the note (audio WAV is still safe).
+  Fix: a process-scoped/service-hosted pipeline that owns save-on-Finished. — *2026-07-02.*
+- **Floating bubble MIUI note:** on Xiaomi, "Display over other apps" + sometimes a separate
+  "background pop-up" permission are needed; also consider promoting FloatingMicService to a
+  foreground service for reliable persistence when backgrounded.
 - **Audio transport:** currently sent inline (base64) to the function. Move to Firebase Storage
   upload for larger files + retention (`users/{uid}/audio/...`).
 - **Storage:** notes currently in local Room only. Migrate to per-user Firestore for multi-device sync.
