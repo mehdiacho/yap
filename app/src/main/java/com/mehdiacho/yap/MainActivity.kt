@@ -38,6 +38,7 @@ import com.mehdiacho.yap.ui.screens.SessionDetailScreen
 import com.mehdiacho.yap.ui.screens.SettingsScreen
 import com.mehdiacho.yap.ui.screens.SpikeScreen
 import com.mehdiacho.yap.ui.screens.SubscriptionScreen
+import com.mehdiacho.yap.ui.screens.TrashScreen
 import com.mehdiacho.yap.ui.theme.YapTheme
 
 class MainActivity : ComponentActivity() {
@@ -199,9 +200,15 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                 )
             }
             composable(Routes.LIBRARY) {
-                LibraryScreen(viewModel = viewModel) { sessionId ->
+                LibraryScreen(
+                    viewModel = viewModel,
+                    onOpenTrash = { navController.navigate(Routes.TRASH) },
+                ) { sessionId ->
                     navController.navigate(Routes.createSessionDetailRoute(sessionId))
                 }
+            }
+            composable(Routes.TRASH) {
+                TrashScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(

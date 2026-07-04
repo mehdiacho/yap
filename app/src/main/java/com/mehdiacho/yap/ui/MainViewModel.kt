@@ -34,6 +34,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val trashedSessions: StateFlow<List<Session>> = repository.trashedSessions()
+        .catch { e ->
+            Log.e("Yap", "trash listener failed: ${e.message}", e)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // Session id to open next (post-capture / share import). StateFlow so a cold-start
     // share doesn't lose the event before the UI subscribes; consumed by the UI.
     private val _pendingOpen = MutableStateFlow<String?>(null)
@@ -50,6 +57,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         backfillAudioToStorage()
+        purgeExpiredTrash()
+    }
+
+    /** Anything in the trash for more than 30 days is permanently removed. */
+    private fun purgeExpiredTrash() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val cutoff = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
+                repository.trashedSessions().first()
+                    .filter { (it.trashedAt ?: Long.MAX_VALUE) < cutoff }
+                    .forEach { s ->
+                        Log.i("Yap", "purging expired trash: ${s.id} '${s.title}'")
+                        deleteSessionCompletely(s)
+                    }
+            } catch (e: Exception) {
+                Log.w("Yap", "trash purge failed: ${e.message}")
+            }
+        }
+    }
+
+    /** Move notes to the trash (restorable for 30 days). */
+    fun trashSessions(ids: Collection<String>) {
+        viewModelScope.launch {
+            ids.forEach { id ->
+                try { repository.trash(id) } catch (e: Exception) {
+                    Log.e("Yap", "trash failed for $id: ${e.message}", e)
+                }
+            }
+        }
+    }
+
+    fun restoreSession(id: String) {
+        viewModelScope.launch {
+            try { repository.restore(id) } catch (e: Exception) {
+                Log.e("Yap", "restore failed: ${e.message}", e)
+            }
+        }
     }
 
     /**

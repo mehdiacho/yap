@@ -11,5 +11,6 @@ data class Session(
     val createdAt: Long = System.currentTimeMillis(),
     val durationMs: Long = 0L,
     val category: String = "Memo",
-    val topicCluster: String = "General"
+    val topicCluster: String = "General",
+    val trashedAt: Long? = null       // soft delete; purged ~30 days after this timestamp
 )

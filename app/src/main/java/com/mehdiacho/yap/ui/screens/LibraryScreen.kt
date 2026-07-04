@@ -3,6 +3,7 @@ package com.mehdiacho.yap.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.OfflinePin
 import androidx.compose.material.icons.filled.Search
@@ -33,9 +35,16 @@ import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.ui.MainViewModel
 
 @Composable
-fun LibraryScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
+fun LibraryScreen(
+    viewModel: MainViewModel,
+    onOpenTrash: () -> Unit = {},
+    onNavigateToDetail: (String) -> Unit,
+) {
     val sessions by viewModel.allSessions.collectAsState()
     var query by remember { androidx.compose.runtime.mutableStateOf("") }
+    var selection by remember { androidx.compose.runtime.mutableStateOf<Set<String>>(emptySet()) }
+    var confirmTrash by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val selecting = selection.isNotEmpty()
     val filtered = remember(sessions, query) {
         if (query.isBlank()) sessions
         else {
@@ -55,12 +64,53 @@ fun LibraryScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit
             .fillMaxSize()
             .padding(top = 16.dp, start = 16.dp, end = 16.dp)
     ) {
-        Text(
-            text = "Library",
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
+        if (selecting) {
+            // Selection mode header
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { selection = emptySet() }) {
+                    Icon(Icons.Default.Close, "Cancel selection")
+                }
+                Text(
+                    "${selection.size} selected",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { selection = filtered.map { it.id }.toSet() }) {
+                    Text("Select all")
+                }
+                IconButton(onClick = { confirmTrash = true }) {
+                    Icon(Icons.Default.Delete, "Move to trash", tint = MaterialTheme.colorScheme.error)
+                }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Library",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onOpenTrash) {
+                    Icon(Icons.Default.Delete, "Trash", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
+        if (confirmTrash) {
+            AlertDialog(
+                onDismissRequest = { confirmTrash = false },
+                title = { Text("Move ${selection.size} note${if (selection.size == 1) "" else "s"} to trash?") },
+                text = { Text("They can be restored from the trash for 30 days.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.trashSessions(selection)
+                        selection = emptySet(); confirmTrash = false
+                    }) { Text("Move to trash") }
+                },
+                dismissButton = { TextButton(onClick = { confirmTrash = false }) { Text("Cancel") } }
+            )
+        }
         
         Spacer(modifier = Modifier.height(16.dp))
         
@@ -119,22 +169,49 @@ fun LibraryScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(filtered) { session ->
-                    SessionCard(session, onClick = { onNavigateToDetail(session.id) })
+                    SessionCard(
+                        session,
+                        selected = session.id in selection,
+                        onClick = {
+                            if (selecting) {
+                                selection = if (session.id in selection) selection - session.id
+                                else selection + session.id
+                            } else onNavigateToDetail(session.id)
+                        },
+                        onLongClick = {
+                            selection = if (session.id in selection) selection - session.id
+                            else selection + session.id
+                        },
+                    )
                 }
             }
         }
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun SessionCard(session: Session, onClick: () -> Unit) {
+fun SessionCard(
+    session: Session,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(18.dp))
-            .clickable { onClick() }
+            .background(
+                if (selected) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surface
+            )
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(18.dp)
+            )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

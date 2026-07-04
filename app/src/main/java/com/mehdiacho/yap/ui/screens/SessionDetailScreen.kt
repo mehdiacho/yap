@@ -157,14 +157,14 @@ fun SessionDetailScreen(
         if (showDeleteConfirm) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirm = false },
-                title = { Text("Delete this note?") },
-                text = { Text("The note, its transcript, and its recording will be removed everywhere. This can't be undone.") },
+                title = { Text("Move to trash?") },
+                text = { Text("You can restore it from the trash for 30 days.") },
                 confirmButton = {
                     TextButton(onClick = {
                         showDeleteConfirm = false
-                        viewModel.deleteSessionCompletely(currentSession)
+                        viewModel.trashSessions(listOf(currentSession.id))
                         onBack()
-                    }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    }) { Text("Move to trash", color = MaterialTheme.colorScheme.error) }
                 },
                 dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } }
             )
