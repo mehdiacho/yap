@@ -16,12 +16,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.CloudDone
+import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -36,6 +37,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,7 +45,9 @@ import com.mehdiacho.yap.audio.RecorderEvent
 import com.mehdiacho.yap.audio.RecorderStatus
 import com.mehdiacho.yap.audio.RecordingBus
 import com.mehdiacho.yap.audio.RecordingController
+import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.ui.MainViewModel
+import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
 import kotlinx.coroutines.delay
 
@@ -55,9 +59,16 @@ private const val WAVE_MIN = 0.05f
 fun CaptureScreen(
     viewModel: MainViewModel,
     autoStart: MutableState<Boolean>? = null,
-    onOpenSpike: (() -> Unit)? = null, // temporary: feasibility spike entry
 ) {
     val context = LocalContext.current
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val mime = context.contentResolver.getType(uri) ?: "audio/mpeg"
+            viewModel.importSharedAudio(uri, mime)
+        }
+    }
     val state by RecordingBus.state.collectAsState()
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -105,7 +116,7 @@ fun CaptureScreen(
             IdleContent(
                 lastSession = sessions.firstOrNull(),
                 onRecord = ::requestAndStart,
-                onOpenSpike = onOpenSpike,
+                onImport = { importLauncher.launch(arrayOf("audio/*", "video/*")) },
             )
         } else {
             RecordingContent(
@@ -128,9 +139,9 @@ fun CaptureScreen(
 
 @Composable
 private fun IdleContent(
-    lastSession: com.mehdiacho.yap.data.Session?,
+    lastSession: Session?,
     onRecord: () -> Unit,
-    onOpenSpike: (() -> Unit)? = null,
+    onImport: () -> Unit,
 ) {
     val user by com.mehdiacho.yap.data.AuthManager.authState()
         .collectAsState(initial = com.mehdiacho.yap.data.AuthManager.currentUser)
@@ -144,130 +155,130 @@ private fun IdleContent(
     }
     val signedIn = user != null && user?.isAnonymous == false
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-        Spacer(Modifier.height(16.dp))
-        // Avatar + sync pill
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(38.dp).clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    name.firstOrNull()?.uppercaseChar()?.toString() ?: "Y",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            }
-            Spacer(Modifier.weight(1f))
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // The design frame is 320 units wide, so every measurement is that fraction of the
+        // actual screen width — the record button is 132/320 = 41.25% of the width, etc.
+        val s = (maxWidth.value / 320f).coerceIn(0.85f, 1.7f)
+
+        Column(Modifier.fillMaxSize()) {
+            // Avatar + sync pill (design padding 8 / 22)
             Row(
-                Modifier.clip(RoundedCornerShape(999.dp))
-                    .background(YapTheme.extended.refinedContainer)
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                Modifier.fillMaxWidth().padding(top = (8 * s).dp, start = (22 * s).dp, end = (22 * s).dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    Icons.Default.CloudDone, null,
-                    tint = YapTheme.extended.onRefinedContainer, modifier = Modifier.size(15.dp),
-                )
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    if (signedIn) "Synced" else "Guest",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = YapTheme.extended.onRefinedContainer,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(22.dp))
-        Text("$greeting, $name", style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onBackground)
-        Spacer(Modifier.height(4.dp))
-        Text("What's on your mind?", style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-        // Last note peek
-        if (lastSession != null) {
-            Spacer(Modifier.height(20.dp))
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainer).padding(14.dp)
-            ) {
-                Text("LAST NOTE", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    lastSession.title, style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val done = lastSession.status == "DONE"
-                    Row(
-                        Modifier.clip(RoundedCornerShape(999.dp))
-                            .background(
-                                if (done) YapTheme.extended.refinedContainer
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            )
-                            .padding(horizontal = 9.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (done) {
-                            Icon(Icons.Default.CheckCircle, null,
-                                tint = YapTheme.extended.onRefinedContainer,
-                                modifier = Modifier.size(11.dp))
-                            Spacer(Modifier.width(4.dp))
-                        }
-                        Text(
-                            if (done) "Refined" else lastSession.status.lowercase()
-                                .replaceFirstChar { it.uppercase() },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (done) YapTheme.extended.onRefinedContainer
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text(relativeTime(lastSession.createdAt),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline)
+                Box(
+                    Modifier.size((38 * s).dp).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        name.firstOrNull()?.uppercaseChar()?.toString() ?: "Y",
+                        fontWeight = FontWeight.Bold, fontSize = (15 * s).sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Row(
+                    Modifier.clip(RoundedCornerShape(999.dp))
+                        .background(YapTheme.extended.refinedContainer)
+                        .padding(horizontal = (12 * s).dp, vertical = (6 * s).dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.CloudDone, null,
+                        tint = YapTheme.extended.onRefinedContainer, modifier = Modifier.size((15 * s).dp))
+                    Spacer(Modifier.width((6 * s).dp))
+                    Text(if (signedIn) "Synced" else "Guest",
+                        fontWeight = FontWeight.SemiBold, fontSize = (12 * s).sp,
+                        color = YapTheme.extended.onRefinedContainer)
                 }
             }
-        }
 
-        // Hero mic button
-        Column(
-            Modifier.weight(1f).fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(132.dp)
-                    .shadow(
-                        elevation = 18.dp, shape = CircleShape,
-                        spotColor = MaterialTheme.colorScheme.primary,
-                        ambientColor = MaterialTheme.colorScheme.primary,
-                    )
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .clickable { onRecord() },
-                contentAlignment = Alignment.Center,
+            // Greeting (design padding 22 / 28, Outfit 24)
+            Column(Modifier.padding(top = (22 * s).dp, start = (28 * s).dp, end = (28 * s).dp)) {
+                Text("$greeting, $name",
+                    fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = (24 * s).sp,
+                    letterSpacing = (-0.3 * s).sp, color = MaterialTheme.colorScheme.onBackground)
+                Spacer(Modifier.height((4 * s).dp))
+                Text("What's on your mind?", fontSize = (14 * s).sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            // Last note (design padding 20 / 24; card radius 18, padding 14/16)
+            if (lastSession != null) {
+                Column(Modifier.padding(top = (20 * s).dp, start = (24 * s).dp, end = (24 * s).dp)) {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape((18 * s).dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .padding(horizontal = (16 * s).dp, vertical = (14 * s).dp)
+                    ) {
+                        Text("LAST NOTE", fontSize = (11 * s).sp, fontWeight = FontWeight.SemiBold,
+                            letterSpacing = (0.3 * s).sp, color = MaterialTheme.colorScheme.outline)
+                        Spacer(Modifier.height((5 * s).dp))
+                        Text(lastSession.title, fontSize = (15 * s).sp, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Spacer(Modifier.height((8 * s).dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val done = lastSession.status == "DONE"
+                            Row(
+                                Modifier.clip(RoundedCornerShape(999.dp))
+                                    .background(if (done) YapTheme.extended.refinedContainer else MaterialTheme.colorScheme.surfaceVariant)
+                                    .padding(horizontal = (9 * s).dp, vertical = (3 * s).dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (done) {
+                                    Icon(Icons.Default.CheckCircle, null,
+                                        tint = YapTheme.extended.onRefinedContainer, modifier = Modifier.size((12 * s).dp))
+                                    Spacer(Modifier.width((4 * s).dp))
+                                }
+                                Text(if (done) "Refined" else lastSession.status.lowercase().replaceFirstChar { it.uppercase() },
+                                    fontSize = (11 * s).sp, fontWeight = FontWeight.SemiBold,
+                                    color = if (done) YapTheme.extended.onRefinedContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Spacer(Modifier.width((6 * s).dp))
+                            Text(relativeTime(lastSession.createdAt), fontSize = (11 * s).sp,
+                                color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                }
+            }
+
+            // Hero mic + import (fills remaining, centered)
+            Column(
+                Modifier.weight(1f).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
             ) {
-                Icon(Icons.Default.Mic, "Record", tint = Color.White, modifier = Modifier.size(62.dp))
+                Box(
+                    Modifier.size((132 * s).dp)
+                        .shadow((22 * s).dp, CircleShape,
+                            spotColor = MaterialTheme.colorScheme.primary,
+                            ambientColor = MaterialTheme.colorScheme.primary)
+                        .clip(CircleShape).background(MaterialTheme.colorScheme.primary)
+                        .clickable { onRecord() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Mic, "Record", tint = Color.White, modifier = Modifier.size((62 * s).dp))
+                }
+                Spacer(Modifier.height((20 * s).dp))
+                Text("Tap to record", fontSize = (15 * s).sp, fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground)
+                Spacer(Modifier.height((14 * s).dp))
+                Row(
+                    Modifier.clip(RoundedCornerShape(999.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .clickable { onImport() }
+                        .padding(horizontal = (15 * s).dp, vertical = (8 * s).dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.UploadFile, null, tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size((18 * s).dp))
+                    Spacer(Modifier.width((7 * s).dp))
+                    Text("Import a file", fontSize = (13 * s).sp, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary)
+                }
             }
-            Spacer(Modifier.height(20.dp))
-            Text("Tap to record", style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onBackground)
-            if (onOpenSpike != null) {
-                Spacer(Modifier.height(24.dp))
-                Text(
-                    "⚗ live-draft spike (dev)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.clickable { onOpenSpike() },
-                )
-            }
+            Spacer(Modifier.height((8 * s).dp))
         }
     }
 }

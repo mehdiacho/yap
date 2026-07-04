@@ -16,6 +16,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.LibraryBooks
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -140,50 +143,33 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
             if (currentRoute in listOf(Routes.CAPTURE, Routes.LIBRARY, Routes.SETTINGS)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(bottom = 16.dp, top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    NavBarItem(
-                        icon = Icons.Default.Mic,
-                        label = "Capture",
-                        isSelected = currentRoute == Routes.CAPTURE,
-                        onClick = {
-                            navController.navigate(Routes.CAPTURE) {
-                                popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
-                    NavBarItem(
-                        icon = Icons.Default.LibraryBooks,
-                        label = "Library",
-                        isSelected = currentRoute == Routes.LIBRARY,
-                        onClick = {
-                            navController.navigate(Routes.LIBRARY) {
-                                popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
-                    NavBarItem(
-                        icon = Icons.Default.Settings,
-                        label = "Settings",
-                        isSelected = currentRoute == Routes.SETTINGS,
-                        onClick = {
-                            navController.navigate(Routes.SETTINGS) {
-                                popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
+                fun go(route: String) = navController.navigate(route) {
+                    popUpTo(navController.graph.startDestinationId) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+                // Flush-to-bottom nav: background reaches the screen edge, items sit above
+                // the gesture inset (design bar = 72dp on #F2EFF7 surfaceContainer).
+                Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(72.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        NavBarItem(
+                            Icons.Filled.Mic, Icons.Outlined.Mic, "Capture",
+                            currentRoute == Routes.CAPTURE
+                        ) { go(Routes.CAPTURE) }
+                        NavBarItem(
+                            Icons.Filled.LibraryBooks, Icons.Outlined.LibraryBooks, "Library",
+                            currentRoute == Routes.LIBRARY
+                        ) { go(Routes.LIBRARY) }
+                        NavBarItem(
+                            Icons.Filled.Settings, Icons.Outlined.Settings, "Settings",
+                            currentRoute == Routes.SETTINGS
+                        ) { go(Routes.SETTINGS) }
+                    }
+                    Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
                 }
             }
         }
@@ -194,11 +180,7 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Routes.CAPTURE) {
-                CaptureScreen(
-                    viewModel = viewModel,
-                    autoStart = autoStart,
-                    onOpenSpike = { navController.navigate(Routes.SPIKE) },
-                )
+                CaptureScreen(viewModel = viewModel, autoStart = autoStart)
             }
             composable(Routes.LIBRARY) {
                 LibraryScreen(
@@ -241,37 +223,42 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
 
 @Composable
 fun NavBarItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selectedIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    unselectedIcon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
+        // Design: 56 x 30 pill, active fill only.
         Box(
             modifier = Modifier
+                .size(width = 56.dp, height = 30.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                .padding(horizontal = 20.dp, vertical = 6.dp),
-            contentAlignment = Alignment.Center
+                .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
-                icon,
+                if (isSelected) selectedIcon else unselectedIcon,
                 contentDescription = label,
-                tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                modifier = Modifier.size(23.dp),
+                tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(Modifier.height(3.dp))
         Text(
             text = label,
             fontSize = 11.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            color = if (isSelected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (isSelected) MaterialTheme.colorScheme.onBackground
+            else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
