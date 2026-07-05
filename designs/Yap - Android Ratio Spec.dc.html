@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300..800&family=Outfit:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style id="__om-edit-overrides">
+  h1,h2,h3 { font-family:'Outfit',sans-serif; letter-spacing:-.01em; color:#1B1B21; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  h2 { font-size:19px; margin:40px 0 4px; padding-top:18px; border-top:2px solid #1B1B21; }
+  h3 { font-size:15px; margin:22px 0 8px; color:#3A37A0; }
+  p { color:#33323A; line-height:1.55; font-size:13px; }
+  table { width:100%; border-collapse:collapse; margin:10px 0 18px; font-size:12px; }
+  th { background:#1B1B21; color:#fff; text-align:left; padding:7px 9px; font-weight:600; font-size:11px; letter-spacing:.02em; }
+  td { padding:6px 9px; border-bottom:1px solid #E5E1EC; vertical-align:top; color:#1B1B21; }
+  tr:nth-child(even) td { background:#F7F5FC; }
+  code, .v { font-family:'Roboto Mono',monospace; font-size:11.5px; color:#3A37A0; background:#F0EEFA; padding:1px 5px; border-radius:4px; white-space:nowrap; }
+  .swatch { display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:5px; vertical-align:-1px; border:1px solid rgba(0,0,0,.1); }
+  .note { background:#F2EFF7; border-left:3px solid #5B5BD6; padding:10px 14px; border-radius:0 8px 8px 0; font-size:12.5px; color:#33323A; margin:12px 0; }
+  .ref { background:#FFF4E0; border-left:3px solid #E0A52E; padding:8px 14px; border-radius:0 8px 8px 0; font-size:12px; color:#7A4E00; margin:10px 0; }
+  .flexbox { border:1.5px dashed #C8C5D0; border-radius:8px; padding:8px 10px; margin:6px 0; font-size:12px; }
+  .flexrow { display:flex; justify-content:space-between; gap:8px; }
+  .tag { display:inline-block; background:#E4E0FF; color:#3A37A0; font-size:10px; font-weight:700; letter-spacing:.03em; padding:2px 7px; border-radius:6px; margin-left:6px; }
+</style>
+</helmet>
+
+<x-import component-from-global-scope="doc-page" from="./doc-page.js" size="letter" margin="0.6in" hint-size="100%,1100px">
+
+<h1>Yap — Android Ratio-Based Layout Spec</h1>
+<p style="font-size:14px;color:#5B5BD6;font-weight:600;margin-bottom:2px;">Resolution-independent implementation spec, companion to <span class="v">Yap - Android Designs.dc.html</span></p>
+<p>Every dimension below is either a <b>fixed dp/sp token</b> (never scales) or a <b>ratio</b> (scales with the device). Use this table instead of eyeballing the mockup screenshots — it removes guesswork for spacing, sizing, and color across any phone width.</p>
+
+<div class="note">
+<b>0 · How to read this spec — read this first.</b><br>
+Two different problems get confused as "make it pixel-perfect," so this spec separates them:<br><br>
+<b>(a) Density</b> — already solved by Android's <code>dp</code>/<code>sp</code> units. Corner radius, stroke width, icon glyph size, elevation, and type size are specified as <b>fixed dp/sp</b> below and must <u>not</u> be scaled by screen width — that's what dp already does across densities.<br><br>
+<b>(b) Width class</b> — phones range ~360–430dp wide. This is the actual "different screen sizes" problem. For anything whose size should track screen width (side margins, card widths, the capture button, avatars), this spec gives a <b>% of screen width</b> instead of a fixed dp, so a 360dp and a 430dp phone both look like the same design.<br><br>
+<b>(c) Vertical position</b> — do <u>not</u> implement screen layouts with a top%/height% coordinate table. These screens are not absolutely positioned; they are vertical stacks (Compose <code>Column</code>) of fixed-height blocks with exactly <u>one flexible spacer</u> (<code>Modifier.weight(1f)</code>) that absorbs whatever vertical space is left. A top% table breaks the moment the aspect ratio changes (tall vs. short phone); a flex-column with one weighted spacer does not. So each screen below is written as an ordered list of blocks — sized by their own content or a % of width — with the flexible gap called out explicitly. This is the correct, robust mapping to Compose and is what makes it truly pixel-perfect across devices, not just on the reference phone.<br><br>
+<b>Baseline reference device:</b> 360dp × 780dp (matches the design mockups at 320×694 CSS px, scale 0.888). All % figures are computed against this baseline; being ratios, they hold at any width.
+</div>
+
+<h2>1 · Foundation tokens</h2>
+
+<h3>1.1 Color — Light scheme</h3>
+<table>
+<tr><th>Token</th><th>Hex</th><th>Usage</th></tr>
+<tr><td><span class="swatch" style="background:#5B5BD6"></span>Primary</td><td class="v">#5B5BD6</td><td>Capture button, links, active nav pill icon, primary CTA fill</td></tr>
+<tr><td><span class="swatch" style="background:#E4E0FF"></span>Primary Container</td><td class="v">#E4E0FF</td><td>Active bottom-nav pill bg, selected chip bg, "Brainstorm" category chip</td></tr>
+<tr><td><span class="swatch" style="background:#3A37A0"></span>On Primary Container</td><td class="v">#3A37A0</td><td>Text/icon on Primary Container</td></tr>
+<tr><td><span class="swatch" style="background:#5D5C72"></span>Secondary</td><td class="v">#5D5C72</td><td>Secondary emphasis text (rare)</td></tr>
+<tr><td><span class="swatch" style="background:#FCFBFF"></span>Surface</td><td class="v">#FCFBFF</td><td>Screen background, card fill, segmented-control selected pill</td></tr>
+<tr><td><span class="swatch" style="background:#F2EFF7"></span>Surface Container</td><td class="v">#F2EFF7</td><td>Bottom nav bg, search field idle bg, inset info panels, audio player bg</td></tr>
+<tr><td><span class="swatch" style="background:#EDEBF3"></span>Surface Container High</td><td class="v">#EDEBF3</td><td>Neutral "Memo" category chip bg, canvas bg behind phone frames</td></tr>
+<tr><td><span class="swatch" style="background:#E5E1EC"></span>Surface Variant</td><td class="v">#E5E1EC</td><td>Progress-track background, table borders</td></tr>
+<tr><td><span class="swatch" style="background:#C8C5D0"></span>Outline Variant</td><td class="v">#C8C5D0</td><td>Card/input hairline borders, bottom-sheet grabber, unselected filter-chip border</td></tr>
+<tr><td><span class="swatch" style="background:#1B1B21"></span>On Surface</td><td class="v">#1B1B21</td><td>Primary text, titles, icons</td></tr>
+<tr><td><span class="swatch" style="background:#47464F"></span>On Surface Variant</td><td class="v">#47464F</td><td>Secondary text, unselected icons/labels</td></tr>
+<tr><td><span class="swatch" style="background:#8B8896"></span>Subdued</td><td class="v">#8B8896</td><td>Timestamps, placeholder text, disabled labels</td></tr>
+<tr><td><span class="swatch" style="background:#FF6B6B"></span>Recording accent</td><td class="v">#FF6B6B</td><td>Record button (active), waveform bars, "REC" label, destructive stop icon bg</td></tr>
+<tr><td><span class="swatch" style="background:#B8F0CF"></span>Success Container</td><td class="v">#B8F0CF</td><td>"Refined" status chip bg</td></tr>
+<tr><td><span class="swatch" style="background:#0F5132"></span>On Success Container</td><td class="v">#0F5132</td><td>"Refined" chip text/icon</td></tr>
+<tr><td><span class="swatch" style="background:#EAF6EE"></span>Success Container (soft)</td><td class="v">#EAF6EE</td><td>Info banners confirming a safe/positive state</td></tr>
+<tr><td><span class="swatch" style="background:#FFDDB0"></span>Warning Container</td><td class="v">#FFDDB0</td><td>Offline/pending chip bg, quota-hit icon bg</td></tr>
+<tr><td><span class="swatch" style="background:#7A4E00"></span>On Warning Container</td><td class="v">#7A4E00</td><td>Warning chip/banner text+icon</td></tr>
+<tr><td><span class="swatch" style="background:#FFF4E0"></span>Warning Container (soft)</td><td class="v">#FFF4E0</td><td>Offline banners, draft-not-refined banner bg</td></tr>
+<tr><td><span class="swatch" style="background:#E7E5EC"></span>Neutral chip (Draft)</td><td class="v">#E7E5EC</td><td>"Draft" status chip bg</td></tr>
+<tr><td><span class="swatch" style="background:#BA1A1A"></span>Error</td><td class="v">#BA1A1A</td><td>Delete icon/text, invalid-key state, error dialog icon</td></tr>
+<tr><td><span class="swatch" style="background:#FFDAD6"></span>Error Container</td><td class="v">#FFDAD6</td><td>Error banner bg, permission-denied icon bg</td></tr>
+</table>
+
+<h3>1.2 Color — Dark scheme (same tokens, dark values)</h3>
+<table>
+<tr><th>Token</th><th>Hex</th></tr>
+<tr><td>Primary</td><td class="v">#C5C0FF</td></tr>
+<tr><td>Primary Container</td><td class="v">#4341A8</td></tr>
+<tr><td>On Primary Container</td><td class="v">#E4E0FF</td></tr>
+<tr><td>Surface</td><td class="v">#131318</td></tr>
+<tr><td>Surface Container</td><td class="v">#1F1E25</td></tr>
+<tr><td>Surface Container High</td><td class="v">#2A2931</td></tr>
+<tr><td>Outline Variant</td><td class="v">#48464F</td></tr>
+<tr><td>On Surface</td><td class="v">#E5E1E9</td></tr>
+<tr><td>On Surface Variant</td><td class="v">#A5A2AD</td></tr>
+<tr><td>Subdued</td><td class="v">#918F9A</td></tr>
+<tr><td>Recording accent</td><td class="v">#FF8A8A</td></tr>
+<tr><td>Success Container / On</td><td class="v">#163A29 / #9CD5B3</td></tr>
+<tr><td>Warning / On</td><td class="v">#F5BE6B / #3A2600</td></tr>
+<tr><td>Error</td><td class="v">#FFB4AB</td></tr>
+</table>
+
+<h3>1.3 Type scale — all fixed sp, never scaled by width</h3>
+<table>
+<tr><th>Style</th><th>Family / weight</th><th>Size</th><th>Line-height</th><th>Tracking</th><th>Used for</th></tr>
+<tr><td>Display</td><td>Outfit 800</td><td class="v">44sp</td><td>1.0</td><td class="v">-2%</td><td>Onboarding wordmark "Yap"</td></tr>
+<tr><td>Headline</td><td>Outfit 700</td><td class="v">22–24sp</td><td>1.12–1.2</td><td class="v">-1.5%</td><td>Screen/onboarding headlines, Session Detail title</td></tr>
+<tr><td>Title</td><td>Roboto Flex 700</td><td class="v">21sp</td><td>1.2</td><td class="v">0</td><td>Sub-screen app-bar titles ("Capture", "Privacy & data")</td></tr>
+<tr><td>Subtitle</td><td>Roboto Flex 600</td><td class="v">15–16sp</td><td>1.3</td><td class="v">0</td><td>Card titles, list-row primary text, section headers in cards</td></tr>
+<tr><td>Body</td><td>Roboto Flex 400</td><td class="v">14–15sp</td><td>1.5–1.55</td><td class="v">0</td><td>Paragraphs, transcript text</td></tr>
+<tr><td>Body small</td><td>Roboto Flex 400</td><td class="v">12–13sp</td><td>1.4–1.45</td><td class="v">0</td><td>List-row secondary text, snippets</td></tr>
+<tr><td>Label</td><td>Roboto Flex 600</td><td class="v">11–13sp</td><td>1.2</td><td class="v">2–4%</td><td>Chips, tabs, bottom-nav labels, eyebrow text ("STEP 2 OF 6")</td></tr>
+<tr><td>Caption</td><td>Roboto Flex 400</td><td class="v">11sp</td><td>1.3</td><td class="v">0</td><td>Timestamps, helper/meta text</td></tr>
+</table>
+
+<h3>1.4 Spacing scale — fixed dp tokens</h3>
+<table>
+<tr><th>Token</th><th>Value</th><th>Used for</th></tr>
+<tr><td class="v">space-xs</td><td class="v">4dp</td><td>Icon–label gap, chip internal icon gap</td></tr>
+<tr><td class="v">space-sm</td><td class="v">8dp</td><td>Chip row gaps, tight internal gaps</td></tr>
+<tr><td class="v">space-md</td><td class="v">12dp</td><td>Gap between stacked cards, gap between action buttons</td></tr>
+<tr><td class="v">space-base</td><td class="v">16dp</td><td>Card internal padding, standard block gap</td></tr>
+<tr><td class="v">space-lg</td><td class="v">22–24dp</td><td>Screen edge margin (see §1.6)</td></tr>
+<tr><td class="v">space-xl</td><td class="v">28–32dp</td><td>Bottom CTA-row edge margin, hero spacing above/below capture button</td></tr>
+</table>
+
+<h3>1.5 Corner radius scale — fixed dp, never scaled</h3>
+<table>
+<tr><th>Token</th><th>Value</th><th>Used for</th></tr>
+<tr><td class="v">radius-sm</td><td class="v">8–10dp</td><td>Category chips, small tags, table cells</td></tr>
+<tr><td class="v">radius-md</td><td class="v">14–16dp</td><td>Info panels, segmented-control track, editing block, list rows on press</td></tr>
+<tr><td class="v">radius-lg</td><td class="v">18–20dp</td><td>Session cards, plan cards, home-screen widgets</td></tr>
+<tr><td class="v">radius-xl</td><td class="v">24–28dp</td><td>Bottom sheets (top corners), basic dialogs, splash icon</td></tr>
+<tr><td class="v">radius-full</td><td class="v">height ÷ 2</td><td>All pill buttons, chips, switches, FAB-adjacent avatar, capture button (circle)</td></tr>
+</table>
+
+<h3>1.6 Screen-width ratios — the numbers that actually adapt per device</h3>
+<table>
+<tr><th>Element</th><th>% of screen width</th><th>Notes</th></tr>
+<tr><td>Screen edge margin</td><td class="v">6.1%</td><td>22dp @ 360dp baseline; clamp(20dp, 6.1%, 28dp)</td></tr>
+<tr><td>Session/plan card width</td><td class="v">≈ 100% − 2×margin</td><td>Full-bleed within edge margins</td></tr>
+<tr><td>Capture button diameter (hero, idle/offline)</td><td class="v">36.7%</td><td>132dp @360dp; clamp(120dp, 36.7%, 148dp) — stays circular (aspectRatio 1f)</td></tr>
+<tr><td>Capture button diameter (mid-recording)</td><td class="v">26.7%</td><td>96dp @360dp; clamp(88dp, 26.7%, 108dp)</td></tr>
+<tr><td>Recording side buttons (pause/bookmark)</td><td class="v">16.1%</td><td>58dp @360dp — 60% the size of the mid-recording button, always derive as 0.6× it rather than its own %</td></tr>
+<tr><td>Library FAB</td><td class="v">16.7%</td><td>60dp @360dp; clamp(56dp, 16.7%, 64dp)</td></tr>
+<tr><td>Avatar chip (top bar)</td><td class="v">10.6%</td><td>38dp @360dp — always circular</td></tr>
+<tr><td>Onboarding icon mark (welcome)</td><td class="v">23.3%</td><td>84dp @360dp</td></tr>
+</table>
+
+<div class="note"><b>Everything else</b> (icon glyph sizes, button heights that aren't circular, row heights, chip heights) is a <b>fixed dp value</b> from the component specs in §2 — those are already resolution-independent because Android dp is. Only the items in §1.6 need to actively scale with screen width.</div>
+
+<h2>2 · Global components (referenced by name from every screen)</h2>
+
+<h3>2.1 System bars — do not hand-size these</h3>
+<p>Status bar and navigation bar are OS-owned. Apply <code>WindowInsets.statusBars</code> / <code>navigationBars</code> as content padding — never a fixed or ratio height for them. The mockups show a 38px (≈5.5%) status bar purely for presentation.</p>
+
+<h3>2.2 Bottom navigation bar</h3>
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Height</td><td class="v">72dp fixed</td><td></td></tr>
+<tr><td>Background</td><td>Surface Container</td></tr>
+<tr><td>Layout</td><td>3 items, equal-weight row (<code>Modifier.weight(1f)</code> each), <code>Arrangement.SpaceAround</code></td></tr>
+<tr><td>Icon size</td><td class="v">23dp</td></tr>
+<tr><td>Active pill</td><td class="v">56×30dp, radius-full, bg Primary Container, icon On-Primary-Container + filled glyph variant</td></tr>
+<tr><td>Inactive icon</td><td>On-Surface-Variant, outlined glyph, no pill bg</td></tr>
+<tr><td>Label</td><td>Label style; weight 600 active / 500 inactive; color On-Surface (active) / On-Surface-Variant (inactive)</td></tr>
+<tr><td>Icon–label gap</td><td class="v">space-xs (3dp)</td></tr>
+</table>
+
+<h3>2.3 Capture button — all states</h3>
+<table>
+<tr><th>State</th><th>Diameter</th><th>Fill</th><th>Icon / center glyph</th><th>Shadow</th><th>Motion</th></tr>
+<tr><td>Idle / offline (hero)</td><td>36.7%w (§1.6)</td><td>Primary</td><td>mic, filled, 47% of diameter, On-Primary</td><td class="v">0 18px 44px rgba(91,91,214,.42)</td><td>none</td></tr>
+<tr><td>Recording (mid)</td><td>26.7%w</td><td>Recording accent</td><td>stop square, 29% of diameter, radius 25% of square side, On-Primary equivalent (white/near-black per theme)</td><td class="v">0 12px 30px rgba(255,107,107,.45)</td><td>Pulse ring — see §2.7</td></tr>
+<tr><td>Paused (mid)</td><td>26.7%w</td><td>Surface + 3dp Recording-accent stroke</td><td>play_arrow filled, 52% of diameter, Recording accent</td><td>none</td><td>none — waveform freezes too</td></tr>
+<tr><td>Side action (pause/bookmark)</td><td>0.6 × mid-diameter</td><td>Surface, 1dp Outline-Variant stroke</td><td>icon 45% of button diameter</td><td>none</td><td>none</td></tr>
+</table>
+
+<h3>2.4 Session / library card</h3>
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Width</td><td>100% within screen edge margins</td></tr>
+<tr><td>Radius</td><td class="v">radius-lg (18dp)</td></tr>
+<tr><td>Border</td><td class="v">1dp Outline-Variant (light) · borderless, rely on Surface-Container contrast (dark)</td></tr>
+<tr><td>Padding</td><td class="v">14dp all sides</td></tr>
+<tr><td>Gap between stacked cards</td><td class="v">space-md (12dp)</td></tr>
+<tr><td>Category chip</td><td>height 21dp, radius-sm 7dp, h-padding 8dp, Label 11sp/600</td></tr>
+<tr><td>Title → chip-row gap</td><td class="v">6dp</td></tr>
+<tr><td>Title style</td><td>Subtitle (15sp/600)</td></tr>
+<tr><td>Snippet</td><td>Body-small, On-Surface-Variant, 2-line clamp, margin-top 4dp</td></tr>
+<tr><td>Status row</td><td>margin-top 10dp; status chip (§2.5) + meta timestamp (Caption, On-Surface-Variant, right-aligned via <code>Spacer(weight=1f)</code>)</td></tr>
+<tr><td>Pin icon (if pinned)</td><td>17dp, Primary, filled, top-right of chip row</td></tr>
+</table>
+
+<h3>2.5 Status chips (Draft / Polishing / Refined / Offline-pending)</h3>
+<table>
+<tr><th>Variant</th><th>Bg</th><th>Text/icon</th><th>Icon</th></tr>
+<tr><td>Draft</td><td>#E7E5EC (Draft-neutral)</td><td>#47464F</td><td>6dp filled dot, no glyph</td></tr>
+<tr><td>Polishing</td><td>Primary Container</td><td>On-Primary-Container</td><td><code>autorenew</code>, rotating 360°/1.6s linear infinite</td></tr>
+<tr><td>Refined</td><td>Success Container</td><td>On-Success-Container</td><td><code>check_circle</code> filled</td></tr>
+<tr><td>Offline-pending</td><td>Warning Container</td><td>On-Warning-Container</td><td><code>cloud_off</code></td></tr>
+</table>
+<p>All variants: height 21–23dp, radius-full, h-padding 10–14dp, icon 12–15dp, icon–label gap 4–5dp, Label 11sp/600.</p>
+
+<h3>2.6 Waveform (live recording visualizer)</h3>
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Container</td><td>full width minus screen margins, height 60dp fixed, bars centered horizontally</td></tr>
+<tr><td>Bar count</td><td class="v">11</td></tr>
+<tr><td>Bar width</td><td class="v">5dp</td></tr>
+<tr><td>Bar radius</td><td class="v">radius-full (2.5dp)</td></tr>
+<tr><td>Bar gap</td><td class="v">4dp</td></tr>
+<tr><td>Bar height range</td><td class="v">22–56dp, randomized per bar (32–85% of container height)</td></tr>
+<tr><td>Color</td><td>Recording accent</td></tr>
+<tr><td>Motion</td><td>Each bar: <code>scaleY</code> 0.3 ↔ 1.0, duration 0.8–1.1s (varies per bar), ease-in-out, infinite, stagger start-offset 0–0.25s per bar index — not synchronized, reads as organic</td></tr>
+<tr><td>Paused variant</td><td>animation stopped, bars fixed, color → Outline-Variant @ 50% opacity</td></tr>
+</table>
+
+<h3>2.7 Pulse animations</h3>
+<table>
+<tr><th>Name</th><th>Used on</th><th>Keyframes</th><th>Timing</th></tr>
+<tr><td>Ring pulse</td><td>Capture button (recording), FAB (rare emphasis)</td><td><code>scale</code> 1.0 → 1.18, <code>opacity</code> 0.55 → 0, same color as button fill, ring drawn behind/around the button at full button size</td><td>1.8s ease-in-out infinite</td></tr>
+<tr><td>Dot pulse</td><td>"● Recording" label dot, "REC" badges</td><td><code>opacity</code> 1 → 0.4 → 1</td><td>1.3–1.4s ease-in-out infinite</td></tr>
+<tr><td>Spinner</td><td>Processing screen ring, purchase-in-progress, key-validating</td><td><code>rotate</code> 0 → 360°, 3dp stroke, transparent top segment</td><td>1–1.2s linear infinite</td></tr>
+<tr><td>Icon spin</td><td>"Polishing" chip <code>autorenew</code> glyph, sync-pending icon</td><td><code>rotate</code> 0 → 360°</td><td>1.5–1.6s linear infinite</td></tr>
+</table>
+
+<h3>2.8 Top app bar (sub-screens &amp; Session Detail)</h3>
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Content row height</td><td class="v">56dp</td></tr>
+<tr><td>Icon size / tap target</td><td class="v">24dp glyph / 44×44dp min touch target</td></tr>
+<tr><td>Title (sub-screen list pages)</td><td>Title style, left-aligned, 14dp gap after back icon</td></tr>
+<tr><td>Title (Session Detail)</td><td>Headline style (23sp Outfit 700), rendered as content below a minimal 2-icon bar (back + overflow), not as an app-bar label</td></tr>
+</table>
+
+<h3>2.9 Segmented control (Formatted / Raw)</h3>
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Track</td><td>height 46dp, radius-md 14dp, padding 5dp, bg Surface Container</td></tr>
+<tr><td>Segments</td><td>equal weight, selected pill radius 11dp, bg Surface, shadow <code>0 1px 3px rgba(0,0,0,.08)</code></td></tr>
+<tr><td>Label</td><td>13sp; weight 600 + On-Surface (selected) / weight 400 + On-Surface-Variant (unselected)</td></tr>
+</table>
+
+<h3>2.10 Search field</h3>
+<table>
+<tr><th>State</th><th>Height</th><th>Border</th><th>Bg</th></tr>
+<tr><td>Idle</td><td class="v">46–48dp</td><td>none</td><td>Surface Container</td></tr>
+<tr><td>Focused</td><td class="v">46–48dp</td><td>2dp Primary</td><td>Surface</td></tr>
+</table>
+<p>radius-full, h-padding 16dp, leading icon 22dp, icon–text gap 10dp, text 14sp.</p>
+
+<h3>2.11 Audio player bar</h3>
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Container</td><td>radius-lg 20dp, padding 14–16dp, bg Surface Container</td></tr>
+<tr><td>Play/pause button</td><td>42dp circle, Primary bg, icon 24dp On-Primary</td></tr>
+<tr><td>Scrubber track</td><td>height 4dp, radius-full, bg #D6D2E2 (light) — fill Primary — thumb 10dp circle Primary</td></tr>
+<tr><td>Time labels</td><td>Caption, On-Surface-Variant</td></tr>
+<tr><td>Speed chip</td><td>Primary Container bg, On-Primary-Container text, 11sp/600, padding 4×8dp, radius-sm 8dp</td></tr>
+</table>
+
+<h3>2.12 Bottom sheet</h3>
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Top corners</td><td class="v">radius-xl 24–28dp</td></tr>
+<tr><td>Scrim</td><td class="v">rgba(20,18,30,.45)</td></tr>
+<tr><td>Grabber</td><td class="v">34×4dp, radius-full, Outline-Variant, margin-top 14–18dp, centered</td></tr>
+<tr><td>Row item</td><td>height 48dp (13dp v-padding + 22dp icon), icon 22dp, label 15sp, radius-md 14dp on selected/press state (Primary-Container bg)</td></tr>
+</table>
+
+<h3>2.13 Basic dialog (confirm / warning)</h3>
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Radius</td><td class="v">radius-xl 28dp</td></tr>
+<tr><td>Icon</td><td class="v">30dp</td></tr>
+<tr><td>Title</td><td>Outfit 700, 19–21sp</td></tr>
+<tr><td>Body</td><td>13–14sp, On-Surface-Variant</td></tr>
+<tr><td>Buttons</td><td>right-aligned row, gap 10dp; text button padding 10×14dp; filled/tonal button radius-full, padding 10×18dp</td></tr>
+</table>
+
+<h3>2.14 Switch / Slider</h3>
+<table>
+<tr><th>Component</th><th>Spec</th></tr>
+<tr><td>Switch</td><td>track 52×32dp radius-full; thumb 24dp circle, 4dp inset; ON = Primary track / Surface thumb; OFF = Outline-Variant track / Surface thumb</td></tr>
+<tr><td>Slider</td><td>track height 6dp radius-full bg Surface-Variant-ish #D6D2E2; fill Primary; thumb 20dp circle Primary + 3dp Surface ring + soft drop shadow</td></tr>
+</table>
+
+<h3>2.15 FAB (Library "new note")</h3>
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Size</td><td>16.7%w (§1.6), squircle radius-lg 20dp (not full circle)</td></tr>
+<tr><td>Fill / icon</td><td>Primary bg, 30dp On-Primary icon</td></tr>
+<tr><td>Shadow</td><td class="v">0 10px 26px rgba(91,91,214,.42)</td></tr>
+<tr><td>Position</td><td>20dp from trailing edge; bottom offset = bottom-nav height (72dp) + 16dp = 88dp above screen bottom</td></tr>
+</table>
+
+<h3>2.16 Snackbar / Coach mark</h3>
+<table>
+<tr><th>Component</th><th>Spec</th></tr>
+<tr><td>Snackbar</td><td>radius-md 14dp, bg Inverse-Surface (#2A2931 both themes), padding 14×16dp, message 14sp white/On-Inverse, action label 14sp/700 Primary-tint</td></tr>
+<tr><td>Coach mark</td><td>bg Primary, radius-md 16dp, padding 16dp, 16×16dp rotated-45° pointer triangle, title 14sp/700 white, body 13sp white@90%, ghost button (white@18% bg) + solid button (white bg/Primary text)</td></tr>
+</table>
+
+<h2>3 · Screen recipes</h2>
+<p>Each screen is an ordered top-to-bottom stack. Sizes are either their own intrinsic content size, a fixed dp/sp token from §1–2, or a §1.6 ratio. Exactly one gap per screen is the flexible spacer (<code>weight(1f)</code>) — called out explicitly.</p>
+
+<h3>3.1 Capture — Idle / Offline</h3>
+<div class="flexbox">
+<div class="flexrow"><b>1. Top row</b><span>avatar chip (§1.6, 10.6%w) + sync/offline status chip (§2.5-style), space-between</span></div>
+<div class="flexrow"><b>2. Greeting block</b><span>margin-top 22dp · Headline "Good morning, Sam" + Body-small subtitle, margin-top 4dp</span></div>
+<div class="flexrow"><b>3. Last-note card</b><span>margin-top 20dp · Surface-Container panel, radius-md 18dp, padding 14×16dp (see §2.4-lite: eyebrow Caption + Title 15sp + status row)</span></div>
+<div class="flexrow"><b>4. ★ FLEXIBLE SPACER</b><span><code>weight(1f)</code> — centers block 5 in remaining space</span></div>
+<div class="flexrow"><b>5. Capture button + label</b><span>button §2.3 idle (36.7%w) · label margin-top 20dp, Subtitle style</span></div>
+<div class="flexrow"><b>6. Bottom nav</b><span>§2.2, fixed 72dp</span></div>
+</div>
+<div class="ref">Offline variant: insert a Warning-Container banner (radius-md 14dp, padding 12×14dp, icon+text row) directly below the status bar, above block 1; status chip in block 1 switches to <code>cloud_off</code>/Warning styling.</div>
+
+<h3>3.2 Capture — Recording / Paused</h3>
+<div class="flexbox">
+<div class="flexrow"><b>1. Timer block</b><span>margin-top 20dp, centered · "● Recording"/"⏸ Paused" label (Label style + dot/icon) + Timer (Outfit 700 44sp), margin-top 4dp</span></div>
+<div class="flexrow"><b>2. Waveform</b><span>§2.6, fixed 60dp, margin-top 14dp</span></div>
+<div class="flexrow"><b>3. ★ FLEXIBLE SPACER (as live-draft panel)</b><span>Surface-Container panel <code>weight(1f)</code>, margin 16dp sides/top, radius-md 16dp, padding 16dp — panel itself expands to fill remaining space, eyebrow "LIVE DRAFT"/"DRAFT SO FAR" + Body text</span></div>
+<div class="flexrow"><b>4. Transport row</b><span>margin-bottom 30dp · side button (§2.3) — center button (§2.3, 26.7%w) — side button, gap 30dp each, centered</span></div>
+</div>
+<div class="ref">No bottom nav on this screen — the transport row replaces it.</div>
+
+<h3>3.3 Capture — Processing</h3>
+<div class="flexbox">
+<div class="flexrow"><b>1. ★ FLEXIBLE SPACER wrapping center content</b><span><code>weight(1f)</code> column, centered: spinner ring (§2.7, 108dp circle) → "Polishing…" Headline margin-top 28dp → 2-line Body margin-top 8dp → info banner margin-top 22dp (Surface-Container, radius-md 14dp, padding 10×16dp)</span></div>
+<div class="flexrow"><b>2. Secondary action</b><span>margin-bottom 38dp · outlined pill button, 54dp height, radius-full</span></div>
+</div>
+
+<h3>3.4 Session Detail — Refined (Formatted)</h3>
+<div class="flexbox">
+<div class="flexrow"><b>1. Minimal app bar</b><span>§2.8 — back icon, status chip (§2.5), overflow icon, space-between</span></div>
+<div class="flexrow"><b>2. Title block</b><span>margin-top 14dp · Headline title + edit-pencil icon inline · chip row margin-top 12dp (category + collection + tag chips, gap 6dp)</span></div>
+<div class="flexrow"><b>3. Segmented control</b><span>§2.9, margin-top 14dp</span></div>
+<div class="flexrow"><b>4. ★ FLEXIBLE SCROLLING BODY</b><span><code>weight(1f)</code>, vertically scrollable, padding-top 16dp · Subtitle section headers (16sp/700) + Body paragraphs, margin 6–14dp between blocks; tables use §1.5 radius-sm borders; bullet lists use Primary-colored bullet glyph</span></div>
+<div class="flexrow"><b>5. Audio player bar</b><span>§2.11, docked bottom, 12dp top border hairline (Outline-Variant)</span></div>
+</div>
+<div class="ref">Variants reuse this recipe: <b>Dialogue</b> swaps block 4's paragraphs for speaker-label (Label, colored per speaker) + line pairs and an italic blockquote action item. <b>Draft-only</b> replaces the segmented control (block 3) with a "Not refined yet" Warning-Container banner and status chip → Draft. <b>No-audio</b> removes block 5, replacing it with a muted "Audio was discarded" row. <b>Loading</b> replaces blocks 2–4 with skeleton bars (Surface-Variant fill, radius-sm, same block heights as their real content, no shimmer motion needed beyond a slow opacity pulse if desired).</div>
+
+<h3>3.5 Session Detail — Editing block</h3>
+<div class="flexbox">
+<div class="flexrow"><b>1. App bar</b><span>close icon — "Editing block" Title — "Done" text button, space-between</span></div>
+<div class="flexrow"><b>2. Title</b><span>margin-top 14dp, Headline (21sp)</span></div>
+<div class="flexrow"><b>3. ★ FLEXIBLE SCROLLING BODY</b><span>preceding paragraph text (dimmed, On-Surface-Variant) + active edit card (2dp Primary border, radius-md 14dp, Primary-Container-tinted bg, version-stepper row: chevrons + "n / total" pill + Revert text-link)</span></div>
+<div class="flexrow"><b>4. Keyboard</b><span>fixed 128dp, Surface-Container-High bg, standard QWERTY key styling — platform IME, not custom-built</span></div>
+</div>
+
+<h3>3.6 Session Detail — Smart Review / flagged</h3>
+<div class="flexbox">
+<div class="flexrow"><b>1. App bar</b><span>back — "Reviewing" chip (Primary-Container, spinning <code>autorenew</code>) — overflow</span></div>
+<div class="flexrow"><b>2. Title</b><span>margin-top 14dp</span></div>
+<div class="flexrow"><b>3. Review banner</b><span>margin-top 14dp · Primary-Container-tinted panel, radius-sm 12dp, padding 10×14dp, verified-shield icon + "checking n of m blocks…" Label</span></div>
+<div class="flexrow"><b>4. ★ FLEXIBLE SCROLLING BODY</b><span>normal paragraph(s) + one flagged block: 2dp amber (#E0A52E) border, radius-md 14dp, amber-tinted bg, highlighted span, inline warning sub-panel (icon+title+body), Keep/Fix button row (gap 8dp, equal-weight)</span></div>
+<div class="flexrow"><b>5. Summary bar</b><span>docked bottom, Primary-Container pill row, "Smart Review · n issue(s) found"</span></div>
+</div>
+
+<h3>3.7 Library — Populated</h3>
+<div class="flexbox">
+<div class="flexrow"><b>1. Header row</b><span>Headline "Library" — avatar chip (10.6%w), space-between</span></div>
+<div class="flexrow"><b>2. Search field</b><span>§2.10, margin-top 14dp</span></div>
+<div class="flexrow"><b>3. Filter chip row</b><span>margin-top 12dp, horizontally scrollable, gap 8dp — chips: outlined 1dp Outline-Variant / filled Primary when active</span></div>
+<div class="flexrow"><b>4. ★ FLEXIBLE SCROLLING LIST</b><span><code>weight(1f)</code>, section eyebrow labels ("THIS WEEK" — Label, Subdued) + session cards §2.4, gap space-md between cards, gap 10dp before each new section eyebrow</span></div>
+<div class="flexrow"><b>5. FAB</b><span>§2.15, overlaid absolute, does not consume flow height</span></div>
+<div class="flexrow"><b>6. Bottom nav</b><span>§2.2</span></div>
+</div>
+<div class="ref">Variants: <b>Empty</b> replaces blocks 3–4 with a centered empty-state (icon 64dp Outline-Variant + Subtitle + Body-small, vertically centered in a <code>weight(1f)</code> spacer). <b>Search results</b> swaps block 2 for an active/focused search field with a back-chevron leading icon; block 4's snippets get <code>&lt;mark&gt;</code>-style Primary-Container highlight spans. <b>Multi-select</b> replaces block 1 with a Primary-Container contextual bar (close icon — "n selected" — select-all icon) and each card gets a 2dp Primary border + 22dp checkbox badge top-right; bottom nav (block 6) is replaced by a 4-action bar (Group/Formalize/Pin/Delete, equal-weight columns).</div>
+
+<h3>3.8 Onboarding — Welcome</h3>
+<div class="flexbox">
+<div class="flexrow"><b>1. ★ FLEXIBLE SPACER wrapping hero</b><span><code>weight(1f)</code> centered column: icon mark (23.3%w, §1.6) → Display wordmark margin-top 32dp → Body subtitle margin-top 20dp, centered text</span></div>
+<div class="flexrow"><b>2. Button stack</b><span>margin-bottom 38dp · filled pill CTA (56dp height) + outlined pill CTA, gap 12dp</span></div>
+</div>
+
+<h3>3.9 Onboarding — First note (default / recording / saved)</h3>
+<p>Default: eyebrow "STEP n OF 6" (Label, Primary) → Headline (2-line) → Body subtitle, all centered, margin-top 24dp block; then <b>★ flexible spacer</b> centering the capture button (idle style, same 36.7%w); helper caption docked bottom. Recording sub-state reuses the Capture-recording recipe (§3.2) minus the bottom-nav absence note (already true). Saved sub-state: flexible-spacer-centered success icon (48% of a 96dp circle) + Headline "Saved!" + Body + a preview card (§2.4-lite), then a single filled CTA docked bottom.</p>
+
+<h3>3.10 Onboarding — Account / How it works / AI key / Suggested setup</h3>
+<p>Account: header block → OAuth button (54dp, outlined, leading 20dp logo mark) → "or" divider row → 2 text fields (54dp, radius-md 14dp, 1dp Outline-Variant) → filled CTA, then a docked-bottom "Continue as guest" text link. How-it-works: header → 3 equal feature rows (Primary-Container 48dp icon tile + title/body pair, gap 14dp) in a <code>weight(1f)</code> list → dot-pagination row → filled CTA. AI key: header → 2 selectable option cards (2dp Primary border when selected, 44dp icon tile + title/subtitle + trailing radio, locked options show a small lock glyph) → docked CTA. Suggested setup: header → 2 feature+CTA rows (56dp icon tile, title/subtitle, trailing "Add" pill button) in a <code>weight(1f)</code> list → CTA stack (filled + text-link "Skip").</p>
+
+<h3>3.11 Settings — Main list</h3>
+<div class="flexbox">
+<div class="flexrow"><b>1. Header</b><span>Headline "Settings"</span></div>
+<div class="flexrow"><b>2. ★ FLEXIBLE SCROLLING LIST</b><span>account summary row (Surface-Container panel, radius-lg 18dp, avatar+name/email+chevron) margin-bottom 18dp, then grouped rows under Label-style section eyebrows ("GENERAL"/"PRIVACY"): each row 44dp icon + title (+ optional subtitle/trailing value/lock glyph) + chevron, 1dp Outline-Variant-ish divider between rows in a group, 16dp gap before each new eyebrow</span></div>
+<div class="flexrow"><b>3. Bottom nav</b><span>§2.2</span></div>
+</div>
+<div class="ref">Sub-screens (Capture / Privacy / Appearance / Transcription / About) all reuse: §2.8 app bar + the same row style as block 2, just without the outer Settings header/bottom-nav. Appearance's theme picker is a 3-column equal-weight row of 84dp-tall swatch tiles (radius-md 14dp, 2dp Primary border when selected + check_circle badge).</div>
+
+<h3>3.12 Subscription · Referral · BYOK</h3>
+<p>Plans screen: app bar → usage panel (Surface-Container, 2 labeled progress rows, track height 7dp radius-full) → plan cards stacked (current plan gets 2dp Primary border + Primary-tinted bg + "CURRENT" badge pill; price row is Outfit 800 24–26sp + Body-small "/mo" suffix). Referral/Unlock: centered icon+body intro → "Pay once" card (Primary border, price top-right, filled CTA) → "Invite friends" card (progress dots row, referral-link chip with copy icon, outlined share CTA, caption). BYOK key screen: provider chip row (selected = filled Primary, disabled/soon = Surface-Container + "SOON" tag) → key input field (2dp border, color = Outline-Variant idle / Primary validating / Success valid / Error invalid) → inline validation caption row → success confirmation panel (Success-Container-soft) when valid → docked "Remove key" destructive text link.</p>
+
+<h2>4 · Quick-reference: dynamic/motion specs</h2>
+<table>
+<tr><th>Effect</th><th>Property</th><th>From → To</th><th>Duration / easing</th></tr>
+<tr><td>Capture-button pulse ring</td><td>scale / opacity</td><td>1.0/0.55 → 1.18/0</td><td>1.8s ease-in-out infinite</td></tr>
+<tr><td>Recording dot / REC badge</td><td>opacity</td><td>1 → 0.4 → 1</td><td>1.3–1.4s ease-in-out infinite</td></tr>
+<tr><td>Waveform bar</td><td>scaleY</td><td>0.3 ↔ 1.0</td><td>0.8–1.1s ease-in-out infinite, staggered 0–0.25s</td></tr>
+<tr><td>Processing spinner ring</td><td>rotation</td><td>0° → 360°</td><td>1–1.2s linear infinite</td></tr>
+<tr><td>"Polishing"/"Reviewing" icon</td><td>rotation</td><td>0° → 360°</td><td>1.5–1.6s linear infinite</td></tr>
+<tr><td>Bottom sheet enter</td><td>translateY + scrim opacity</td><td>100% → 0 / 0 → 0.45</td><td>~220ms standard decelerate</td></tr>
+<tr><td>Snackbar enter/exit</td><td>translateY + opacity</td><td>slide up from below nav, fade</td><td>~200ms enter / 150ms exit</td></tr>
+<tr><td>Screen-to-screen (push)</td><td>shared-axis X or fade-through</td><td>—</td><td>Material 3 default motion scheme; use fade-through between bottom-nav tabs, shared-axis for stack pushes</td></tr>
+</table>
+
+</x-import>
+</x-dc>
+</body>
+</html>

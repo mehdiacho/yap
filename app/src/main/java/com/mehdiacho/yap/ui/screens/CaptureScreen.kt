@@ -155,130 +155,115 @@ private fun IdleContent(
     }
     val signedIn = user != null && user?.isAnonymous == false
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        // The design frame is 320 units wide, so every measurement is that fraction of the
-        // actual screen width — the record button is 132/320 = 41.25% of the width, etc.
-        val s = (maxWidth.value / 320f).coerceIn(0.85f, 1.7f)
+    val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
 
-        Column(Modifier.fillMaxSize()) {
-            // Avatar + sync pill (design padding 8 / 22)
-            Row(
-                Modifier.fillMaxWidth().padding(top = (8 * s).dp, start = (22 * s).dp, end = (22 * s).dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Spec §1.6 — ONLY these scale with screen width; everything else is fixed dp/sp.
+        val wv = maxWidth.value
+        val edge = (wv * 0.061f).dp.coerceIn(20.dp, 28.dp)   // screen edge margin
+        val captureDia = (wv * 0.367f).dp.coerceIn(120.dp, 148.dp) // §2.3 idle
+        val avatar = (wv * 0.106f).dp.coerceIn(34.dp, 44.dp)
+        val micIcon = captureDia * 0.47f
+
+        Column(Modifier.fillMaxSize().padding(horizontal = edge)) {
+            Spacer(Modifier.height(8.dp))
+
+            // 1 · Top row — avatar + sync chip (§3.1)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.size((38 * s).dp).clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    Modifier.size(avatar).clip(CircleShape).background(cs.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        name.firstOrNull()?.uppercaseChar()?.toString() ?: "Y",
-                        fontWeight = FontWeight.Bold, fontSize = (15 * s).sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
+                    Text(name.firstOrNull()?.uppercaseChar()?.toString() ?: "Y",
+                        fontWeight = FontWeight.Bold, fontSize = 16.sp, color = cs.onPrimaryContainer)
                 }
                 Spacer(Modifier.weight(1f))
                 Row(
-                    Modifier.clip(RoundedCornerShape(999.dp))
-                        .background(YapTheme.extended.refinedContainer)
-                        .padding(horizontal = (12 * s).dp, vertical = (6 * s).dp),
+                    Modifier.clip(RoundedCornerShape(50))
+                        .background(ext.successSoft).padding(horizontal = 12.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Outlined.CloudDone, null,
-                        tint = YapTheme.extended.onRefinedContainer, modifier = Modifier.size((15 * s).dp))
-                    Spacer(Modifier.width((6 * s).dp))
+                    Icon(Icons.Outlined.CloudDone, null, tint = ext.onRefinedContainer, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(5.dp))
                     Text(if (signedIn) "Synced" else "Guest",
-                        fontWeight = FontWeight.SemiBold, fontSize = (12 * s).sp,
-                        color = YapTheme.extended.onRefinedContainer)
+                        fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = ext.onRefinedContainer)
                 }
             }
 
-            // Greeting (design padding 22 / 28, Outfit 24)
-            Column(Modifier.padding(top = (22 * s).dp, start = (28 * s).dp, end = (28 * s).dp)) {
-                Text("$greeting, $name",
-                    fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = (24 * s).sp,
-                    letterSpacing = (-0.3 * s).sp, color = MaterialTheme.colorScheme.onBackground)
-                Spacer(Modifier.height((4 * s).dp))
-                Text("What's on your mind?", fontSize = (14 * s).sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            // 2 · Greeting (Headline Outfit 24 + Body-small subtitle)
+            Spacer(Modifier.height(22.dp))
+            Text("$greeting, $name",
+                fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 24.sp,
+                lineHeight = 28.sp, letterSpacing = (-0.4).sp, color = cs.onSurface)
+            Spacer(Modifier.height(4.dp))
+            Text("What's on your mind?", fontSize = 13.sp, lineHeight = 19.sp, color = cs.onSurfaceVariant)
 
-            // Last note (design padding 20 / 24; card radius 18, padding 14/16)
+            // 3 · Last-note card (§2.4-lite)
             if (lastSession != null) {
-                Column(Modifier.padding(top = (20 * s).dp, start = (24 * s).dp, end = (24 * s).dp)) {
-                    Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape((18 * s).dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainer)
-                            .padding(horizontal = (16 * s).dp, vertical = (14 * s).dp)
-                    ) {
-                        Text("LAST NOTE", fontSize = (11 * s).sp, fontWeight = FontWeight.SemiBold,
-                            letterSpacing = (0.3 * s).sp, color = MaterialTheme.colorScheme.outline)
-                        Spacer(Modifier.height((5 * s).dp))
-                        Text(lastSession.title, fontSize = (15 * s).sp, fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        Spacer(Modifier.height((8 * s).dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            val done = lastSession.status == "DONE"
-                            Row(
-                                Modifier.clip(RoundedCornerShape(999.dp))
-                                    .background(if (done) YapTheme.extended.refinedContainer else MaterialTheme.colorScheme.surfaceVariant)
-                                    .padding(horizontal = (9 * s).dp, vertical = (3 * s).dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                if (done) {
-                                    Icon(Icons.Default.CheckCircle, null,
-                                        tint = YapTheme.extended.onRefinedContainer, modifier = Modifier.size((12 * s).dp))
-                                    Spacer(Modifier.width((4 * s).dp))
-                                }
-                                Text(if (done) "Refined" else lastSession.status.lowercase().replaceFirstChar { it.uppercase() },
-                                    fontSize = (11 * s).sp, fontWeight = FontWeight.SemiBold,
-                                    color = if (done) YapTheme.extended.onRefinedContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(20.dp))
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                        .background(cs.surfaceContainer).padding(horizontal = 16.dp, vertical = 14.dp)
+                ) {
+                    Text("LAST NOTE", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 0.4.sp, color = ext.subdued)
+                    Spacer(Modifier.height(5.dp))
+                    Text(lastSession.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        color = cs.onSurface, maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val done = lastSession.status == "DONE"
+                        Row(
+                            Modifier.clip(RoundedCornerShape(50))
+                                .background(if (done) ext.refinedContainer else ext.draftNeutral)
+                                .padding(horizontal = 9.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (done) {
+                                Icon(Icons.Default.CheckCircle, null, tint = ext.onRefinedContainer,
+                                    modifier = Modifier.size(12.dp))
+                                Spacer(Modifier.width(4.dp))
                             }
-                            Spacer(Modifier.width((6 * s).dp))
-                            Text(relativeTime(lastSession.createdAt), fontSize = (11 * s).sp,
-                                color = MaterialTheme.colorScheme.outline)
+                            Text(if (done) "Refined" else lastSession.status.lowercase().replaceFirstChar { it.uppercase() },
+                                fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                                color = if (done) ext.onRefinedContainer else cs.onSurfaceVariant)
                         }
+                        Spacer(Modifier.width(6.dp))
+                        Text(relativeTime(lastSession.createdAt), fontSize = 11.sp, color = ext.subdued)
                     }
                 }
             }
 
-            // Hero mic + import (fills remaining, centered)
+            // 4 · ★ Flexible spacer centering block 5 (§3.1)
             Column(
                 Modifier.weight(1f).fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
+                // 5 · Capture button + label + import pill
                 Box(
-                    Modifier.size((132 * s).dp)
-                        .shadow((22 * s).dp, CircleShape,
-                            spotColor = MaterialTheme.colorScheme.primary,
-                            ambientColor = MaterialTheme.colorScheme.primary)
-                        .clip(CircleShape).background(MaterialTheme.colorScheme.primary)
-                        .clickable { onRecord() },
+                    Modifier.size(captureDia)
+                        .shadow(18.dp, CircleShape, spotColor = cs.primary, ambientColor = cs.primary)
+                        .clip(CircleShape).background(cs.primary).clickable { onRecord() },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Rounded.Mic, "Record", tint = Color.White, modifier = Modifier.size((62 * s).dp))
+                    Icon(Icons.Rounded.Mic, "Record", tint = cs.onPrimary, modifier = Modifier.size(micIcon))
                 }
-                Spacer(Modifier.height((20 * s).dp))
-                Text("Tap to record", fontSize = (15 * s).sp, fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground)
-                Spacer(Modifier.height((14 * s).dp))
+                Spacer(Modifier.height(20.dp))
+                Text("Tap to record", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                Spacer(Modifier.height(14.dp))
                 Row(
-                    Modifier.clip(RoundedCornerShape(999.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
-                        .clickable { onImport() }
-                        .padding(horizontal = (15 * s).dp, vertical = (8 * s).dp),
+                    Modifier.clip(RoundedCornerShape(50)).background(cs.surfaceContainer)
+                        .clickable { onImport() }.padding(horizontal = 15.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Outlined.UploadFile, null, tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size((18 * s).dp))
-                    Spacer(Modifier.width((7 * s).dp))
-                    Text("Import a file", fontSize = (13 * s).sp, fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Outlined.UploadFile, null, tint = cs.primary, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("Import a file", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.primary)
                 }
             }
-            Spacer(Modifier.height((8 * s).dp))
         }
     }
 }

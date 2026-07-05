@@ -11,7 +11,7 @@ import androidx.compose.ui.graphics.Color
 val md_theme_light_primary = Color(0xFF5B5BD6)
 val md_theme_light_onPrimary = Color(0xFFFFFFFF)
 val md_theme_light_primaryContainer = Color(0xFFE4E0FF)
-val md_theme_light_onPrimaryContainer = Color(0xFF14134A)
+val md_theme_light_onPrimaryContainer = Color(0xFF3A37A0) // spec §1.1
 val md_theme_light_secondary = Color(0xFF5D5C72)
 val md_theme_light_onSecondary = Color(0xFFFFFFFF)
 val md_theme_light_secondaryContainer = Color(0xFFE3E0F9)
@@ -35,7 +35,7 @@ val md_theme_light_outlineVariant = Color(0xFFC8C5D0)
 val md_theme_light_surfaceContainerLowest = Color(0xFFFFFFFF)
 val md_theme_light_surfaceContainerLow = Color(0xFFF7F5FC)
 val md_theme_light_surfaceContainer = Color(0xFFF2EFF7)
-val md_theme_light_surfaceContainerHigh = Color(0xFFECE9F2)
+val md_theme_light_surfaceContainerHigh = Color(0xFFEDEBF3) // spec §1.1
 val md_theme_light_surfaceContainerHighest = Color(0xFFE6E3ED)
 
 // ---- Dark scheme ----
@@ -60,7 +60,7 @@ val md_theme_dark_onBackground = Color(0xFFE5E1E9)
 val md_theme_dark_surface = Color(0xFF131318)
 val md_theme_dark_onSurface = Color(0xFFE5E1E9)
 val md_theme_dark_surfaceVariant = Color(0xFF48464F)
-val md_theme_dark_onSurfaceVariant = Color(0xFFC8C5D0)
+val md_theme_dark_onSurfaceVariant = Color(0xFFA5A2AD) // spec §1.2
 val md_theme_dark_outline = Color(0xFF918F9A)
 val md_theme_dark_outlineVariant = Color(0xFF48464F)
 val md_theme_dark_surfaceContainerLowest = Color(0xFF0E0D12)
@@ -96,6 +96,19 @@ val OfflineDark = Color(0xFFF5BE6B)
 val OfflineContainerDark = Color(0xFF5A3D00)
 val OnOfflineContainerDark = Color(0xFFFFDDB0)
 
-// Legacy aliases (kept so the throwaway CaptureScreen still compiles until rebuilt).
+// Subdued — timestamps, eyebrow labels, placeholders (spec §1.1 / §1.2).
+val SubduedLight = Color(0xFF8B8896)
+val SubduedDark = Color(0xFF918F9A)
+// Success soft — safe-state confirmations, "Synced" pill.
+val SuccessSoftLight = Color(0xFFEAF6EE)
+val SuccessSoftDark = Color(0xFF163A29)
+// Draft neutral chip.
+val DraftNeutralLight = Color(0xFFE7E5EC)
+val DraftNeutralDark = Color(0xFF2A2931)
+// Warning soft — offline / draft-not-refined banners.
+val WarningSoftLight = Color(0xFFFFF4E0)
+val WarningSoftDark = Color(0xFF3A2600)
+
+// Legacy aliases (kept so older references still compile).
 val RecordingColorLight = RecordingLight
 val RecordingColorDark = RecordingDark
