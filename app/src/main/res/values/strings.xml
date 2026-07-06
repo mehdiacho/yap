@@ -4,4 +4,6 @@
     <string name="widget_record_description">One tap to capture an idea</string>
     <string name="shortcut_record_short">New recording</string>
     <string name="shortcut_record_long">Start a new recording</string>
+    <string name="widget_tap_label">Tap</string>
+    <string name="share_target_label">Transcribe in Yap</string>
 </resources>

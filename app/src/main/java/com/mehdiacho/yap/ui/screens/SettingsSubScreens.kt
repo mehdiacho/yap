@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
+import kotlinx.coroutines.launch
 
 // =====================================================================================
 // Settings sub-screens (design section 09). Toggles/sliders are DESIGN STUBS backed by
@@ -128,10 +129,12 @@ private fun SubEyebrow(text: String) {
 fun CaptureSettingsScreen(onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
-    var autoStopSecs by remember { mutableFloatStateOf(30f) }
-    var autoStopEnabled by remember { mutableStateOf(true) }
-    var haptics by remember { mutableStateOf(true) }
-    var sounds by remember { mutableStateOf(false) }
+    val store = com.mehdiacho.yap.data.SettingsStore
+    val autoStopEnabled by store.autoStopEnabled.collectAsState()
+    val autoStopSecsStored by store.autoStopSecs.collectAsState()
+    var autoStopSecs by remember(autoStopSecsStored) { mutableFloatStateOf(autoStopSecsStored.toFloat()) }
+    val haptics by store.haptics.collectAsState()
+    val sounds by store.sounds.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
 
     SettingsSubScaffold("Capture", onBack) {
@@ -148,6 +151,7 @@ fun CaptureSettingsScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(10.dp))
             Slider(
                 value = autoStopSecs, onValueChange = { autoStopSecs = it },
+                onValueChangeFinished = { store.setAutoStopSecs(autoStopSecs.toInt()) },
                 valueRange = 5f..120f, enabled = autoStopEnabled,
             )
             Row(Modifier.fillMaxWidth()) {
@@ -159,13 +163,13 @@ fun CaptureSettingsScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         SubRow(Icons.Outlined.Timer, "Auto-stop", "Enable silence detection") {
-            Switch(checked = autoStopEnabled, onCheckedChange = { autoStopEnabled = it })
+            Switch(checked = autoStopEnabled, onCheckedChange = { store.setAutoStopEnabled(it) })
         }
         SubRow(Icons.Outlined.Vibration, "Haptics") {
-            Switch(checked = haptics, onCheckedChange = { haptics = it })
+            Switch(checked = haptics, onCheckedChange = { store.setHaptics(it) })
         }
         SubRow(Icons.Outlined.VolumeUp, "Start / stop sound") {
-            Switch(checked = sounds, onCheckedChange = { sounds = it })
+            Switch(checked = sounds, onCheckedChange = { store.setSounds(it) })
         }
         // Real feature — floating record bubble lives under Capture entry points.
         FloatingBubbleSubRow()
@@ -218,16 +222,29 @@ private fun FloatingBubbleSubRow() {
 @Composable
 fun PrivacySettingsScreen(onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    var appLock by remember { mutableStateOf(false) }        // stub — biometrics later
-    var retention by remember { mutableStateOf("keep") }
-    var onDeviceOnly by remember { mutableStateOf(false) }   // stub
+    val store = com.mehdiacho.yap.data.SettingsStore
+    val appLock by store.appLock.collectAsState()
+    val retention by store.retention.collectAsState()
+    val onDeviceOnly by store.onDeviceOnly.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     fun stub(what: String) =
         android.widget.Toast.makeText(context, "$what coming soon", android.widget.Toast.LENGTH_SHORT).show()
 
     SettingsSubScaffold("Privacy & data", onBack) {
         SubRow(Icons.Outlined.Fingerprint, "App lock", "Require biometrics to open") {
-            Switch(checked = appLock, onCheckedChange = { appLock = it; if (it) stub("Biometric lock") })
+            Switch(checked = appLock, onCheckedChange = { on ->
+                // Only allow enabling when the device can actually authenticate.
+                if (on) {
+                    val mgr = androidx.biometric.BiometricManager.from(context)
+                    val ok = mgr.canAuthenticate(
+                        androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                            androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                    ) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+                    if (ok) store.setAppLock(true)
+                    else android.widget.Toast.makeText(context,
+                        "Set up a screen lock or fingerprint first", android.widget.Toast.LENGTH_LONG).show()
+                } else store.setAppLock(false)
+            })
         }
 
         SubEyebrow("AUDIO RETENTION")
@@ -239,7 +256,7 @@ fun PrivacySettingsScreen(onBack: () -> Unit) {
             ).forEachIndexed { i, (key, label) ->
                 if (i > 0) HorizontalDivider(thickness = 1.dp, color = cs.surfaceVariant)
                 Row(
-                    Modifier.fillMaxWidth().clickable { retention = key }.padding(14.dp),
+                    Modifier.fillMaxWidth().clickable { store.setRetention(key) }.padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -255,15 +272,97 @@ fun PrivacySettingsScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(8.dp))
 
         SubRow(Icons.Outlined.CloudOff, "On-device only mode", "Never send audio to the cloud") {
-            Switch(checked = onDeviceOnly, onCheckedChange = { onDeviceOnly = it })
+            Switch(checked = onDeviceOnly, onCheckedChange = { store.setOnDeviceOnly(it) })
         }
         ClearDownloadsSubRow()
-        SubRow(Icons.Outlined.Download, "Export my data", onClick = { stub("Export") }) {
-            Icon(Icons.Default.ChevronRight, null, tint = cs.outlineVariant, modifier = Modifier.size(20.dp))
-        }
-        SubRow(Icons.Outlined.DeleteForever, "Delete account",
-            titleColor = cs.error, iconTint = cs.error, divider = false,
-            onClick = { stub("Account deletion") }) {}
+        ExportDataRow()
+        DeleteAccountRow()
+    }
+}
+
+/** Two-step confirm → server-side deleteAccount → local sign-out. */
+@Composable
+private fun DeleteAccountRow() {
+    val cs = MaterialTheme.colorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var confirmStep by remember { mutableStateOf(0) } // 0 none · 1 first ask · 2 final ask
+    var deleting by remember { mutableStateOf(false) }
+
+    SubRow(Icons.Outlined.DeleteForever, if (deleting) "Deleting…" else "Delete account",
+        titleColor = cs.error, iconTint = cs.error, divider = false,
+        onClick = { if (!deleting) confirmStep = 1 }) {
+        if (deleting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = cs.error)
+    }
+
+    if (confirmStep == 1) {
+        AlertDialog(
+            onDismissRequest = { confirmStep = 0 },
+            shape = RoundedCornerShape(28.dp),
+            title = { Text("Delete your account?") },
+            text = { Text("This permanently removes your notes, recordings, and account from Yap's servers. This cannot be undone.") },
+            confirmButton = { TextButton(onClick = { confirmStep = 2 }) { Text("Continue", color = cs.error) } },
+            dismissButton = { TextButton(onClick = { confirmStep = 0 }) { Text("Cancel") } },
+        )
+    }
+    if (confirmStep == 2) {
+        AlertDialog(
+            onDismissRequest = { confirmStep = 0 },
+            shape = RoundedCornerShape(28.dp),
+            icon = { Icon(Icons.Outlined.DeleteForever, null, tint = cs.error, modifier = Modifier.size(30.dp)) },
+            title = { Text("Last chance") },
+            text = { Text("Everything will be gone — notes, audio, subscription state. Export your data first if you want a copy.") },
+            confirmButton = {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = cs.error),
+                    shape = RoundedCornerShape(50),
+                    onClick = {
+                        confirmStep = 0; deleting = true
+                        scope.launch {
+                            try {
+                                com.mehdiacho.yap.data.AccountClient.deleteAccount()
+                                com.mehdiacho.yap.data.AuthManager.signOut()
+                                android.widget.Toast.makeText(context, "Account deleted", android.widget.Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                android.widget.Toast.makeText(context,
+                                    e.message ?: "Couldn't delete the account", android.widget.Toast.LENGTH_LONG).show()
+                            } finally { deleting = false }
+                        }
+                    },
+                ) { Text("Delete forever") }
+            },
+            dismissButton = { TextButton(onClick = { confirmStep = 0 }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** Builds the export zip (notes JSON + on-device audio) and opens the share sheet. */
+@Composable
+private fun ExportDataRow() {
+    val cs = MaterialTheme.colorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var exporting by remember { mutableStateOf(false) }
+    SubRow(
+        Icons.Outlined.Download, "Export my data",
+        subtitle = if (exporting) "Preparing your export…" else "Notes + audio on this device, as a zip",
+        onClick = {
+            if (exporting) return@SubRow
+            exporting = true
+            scope.launch {
+                try {
+                    val zip = com.mehdiacho.yap.data.DataExporter.buildExportZip(context)
+                    context.startActivity(android.content.Intent.createChooser(
+                        com.mehdiacho.yap.data.DataExporter.shareIntent(context, zip), "Export Yap data"))
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(context,
+                        e.message ?: "Export failed", android.widget.Toast.LENGTH_LONG).show()
+                } finally { exporting = false }
+            }
+        },
+    ) {
+        if (exporting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        else Icon(Icons.Default.ChevronRight, null, tint = cs.outlineVariant, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -301,21 +400,22 @@ private fun ClearDownloadsSubRow() {
 @Composable
 fun AppearanceSettingsScreen(onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    var theme by remember { mutableStateOf("system") }       // stub — theme switching later
-    var dynamicColor by remember { mutableStateOf(false) }   // stub
+    val store = com.mehdiacho.yap.data.SettingsStore
+    val theme by store.themeMode.collectAsState()
+    val dynamicColor by store.dynamicColor.collectAsState()
 
     SettingsSubScaffold("Appearance", onBack) {
         Text("THEME", fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp,
             color = YapTheme.extended.subdued, modifier = Modifier.padding(start = 4.dp, bottom = 10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ThemeSwatch("System", "system", theme, swatchBg = cs.surface, dot = cs.primary) { theme = it }
-            ThemeSwatch("Light", "light", theme, swatchBg = Color(0xFFFCFBFF), dot = Color(0xFF5B5BD6)) { theme = it }
-            ThemeSwatch("Dark", "dark", theme, swatchBg = Color(0xFF131318), dot = Color(0xFFC5C0FF)) { theme = it }
+            ThemeSwatch("System", "system", theme, swatchBg = cs.surface, dot = cs.primary) { store.setThemeMode(it) }
+            ThemeSwatch("Light", "light", theme, swatchBg = Color(0xFFFCFBFF), dot = Color(0xFF5B5BD6)) { store.setThemeMode(it) }
+            ThemeSwatch("Dark", "dark", theme, swatchBg = Color(0xFF131318), dot = Color(0xFFC5C0FF)) { store.setThemeMode(it) }
         }
         Spacer(Modifier.height(20.dp))
         HorizontalDivider(thickness = 1.dp, color = cs.surfaceContainerHigh)
         SubRow(Icons.Outlined.Colorize, "Dynamic color", "Match my wallpaper (Material You)", divider = false) {
-            Switch(checked = dynamicColor, onCheckedChange = { dynamicColor = it })
+            Switch(checked = dynamicColor, onCheckedChange = { store.setDynamicColor(it) })
         }
     }
 }
@@ -357,7 +457,8 @@ private fun RowScope.ThemeSwatch(
 fun TranscriptionSettingsScreen(onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
-    var vtt by remember { mutableStateOf(false) } // stub
+    val store = com.mehdiacho.yap.data.SettingsStore
+    val vtt by store.vttExport.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     fun stub(what: String) =
         android.widget.Toast.makeText(context, "$what coming soon", android.widget.Toast.LENGTH_SHORT).show()
@@ -367,7 +468,7 @@ fun TranscriptionSettingsScreen(onBack: () -> Unit) {
             Text("Auto", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.primary)
         }
         SubRow(Icons.Outlined.Subtitles, "Default VTT / subtitles", "Add timed captions on export") {
-            Switch(checked = vtt, onCheckedChange = { vtt = it })
+            Switch(checked = vtt, onCheckedChange = { store.setVttExport(it) })
         }
 
         SubEyebrow("ON-DEVICE MODEL")
@@ -414,11 +515,12 @@ fun TranscriptionSettingsScreen(onBack: () -> Unit) {
 fun AboutSettingsScreen(onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
+    val store = com.mehdiacho.yap.data.SettingsStore
     var taps by remember { mutableStateOf(0) }
     var showUnlockDialog by remember { mutableStateOf(false) }
-    var advancedUnlocked by remember { mutableStateOf(false) }
-    var experimental by remember { mutableStateOf(false) }
-    var verboseLogs by remember { mutableStateOf(false) }
+    val advancedUnlocked by store.advancedUnlocked.collectAsState()
+    val experimental by store.experimentalModel.collectAsState()
+    val verboseLogs by store.verboseLogs.collectAsState()
     val remaining = 7 - taps
 
     SettingsSubScaffold("About", onBack) {
@@ -489,13 +591,13 @@ fun AboutSettingsScreen(onBack: () -> Unit) {
                     Icon(Icons.Outlined.Science, null, tint = Color(0xFFC5C0FF), modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
                     Text("Experimental refine model", fontSize = 13.sp, color = Color.White, modifier = Modifier.weight(1f))
-                    Switch(checked = experimental, onCheckedChange = { experimental = it })
+                    Switch(checked = experimental, onCheckedChange = { store.setExperimentalModel(it) })
                 }
                 Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.BugReport, null, tint = Color(0xFFC5C0FF), modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
                     Text("Verbose debug logs", fontSize = 13.sp, color = Color.White, modifier = Modifier.weight(1f))
-                    Switch(checked = verboseLogs, onCheckedChange = { verboseLogs = it })
+                    Switch(checked = verboseLogs, onCheckedChange = { store.setVerboseLogs(it) })
                 }
             }
         }
@@ -514,7 +616,7 @@ fun AboutSettingsScreen(onBack: () -> Unit) {
             },
             confirmButton = {
                 Button(
-                    onClick = { advancedUnlocked = true; showUnlockDialog = false },
+                    onClick = { store.setAdvancedUnlocked(true); showUnlockDialog = false },
                     shape = RoundedCornerShape(50),
                     colors = ButtonDefaults.buttonColors(containerColor = ext.onOfflineContainer),
                 ) { Text("Unlock") }

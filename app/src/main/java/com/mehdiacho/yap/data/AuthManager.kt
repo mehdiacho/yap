@@ -56,6 +56,11 @@ object AuthManager {
 
     fun signOut() = auth.signOut() // next ensureSignedIn() creates a fresh guest
 
+    /** Sends Firebase's password-reset email. Throws with a readable message on failure. */
+    suspend fun sendPasswordReset(email: String) {
+        awaitTask(auth.sendPasswordResetEmail(email))
+    }
+
     private suspend fun linkOrSignIn(credential: AuthCredential): FirebaseUser {
         val user = auth.currentUser
         return try {

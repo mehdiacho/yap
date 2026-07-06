@@ -13,6 +13,12 @@ export {
   adminCreatePromo,
   adminListPromos,
 } from "./accounts";
+export {
+  deleteAccount,
+  getReferralInfo,
+  applyReferral,
+  onSessionCreatedReferral,
+} from "./lifecycle";
 import { getEntitlement, capForPlan } from "./accounts";
 
 // Set with: firebase functions:secrets:set GEMINI_API_KEY

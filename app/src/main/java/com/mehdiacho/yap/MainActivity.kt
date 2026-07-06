@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Settings
@@ -55,9 +56,33 @@ import com.mehdiacho.yap.ui.screens.SubscriptionScreen
 import com.mehdiacho.yap.ui.screens.TrashScreen
 import com.mehdiacho.yap.ui.theme.YapTheme
 
-class MainActivity : ComponentActivity() {
+// FragmentActivity (not ComponentActivity) because BiometricPrompt requires it for the app lock.
+class MainActivity : androidx.fragment.app.FragmentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private val autoStart = mutableStateOf(false)
+    private val unlocked = mutableStateOf(false) // app-lock gate; resets every activity creation
+
+    /** Shows the biometric/device-credential prompt; flips [unlocked] on success. */
+    private fun promptUnlock() {
+        val prompt = androidx.biometric.BiometricPrompt(
+            this,
+            androidx.core.content.ContextCompat.getMainExecutor(this),
+            object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
+                    unlocked.value = true
+                }
+            },
+        )
+        val info = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Unlock Yap")
+            .setSubtitle("Your notes are locked")
+            .setAllowedAuthenticators(
+                androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                    androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
+            .build()
+        prompt.authenticate(info)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,10 +103,29 @@ class MainActivity : ComponentActivity() {
         }
         if (intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true) autoStart.value = true
         intent?.let { handleShare(it) }
+        com.mehdiacho.yap.data.SettingsStore.init(this)
+        com.mehdiacho.yap.data.BillingManager.init(this)
         com.mehdiacho.yap.overlay.FloatingBubble.startIfEnabled(this)
+        publishShareShortcut()
         setContent {
-            YapTheme {
-                MainScreen(viewModel, autoStart)
+            // Theme prefs drive the app theme live (Appearance settings).
+            val themeMode by com.mehdiacho.yap.data.SettingsStore.themeMode.collectAsState()
+            val dynamicColor by com.mehdiacho.yap.data.SettingsStore.dynamicColor.collectAsState()
+            YapTheme(
+                darkTheme = when (themeMode) {
+                    "light" -> false
+                    "dark" -> true
+                    else -> androidx.compose.foundation.isSystemInDarkTheme()
+                },
+                dynamicColor = dynamicColor,
+            ) {
+                val appLock by com.mehdiacho.yap.data.SettingsStore.appLock.collectAsState()
+                val isUnlocked by unlocked
+                if (appLock && !isUnlocked) {
+                    LockScreen(onUnlock = ::promptUnlock)
+                } else {
+                    MainScreen(viewModel, autoStart)
+                }
             }
         }
     }
@@ -129,6 +173,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Publishes the dynamic sharing shortcut that puts a "Transcribe in Yap" row in other
+     * apps' share sheets for audio/video (pairs with the share-target in shortcuts.xml).
+     */
+    private fun publishShareShortcut() {
+        runCatching {
+            val shortcut = androidx.core.content.pm.ShortcutInfoCompat.Builder(this, "transcribe_share")
+                .setShortLabel(getString(R.string.share_target_label))
+                .setIcon(androidx.core.graphics.drawable.IconCompat.createWithResource(this, R.drawable.ic_tile_mic))
+                .setIntent(Intent(Intent.ACTION_VIEW, null, this, MainActivity::class.java))
+                .setCategories(setOf("com.mehdiacho.yap.category.AUDIO_SHARE"))
+                .setLongLived(true)
+                .build()
+            androidx.core.content.pm.ShortcutManagerCompat.pushDynamicShortcut(this, shortcut)
+        }
+    }
+
     private fun guessMimeFromUri(uri: Uri): String? {
         val ext = android.webkit.MimeTypeMap.getFileExtensionFromUrl(uri.toString()).lowercase()
         return if (ext.isNotEmpty())
@@ -147,14 +208,13 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // Post-capture / share: open the freshly captured note (shows the "Transcribing…" state).
-    // StateFlow-based so a cold-start share isn't missed before this subscribes.
+    // Post-capture auto-open is DISABLED: it hijacked whatever screen you were on (worst case:
+    // mid-onboarding, where leaving reset the flow). Progress now shows on the Capture tab's
+    // LAST NOTE card, which is tappable to open the note. The event is still consumed so a
+    // stale id never fires later. (Share-ins land on Capture's last-note card the same way.)
     val pendingOpen by viewModel.pendingOpen.collectAsState()
     LaunchedEffect(pendingOpen) {
-        pendingOpen?.let { sessionId ->
-            navController.navigate(Routes.createSessionDetailRoute(sessionId))
-            viewModel.consumePendingOpen()
-        }
+        pendingOpen?.let { viewModel.consumePendingOpen() }
     }
 
     // Quick Settings tile / external entry: jump to Capture so it can auto-start recording.
@@ -228,7 +288,11 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                 }
             }
             composable(Routes.CAPTURE) {
-                CaptureScreen(viewModel = viewModel, autoStart = autoStart)
+                CaptureScreen(
+                    viewModel = viewModel,
+                    autoStart = autoStart,
+                    onOpenSession = { navController.navigate(Routes.createSessionDetailRoute(it)) },
+                )
             }
             composable(Routes.LIBRARY) {
                 LibraryScreen(
@@ -289,6 +353,42 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                 )
             }
         }
+    }
+}
+
+/** App-lock gate — auto-fires the biometric prompt, with a manual retry button. */
+@Composable
+private fun LockScreen(onUnlock: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    LaunchedEffect(Unit) { onUnlock() }
+    Column(
+        Modifier.fillMaxSize().background(cs.background).statusBarsPadding().navigationBarsPadding()
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Column(
+            Modifier.weight(1f).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Box(
+                Modifier.size(84.dp).clip(RoundedCornerShape(24.dp)).background(cs.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Fingerprint, null,
+                    tint = cs.onPrimaryContainer, modifier = Modifier.size(44.dp))
+            }
+            Spacer(Modifier.height(20.dp))
+            Text("Yap is locked", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cs.onSurface)
+            Spacer(Modifier.height(8.dp))
+            Text("Unlock with your fingerprint or screen lock.",
+                fontSize = 14.sp, color = cs.onSurfaceVariant)
+        }
+        Button(onClick = onUnlock, shape = RoundedCornerShape(50),
+            modifier = Modifier.fillMaxWidth().height(54.dp)) {
+            Text("Unlock", fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(38.dp))
     }
 }
 

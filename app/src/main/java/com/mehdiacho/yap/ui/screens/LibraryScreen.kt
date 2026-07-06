@@ -80,6 +80,7 @@ fun LibraryScreen(
     onNavigateToDetail: (String) -> Unit,
 ) {
     val sessions by viewModel.allSessions.collectAsState()
+    val sessionsLoaded by viewModel.sessionsLoaded.collectAsState()
     var query by remember { androidx.compose.runtime.mutableStateOf("") }
     var searchFocused by remember { androidx.compose.runtime.mutableStateOf(false) }
     var activeFilter by remember { androidx.compose.runtime.mutableStateOf("All") }
@@ -197,7 +198,8 @@ fun LibraryScreen(
                 }
             }
 
-            if (showSkeleton) {
+            // Real first-load signal (plus the debug long-press preview).
+            if (showSkeleton || !sessionsLoaded) {
                 LibrarySkeleton(edge)
                 return@Column
             }

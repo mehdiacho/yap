@@ -47,6 +47,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val pendingOpen: StateFlow<String?> = _pendingOpen.asStateFlow()
     fun consumePendingOpen() { _pendingOpen.value = null }
 
+    // True after the first Firestore snapshot lands — drives the Library loading skeleton
+    // (before this, an empty list means "still loading", not "no notes").
+    private val _sessionsLoaded = MutableStateFlow(false)
+    val sessionsLoaded: StateFlow<Boolean> = _sessionsLoaded.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            runCatching { repository.allSessions().first() }
+            _sessionsLoaded.value = true
+        }
+    }
+
     init {
         // Persist a real session whenever a recording finishes.
         viewModelScope.launch {

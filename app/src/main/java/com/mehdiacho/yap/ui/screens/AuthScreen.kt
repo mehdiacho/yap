@@ -93,6 +93,21 @@ fun AuthScreen(onBack: () -> Unit) {
             ) { Text("Continue with email", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
             Text("New emails create an account automatically.", fontSize = 12.sp,
                 color = YapTheme.extended.subdued, modifier = Modifier.padding(top = 6.dp))
+            TextButton(
+                enabled = email.isNotBlank() && !busy,
+                onClick = {
+                    scope.launch {
+                        try {
+                            AuthManager.sendPasswordReset(email.trim())
+                            error = null
+                            android.widget.Toast.makeText(context,
+                                "Reset link sent to ${email.trim()}", android.widget.Toast.LENGTH_LONG).show()
+                        } catch (e: Exception) {
+                            error = e.message ?: "Couldn't send the reset email."
+                        }
+                    }
+                },
+            ) { Text("Forgot password?", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
 
             if (busy) {
                 Spacer(Modifier.height(20.dp))

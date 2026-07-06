@@ -43,7 +43,7 @@ fun SubscriptionScreen(onBack: () -> Unit) {
     var code by remember { mutableStateOf("") }
     var redeeming by remember { mutableStateOf(false) }
     var redeemError by remember { mutableStateOf<String?>(null) }
-    var purchasing by remember { mutableStateOf<String?>(null) } // plan label → show purchase sheet
+    var purchasing by remember { mutableStateOf<Pair<String, String>?>(null) } // productId to label
 
     fun reload() {
         scope.launch {
@@ -90,7 +90,7 @@ fun SubscriptionScreen(onBack: () -> Unit) {
                         name = "Pro", price = "$2.99", priceSuffix = "/mo · $24.99/yr",
                         desc = "30 hrs/mo refine · 2 GB · AI actions · priority",
                         current = s.plan == "pro",
-                        onSelect = { purchasing = "Pro · $2.99/mo" },
+                        onSelect = { purchasing = com.mehdiacho.yap.data.BillingManager.PRO_MONTHLY to "Pro · $2.99/mo" },
                     )
                     Spacer(Modifier.height(12.dp))
                     PlanCard(
@@ -104,7 +104,7 @@ fun SubscriptionScreen(onBack: () -> Unit) {
                         name = "BYOK + Storage", price = "$0.99", priceSuffix = "/mo",
                         desc = "Unlimited AI (own key) · 2 GB sync",
                         current = s.plan == "byok",
-                        onSelect = { purchasing = "BYOK + Storage · $0.99/mo" },
+                        onSelect = { purchasing = com.mehdiacho.yap.data.BillingManager.BYOK_STORAGE_MONTHLY to "BYOK + Storage · $0.99/mo" },
                     )
 
                     // Redeem a code — live feature (quota promos), kept below the plans.
@@ -147,17 +147,24 @@ fun SubscriptionScreen(onBack: () -> Unit) {
         }
     }
 
-    // Purchase-in-progress bottom sheet (design) — payments not wired yet, so it self-dismisses.
-    if (purchasing != null) {
+    // Purchase-in-progress bottom sheet — hands off to the Play billing flow. Until the
+    // products exist in Play Console the query fails and we fall back to a toast.
+    val purchase = purchasing
+    if (purchase != null) {
+        val (productId, label) = purchase
         ModalBottomSheet(
             onDismissRequest = { purchasing = null },
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
             containerColor = cs.surface,
         ) {
-            LaunchedEffect(purchasing) {
-                delay(2200)
-                Toast.makeText(context, "Payments coming soon", Toast.LENGTH_SHORT).show()
-                purchasing = null
+            LaunchedEffect(productId) {
+                delay(600) // let the sheet settle before the Play sheet appears over it
+                val activity = context as? android.app.Activity
+                if (activity == null) { purchasing = null; return@LaunchedEffect }
+                com.mehdiacho.yap.data.BillingManager.launchPurchase(activity, productId) { msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    purchasing = null
+                }
             }
             Column(
                 Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 44.dp, top = 4.dp),
@@ -168,7 +175,7 @@ fun SubscriptionScreen(onBack: () -> Unit) {
                 Text("Confirming purchase…", fontFamily = Outfit, fontWeight = FontWeight.Bold,
                     fontSize = 19.sp, color = cs.onSurface)
                 Spacer(Modifier.height(6.dp))
-                Text("$purchasing · via Google Play", fontSize = 13.sp, color = cs.onSurfaceVariant,
+                Text("$label · via Google Play", fontSize = 13.sp, color = cs.onSurfaceVariant,
                     textAlign = TextAlign.Center)
             }
         }
@@ -180,6 +187,14 @@ fun SubscriptionScreen(onBack: () -> Unit) {
 private fun UsagePanel(s: AccountStatus) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
+    // Real cloud-storage usage, summed from users/{uid}/audio metadata.
+    var storageBytes by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(Unit) { storageBytes = com.mehdiacho.yap.data.StorageUsage.totalBytes() }
+    val storageCap = if (s.plan == "free") 50L * 1024 * 1024 else 2L * 1024 * 1024 * 1024
+    val storageLabel = when (val b = storageBytes) {
+        null -> "… / ${fmtBytes(storageCap)}"
+        else -> "${fmtBytes(b)} / ${fmtBytes(storageCap)}"
+    }
     val resetLabel = remember {
         val cal = Calendar.getInstance().apply {
             add(Calendar.MONTH, 1); set(Calendar.DAY_OF_MONTH, 1)
@@ -210,16 +225,21 @@ private fun UsagePanel(s: AccountStatus) {
         Row {
             Text("Storage", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                 color = cs.onSurfaceVariant, modifier = Modifier.weight(1f))
-            // Storage metering isn't tracked yet — meter is illustrative (functionality list).
-            Text("— / 2 GB", fontSize = 12.sp, color = ext.subdued)
+            Text(storageLabel, fontSize = 12.sp, color = ext.subdued)
         }
         Spacer(Modifier.height(5.dp))
         LinearProgressIndicator(
-            progress = { 0f },
+            progress = { ((storageBytes ?: 0L).toFloat() / storageCap).coerceIn(0f, 1f) },
             color = cs.tertiary, trackColor = cs.surfaceVariant,
             modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)),
         )
     }
+}
+
+private fun fmtBytes(b: Long): String = when {
+    b >= 1024L * 1024 * 1024 -> "%.1f GB".format(b / (1024.0 * 1024 * 1024))
+    b >= 1024L * 1024 -> "%.0f MB".format(b / (1024.0 * 1024))
+    else -> "%.0f KB".format(b / 1024.0)
 }
 
 /** §3.12 plan card — current plan gets 2dp Primary border, tinted bg, CURRENT badge. */

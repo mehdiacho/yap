@@ -40,6 +40,33 @@ object AccountClient {
         awaitTask(functions.getHttpsCallable("redeemPromo").call(hashMapOf("code" to code)))
     }
 
+    data class ReferralInfo(val code: String, val qualifiedCount: Int, val needed: Int)
+
+    /** The caller's referral code (server-created on first call) + progress toward BYOK. */
+    suspend fun referralInfo(): ReferralInfo {
+        TranscriptionClient.ensureSignedIn()
+        val res = awaitTask(functions.getHttpsCallable("getReferralInfo").call())
+        @Suppress("UNCHECKED_CAST")
+        val m = res.getData() as? Map<String, Any?> ?: emptyMap()
+        return ReferralInfo(
+            code = m["code"] as? String ?: "",
+            qualifiedCount = (m["qualifiedCount"] as? Number)?.toInt() ?: 0,
+            needed = (m["needed"] as? Number)?.toInt() ?: 5,
+        )
+    }
+
+    /** Applies a friend's referral code to this (new) account. */
+    suspend fun applyReferral(code: String) {
+        TranscriptionClient.ensureSignedIn()
+        awaitTask(functions.getHttpsCallable("applyReferral").call(hashMapOf("code" to code)))
+    }
+
+    /** Irreversibly deletes the account server-side (data + storage + auth user). */
+    suspend fun deleteAccount() {
+        TranscriptionClient.ensureSignedIn()
+        awaitTask(functions.getHttpsCallable("deleteAccount").call())
+    }
+
     private suspend fun <T> awaitTask(task: Task<T>): T = suspendCancellableCoroutine { cont ->
         task.addOnSuccessListener { cont.resume(it) }
             .addOnFailureListener { cont.resumeWithException(it) }

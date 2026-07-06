@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.data.AccountClient
 import com.mehdiacho.yap.data.AuthManager
+// (referral info + deleteAccount both go through AccountClient)
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
 import kotlinx.coroutines.delay
@@ -52,11 +53,15 @@ fun UnlockByokScreen(onBack: () -> Unit) {
     fun stub(what: String) =
         android.widget.Toast.makeText(context, "$what coming soon", android.widget.Toast.LENGTH_SHORT).show()
 
-    // Referral progress is stubbed at 0 until the backend counts qualified invites.
-    val invited = 0
-    val refCode = remember {
-        (AuthManager.currentUser?.uid ?: "YOU").filter { it.isLetterOrDigit() }.take(6).uppercase()
+    // Real referral progress + server-issued code (getReferralInfo).
+    var referral by remember { mutableStateOf<AccountClient.ReferralInfo?>(null) }
+    LaunchedEffect(Unit) {
+        referral = runCatching { AccountClient.referralInfo() }.getOrNull()
     }
+    val invited = referral?.qualifiedCount ?: 0
+    val needed = referral?.needed ?: 5
+    val refCode = referral?.code
+        ?: (AuthManager.currentUser?.uid ?: "YOU").filter { it.isLetterOrDigit() }.take(6).uppercase()
     val refLink = "yap.app/r/$refCode"
 
     Column(Modifier.fillMaxSize().background(cs.background).statusBarsPadding()) {
@@ -99,8 +104,16 @@ fun UnlockByokScreen(onBack: () -> Unit) {
                 Text("One-time · unlock forever", fontSize = 12.sp, color = cs.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp))
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = { stub("Purchase") }, shape = RoundedCornerShape(50),
-                    modifier = Modifier.fillMaxWidth().height(46.dp)) {
+                Button(
+                    onClick = {
+                        val activity = context as? android.app.Activity ?: return@Button
+                        com.mehdiacho.yap.data.BillingManager.launchPurchase(
+                            activity, com.mehdiacho.yap.data.BillingManager.BYOK_UNLOCK
+                        ) { msg -> android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show() }
+                    },
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                ) {
                     Text("Unlock for $4.99", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 }
             }
@@ -112,14 +125,14 @@ fun UnlockByokScreen(onBack: () -> Unit) {
                     .border(1.dp, cs.outlineVariant, RoundedCornerShape(18.dp)).padding(16.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Or invite 5 friends", fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                    Text("Or invite $needed friends", fontSize = 15.sp, fontWeight = FontWeight.Bold,
                         color = cs.onSurface, modifier = Modifier.weight(1f))
-                    Text("$invited / 5", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = cs.primary)
+                    Text("$invited / $needed", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = cs.primary)
                 }
                 Spacer(Modifier.height(10.dp))
-                // Progress dots — 5 segments.
+                // Progress dots — one segment per needed referral.
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    repeat(5) { i ->
+                    repeat(needed) { i ->
                         Box(
                             Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(4.dp))
                                 .background(if (i < invited) cs.primary else cs.surfaceVariant)
@@ -218,7 +231,7 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                     Spacer(Modifier.height(10.dp))
                     OutlinedButton(onClick = onOpenUnlock, shape = RoundedCornerShape(50),
                         modifier = Modifier.fillMaxWidth().height(54.dp)) {
-                        Text("Invite friends · 0 of 5", fontWeight = FontWeight.SemiBold)
+                        Text("Invite friends", fontWeight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.height(38.dp))
                 }

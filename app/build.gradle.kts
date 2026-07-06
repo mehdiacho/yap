@@ -84,6 +84,10 @@ dependencies {
   // Material Components — provides the Theme.Material3.* window themes used as the Activity theme
   // (matches how edge-to-edge apps like Tachiyomi/Yokai get a truly transparent MIUI nav bar).
   implementation(libs.google.android.material)
+  // App lock (Privacy & data → biometric gate). Requires MainActivity : FragmentActivity.
+  implementation(libs.androidx.biometric)
+  // Play Billing scaffold — flows work once products exist in Play Console.
+  implementation(libs.billing.ktx)
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)

@@ -21,6 +21,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.HourglassEmpty
 import androidx.compose.material.icons.outlined.Info
@@ -68,6 +71,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -94,6 +98,7 @@ private const val WAVE_MIN = 0.05f
 fun CaptureScreen(
     viewModel: MainViewModel,
     autoStart: MutableState<Boolean>? = null,
+    onOpenSession: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val importLauncher = rememberLauncherForActivityResult(
@@ -179,6 +184,7 @@ fun CaptureScreen(
                 onRecheckOnline = { recheckOnline(); if (devState == "offline") devState = null },
                 onRecord = ::requestAndStart,
                 onImport = { importLauncher.launch(arrayOf("audio/*", "video/*")) },
+                onOpenSession = onOpenSession,
             )
             else -> RecordingContent(
                 paused = state.status == RecorderStatus.PAUSED,
@@ -189,6 +195,10 @@ fun CaptureScreen(
                     else RecordingController.pause(context)
                 },
                 onStop = { RecordingController.stop(context) },
+                onDiscard = {
+                    RecordingController.discard(context)
+                    Toast.makeText(context, "Recording discarded", Toast.LENGTH_SHORT).show()
+                },
                 onBookmark = {
                     // Stub — marker/bookmark feature to be wired later.
                     Toast.makeText(context, "Bookmarked this moment", Toast.LENGTH_SHORT).show()
@@ -227,6 +237,7 @@ private fun IdleContent(
     onRecheckOnline: () -> Unit = {},
     onRecord: () -> Unit,
     onImport: () -> Unit,
+    onOpenSession: (String) -> Unit = {},
 ) {
     val user by com.mehdiacho.yap.data.AuthManager.authState()
         .collectAsState(initial = com.mehdiacho.yap.data.AuthManager.currentUser)
@@ -324,12 +335,14 @@ private fun IdleContent(
             Text(if (offline) "Recording works fully offline." else "What's on your mind?",
                 fontSize = 13.sp, lineHeight = 19.sp, color = cs.onSurfaceVariant)
 
-            // 3 · Last-note card (§2.4-lite)
+            // 3 · Last-note card (§2.4-lite) — tappable: opens the note (incl. transcribing state).
             if (lastSession != null) {
                 Spacer(Modifier.height(20.dp))
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-                        .background(cs.surfaceContainer).padding(horizontal = 16.dp, vertical = 14.dp)
+                        .background(cs.surfaceContainer)
+                        .clickable { onOpenSession(lastSession.id) }
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
                     Text("LAST NOTE", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                         letterSpacing = 0.4.sp, color = ext.subdued)
@@ -339,22 +352,8 @@ private fun IdleContent(
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        val done = lastSession.status == "DONE"
-                        Row(
-                            Modifier.clip(RoundedCornerShape(50))
-                                .background(if (done) ext.refinedContainer else ext.draftNeutral)
-                                .padding(horizontal = 9.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            if (done) {
-                                Icon(Icons.Default.CheckCircle, null, tint = ext.onRefinedContainer,
-                                    modifier = Modifier.size(12.dp))
-                                Spacer(Modifier.width(4.dp))
-                            }
-                            Text(if (done) "Refined" else lastSession.status.lowercase().replaceFirstChar { it.uppercase() },
-                                fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-                                color = if (done) ext.onRefinedContainer else cs.onSurfaceVariant)
-                        }
+                        // Shared §2.5 chip — shows "Polishing" while a fresh capture transcribes.
+                        StatusChip(lastSession.status)
                         Spacer(Modifier.width(6.dp))
                         Text(relativeTime(lastSession.createdAt), fontSize = 11.sp, color = ext.subdued)
                     }
@@ -556,6 +555,7 @@ private fun RecordingContent(
     bars: SnapshotStateList<Float>,
     onPauseResume: () -> Unit,
     onStop: () -> Unit,
+    onDiscard: () -> Unit,
     onBookmark: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -623,7 +623,7 @@ private fun RecordingContent(
                     icon = if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
                     desc = if (paused) "Resume" else "Pause", onClick = onPauseResume)
                 Spacer(Modifier.width(30.dp))
-                RecordStopButton(centerDia, paused, accent, onStop)
+                RecordStopButton(centerDia, paused, accent, onStop = onStop, onDiscard = onDiscard)
                 Spacer(Modifier.width(30.dp))
                 TransportSideButton(sideDia, icon = Icons.Outlined.BookmarkBorder,
                     desc = "Bookmark", onClick = onBookmark)
@@ -666,9 +666,20 @@ internal fun Waveform11(bars: SnapshotStateList<Float>, paused: Boolean) {
     }
 }
 
-/** §2.3 recording hero — accent circle, rounded stop square, §2.7 pulse ring while recording. */
+/**
+ * §2.3 recording hero — accent circle, rounded stop square, §2.7 pulse ring while recording.
+ * Tap = stop & save. Long-press reveals a discard bubble above; slide up onto it and release
+ * to throw the recording away (replaces the old always-visible delete button).
+ */
 @Composable
-internal fun RecordStopButton(dia: Dp, paused: Boolean, accent: Color, onClick: () -> Unit) {
+internal fun RecordStopButton(dia: Dp, paused: Boolean, accent: Color, onStop: () -> Unit, onDiscard: (() -> Unit)? = null) {
+    val cs = MaterialTheme.colorScheme
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    var dragging by remember { mutableStateOf(false) }
+    var dragY by remember { mutableStateOf(0f) }
+    val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
+    val overDelete = dragging && -dragY > threshold
+
     Box(contentAlignment = Alignment.Center) {
         if (!paused) {
             val t = rememberInfiniteTransition(label = "ring")
@@ -680,10 +691,42 @@ internal fun RecordStopButton(dia: Dp, paused: Boolean, accent: Color, onClick: 
                 .graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha }
                 .clip(CircleShape).background(accent))
         }
-        Box(Modifier.size(dia).clip(CircleShape).background(accent).clickable { onClick() },
-            contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.size(dia).clip(CircleShape).background(accent)
+                .pointerInput(onDiscard) {
+                    detectTapGestures(onTap = { onStop() })
+                }
+                .then(if (onDiscard != null) Modifier.pointerInput(Unit) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = {
+                            dragging = true; dragY = 0f
+                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        },
+                        onDrag = { change, amount -> change.consume(); dragY += amount.y },
+                        onDragEnd = {
+                            if (-dragY > threshold) onDiscard.invoke()
+                            dragging = false; dragY = 0f
+                        },
+                        onDragCancel = { dragging = false; dragY = 0f },
+                    )
+                } else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
             val sq = dia * 0.29f
             Box(Modifier.size(sq).clip(RoundedCornerShape(sq * 0.25f)).background(Color.White))
+        }
+        // Discard bubble — floats above the stop button while holding; grows hot when reached.
+        if (dragging && onDiscard != null) {
+            Box(
+                Modifier.offset(y = -(dia / 2) - 52.dp)
+                    .size(if (overDelete) 62.dp else 54.dp).clip(CircleShape)
+                    .background(if (overDelete) cs.error else cs.errorContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Delete, "Discard recording",
+                    tint = if (overDelete) cs.onError else cs.error,
+                    modifier = Modifier.size(26.dp))
+            }
         }
     }
 }

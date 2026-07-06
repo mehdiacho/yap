@@ -13,4 +13,22 @@
             <extra android:name="start_recording" android:value="true" />
         </intent>
     </shortcut>
+
+    <!-- Assistant App Action (design · external surfaces): CREATE_NOTE → auto-record. -->
+    <capability android:name="actions.intent.CREATE_NOTE">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.mehdiacho.yap"
+            android:targetClass="com.mehdiacho.yap.MainActivity">
+            <extra android:name="start_recording" android:value="true" />
+        </intent>
+    </capability>
+
+    <!-- Direct-share row (design · share sheet): "Transcribe in Yap" for shared audio/video.
+         Requires the dynamic shortcut published in MainActivity with the same category. -->
+    <share-target android:targetClass="com.mehdiacho.yap.MainActivity">
+        <data android:mimeType="audio/*" />
+        <data android:mimeType="video/*" />
+        <category android:name="com.mehdiacho.yap.category.AUDIO_SHARE" />
+    </share-target>
 </shortcuts>
