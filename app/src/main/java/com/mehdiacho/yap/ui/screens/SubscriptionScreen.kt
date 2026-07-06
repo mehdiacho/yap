@@ -2,13 +2,14 @@ package com.mehdiacho.yap.ui.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,23 +17,33 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.data.AccountClient
 import com.mehdiacho.yap.data.AccountStatus
+import com.mehdiacho.yap.ui.theme.Outfit
+import com.mehdiacho.yap.ui.theme.YapTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.text.DateFormat
-import java.util.Date
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
+/** Subscription · plans + usage (design section 10). Payments are stubbed. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubscriptionScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
     var status by remember { mutableStateOf<AccountStatus?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var code by remember { mutableStateOf("") }
     var redeeming by remember { mutableStateOf(false) }
     var redeemError by remember { mutableStateOf<String?>(null) }
+    var purchasing by remember { mutableStateOf<String?>(null) } // plan label → show purchase sheet
 
     fun reload() {
         scope.launch {
@@ -44,164 +55,210 @@ fun SubscriptionScreen(onBack: () -> Unit) {
     }
     LaunchedEffect(Unit) { reload() }
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)
-    ) {
-        Spacer(Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-            Text("Subscription & Usage", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    Column(Modifier.fillMaxSize().background(cs.background).statusBarsPadding()) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 6.dp, start = 18.dp, end = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = cs.onSurface,
+                modifier = Modifier.clickable { onBack() })
+            Spacer(Modifier.width(14.dp))
+            Text("Subscription", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 21.sp,
+                letterSpacing = (-0.3).sp, color = cs.onSurface)
         }
-        Spacer(Modifier.height(12.dp))
 
-        when {
-            loadError != null -> {
-                Text(loadError!!, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = { reload() }) { Text("Retry") }
-            }
-            status == null -> {
-                Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
+            Spacer(Modifier.height(16.dp))
+            when {
+                loadError != null -> {
+                    Text(loadError!!, color = cs.error, fontSize = 14.sp)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = { reload() }) { Text("Retry") }
                 }
-            }
-            else -> {
-                val s = status!!
-                CurrentPlanCard(s)
-                Spacer(Modifier.height(14.dp))
-                UsageCard(s)
-                Spacer(Modifier.height(22.dp))
+                status == null -> {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+                else -> {
+                    val s = status!!
+                    UsagePanel(s)
+                    Spacer(Modifier.height(16.dp))
 
-                // Redeem a code
-                Text("REDEEM A CODE", fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.outline, letterSpacing = 1.sp)
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = code,
-                        onValueChange = { code = it.uppercase(); redeemError = null },
-                        placeholder = { Text("Promo code") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
+                    // Plan cards — design copy and pricing.
+                    PlanCard(
+                        name = "Pro", price = "$2.99", priceSuffix = "/mo · $24.99/yr",
+                        desc = "30 hrs/mo refine · 2 GB · AI actions · priority",
+                        current = s.plan == "pro",
+                        onSelect = { purchasing = "Pro · $2.99/mo" },
                     )
-                    Spacer(Modifier.width(10.dp))
-                    Button(
-                        enabled = code.isNotBlank() && !redeeming,
-                        onClick = {
-                            scope.launch {
-                                redeeming = true; redeemError = null
-                                try {
-                                    AccountClient.redeem(code.trim())
-                                    Toast.makeText(context, "Code applied 🎉", Toast.LENGTH_SHORT).show()
-                                    code = ""
-                                    reload()
-                                } catch (e: Exception) {
-                                    redeemError = e.message ?: "Couldn't redeem that code"
-                                } finally { redeeming = false }
-                            }
-                        },
-                    ) { Text(if (redeeming) "…" else "Apply") }
-                }
-                redeemError?.let {
-                    Spacer(Modifier.height(6.dp))
-                    Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
-                }
+                    Spacer(Modifier.height(12.dp))
+                    PlanCard(
+                        name = "Free", price = "$0", priceSuffix = null,
+                        desc = "30 min/mo refine · 50 MB · unlimited on-device",
+                        current = s.plan == "free",
+                        onSelect = {},
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    PlanCard(
+                        name = "BYOK + Storage", price = "$0.99", priceSuffix = "/mo",
+                        desc = "Unlimited AI (own key) · 2 GB sync",
+                        current = s.plan == "byok",
+                        onSelect = { purchasing = "BYOK + Storage · $0.99/mo" },
+                    )
 
-                Spacer(Modifier.height(26.dp))
-                Text("PLANS", fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.outline, letterSpacing = 1.sp)
-                Spacer(Modifier.height(8.dp))
-                PlanCompareCard(
-                    name = "Free", current = s.plan == "free",
-                    bullets = listOf("Unlimited recording on device", "30 min/month cloud transcription", "Cloud backup & sync"),
-                )
-                Spacer(Modifier.height(10.dp))
-                PlanCompareCard(
-                    name = "Pro", current = s.plan == "pro",
-                    bullets = listOf("Everything in Free", "30 hours/month cloud transcription", "Priority processing"),
-                )
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth().height(50.dp)) {
-                    Text("Upgrade — payments coming soon")
+                    // Redeem a code — live feature (quota promos), kept below the plans.
+                    Spacer(Modifier.height(22.dp))
+                    Text("REDEEM A CODE", fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.6.sp, color = ext.subdued)
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = code, onValueChange = { code = it.uppercase(); redeemError = null },
+                            placeholder = { Text("Promo code") }, singleLine = true,
+                            shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Button(
+                            enabled = code.isNotBlank() && !redeeming,
+                            shape = RoundedCornerShape(50),
+                            onClick = {
+                                scope.launch {
+                                    redeeming = true; redeemError = null
+                                    try {
+                                        AccountClient.redeem(code.trim())
+                                        Toast.makeText(context, "Code applied 🎉", Toast.LENGTH_SHORT).show()
+                                        code = ""; reload()
+                                    } catch (e: Exception) {
+                                        redeemError = e.message ?: "Couldn't redeem that code"
+                                    } finally { redeeming = false }
+                                }
+                            },
+                        ) { Text(if (redeeming) "…" else "Apply") }
+                    }
+                    redeemError?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text(it, color = cs.error, fontSize = 13.sp)
+                    }
                 }
             }
+            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
-        Spacer(Modifier.height(40.dp))
+    }
+
+    // Purchase-in-progress bottom sheet (design) — payments not wired yet, so it self-dismisses.
+    if (purchasing != null) {
+        ModalBottomSheet(
+            onDismissRequest = { purchasing = null },
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            containerColor = cs.surface,
+        ) {
+            LaunchedEffect(purchasing) {
+                delay(2200)
+                Toast.makeText(context, "Payments coming soon", Toast.LENGTH_SHORT).show()
+                purchasing = null
+            }
+            Column(
+                Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 44.dp, top = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                CircularProgressIndicator(Modifier.size(64.dp), strokeWidth = 4.dp)
+                Spacer(Modifier.height(20.dp))
+                Text("Confirming purchase…", fontFamily = Outfit, fontWeight = FontWeight.Bold,
+                    fontSize = 19.sp, color = cs.onSurface)
+                Spacer(Modifier.height(6.dp))
+                Text("$purchasing · via Google Play", fontSize = 13.sp, color = cs.onSurfaceVariant,
+                    textAlign = TextAlign.Center)
+            }
+        }
     }
 }
 
+/** Usage panel — "THIS CYCLE · RESETS <date>" + Cloud refine / Storage meters (§3.12). */
 @Composable
-private fun CurrentPlanCard(s: AccountStatus) {
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer).padding(18.dp)
-    ) {
-        Text(
-            s.plan.replaceFirstChar { it.uppercase() },
-            fontSize = 22.sp, fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onPrimaryContainer,
-        )
-        val sub = buildString {
-            append("Your current plan")
-            s.expiresAt?.let { append(" · until ").append(DateFormat.getDateInstance().format(Date(it))) }
-            if (s.byokUnlocked) append(" · BYOK unlocked")
+private fun UsagePanel(s: AccountStatus) {
+    val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
+    val resetLabel = remember {
+        val cal = Calendar.getInstance().apply {
+            add(Calendar.MONTH, 1); set(Calendar.DAY_OF_MONTH, 1)
         }
-        Text(sub, fontSize = 13.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+        SimpleDateFormat("MMM d", Locale.getDefault()).format(cal.time).uppercase()
     }
-}
-
-@Composable
-private fun UsageCard(s: AccountStatus) {
     val usedMin = s.secondsUsed / 60.0
     val capMin = (s.secondsCap / 60).coerceAtLeast(1)
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant).padding(18.dp)
-    ) {
-        Row {
-            Text("Cloud transcription", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-            Text(
-                "%.1f / %d min".format(usedMin, capMin),
-                fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+    val capLabel = if (capMin >= 60) "%.1f / %d hrs".format(usedMin / 60.0, capMin / 60)
+    else "%.1f / %d min".format(usedMin, capMin)
+
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainer).padding(14.dp)) {
+        Text("THIS CYCLE · RESETS $resetLabel", fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp, color = ext.subdued)
         Spacer(Modifier.height(10.dp))
+        Row {
+            Text("Cloud refine", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                color = cs.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Text(capLabel, fontSize = 12.sp, color = ext.subdued)
+        }
+        Spacer(Modifier.height(5.dp))
         LinearProgressIndicator(
             progress = { (s.secondsUsed.toFloat() / s.secondsCap).coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+            trackColor = cs.surfaceVariant,
+            modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)),
         )
-        Spacer(Modifier.height(8.dp))
-        Text("Resets monthly · cycle ${s.cycle}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(12.dp))
+        Row {
+            Text("Storage", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                color = cs.onSurfaceVariant, modifier = Modifier.weight(1f))
+            // Storage metering isn't tracked yet — meter is illustrative (functionality list).
+            Text("— / 2 GB", fontSize = 12.sp, color = ext.subdued)
+        }
+        Spacer(Modifier.height(5.dp))
+        LinearProgressIndicator(
+            progress = { 0f },
+            color = cs.tertiary, trackColor = cs.surfaceVariant,
+            modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)),
+        )
     }
 }
 
+/** §3.12 plan card — current plan gets 2dp Primary border, tinted bg, CURRENT badge. */
 @Composable
-private fun PlanCompareCard(name: String, current: Boolean, bullets: List<String>) {
+private fun PlanCard(
+    name: String,
+    price: String,
+    priceSuffix: String?,
+    desc: String,
+    current: Boolean,
+    onSelect: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface).padding(16.dp)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+            .background(if (current) cs.surfaceContainerLow else cs.surface)
+            .border(if (current) 2.dp else 1.dp, if (current) cs.primary else cs.outlineVariant, RoundedCornerShape(18.dp))
+            .clickable(enabled = !current) { onSelect() }
+            .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(name, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.width(8.dp))
+            Text(name, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = cs.onSurface,
+                modifier = Modifier.weight(1f))
             if (current) {
-                Box(
-                    Modifier.clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.primary)
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                ) {
+                Box(Modifier.clip(RoundedCornerShape(8.dp)).background(cs.primary)
+                    .padding(horizontal = 9.dp, vertical = 3.dp)) {
                     Text("CURRENT", fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimary)
+                        letterSpacing = 0.5.sp, color = cs.onPrimary)
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
-        bullets.forEach {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-                Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(desc, fontSize = 12.sp, lineHeight = 17.sp, color = cs.onSurfaceVariant,
+            modifier = Modifier.padding(top = 7.dp, bottom = 10.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(price, fontFamily = Outfit, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, color = cs.onSurface)
+            if (priceSuffix != null) {
+                Spacer(Modifier.width(4.dp))
+                Text(priceSuffix, fontSize = 12.sp, color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 3.dp))
             }
         }
     }

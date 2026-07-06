@@ -81,6 +81,9 @@ dependencies {
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
   implementation(libs.androidx.compose.material3)
+  // Material Components — provides the Theme.Material3.* window themes used as the Activity theme
+  // (matches how edge-to-edge apps like Tachiyomi/Yokai get a truly transparent MIUI nav bar).
+  implementation(libs.google.android.material)
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Drives android:windowLightStatusBar / windowLightNavigationBar per UI mode (see themes.xml).
+         true in light mode; overridden to false in values-night. -->
+    <bool name="isLightMode">true</bool>
+</resources>

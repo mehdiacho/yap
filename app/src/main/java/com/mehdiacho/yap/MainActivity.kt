@@ -1,10 +1,14 @@
 package com.mehdiacho.yap
 
 import android.content.Intent
+import android.graphics.Color as AndroidColor
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.core.content.IntentCompat
+import androidx.core.view.WindowCompat
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -34,8 +38,15 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.mehdiacho.yap.navigation.Routes
 import com.mehdiacho.yap.ui.MainViewModel
+import com.mehdiacho.yap.ui.screens.AboutSettingsScreen
+import com.mehdiacho.yap.ui.screens.AppearanceSettingsScreen
 import com.mehdiacho.yap.ui.screens.AuthScreen
+import com.mehdiacho.yap.ui.screens.ByokKeyScreen
 import com.mehdiacho.yap.ui.screens.CaptureScreen
+import com.mehdiacho.yap.ui.screens.CaptureSettingsScreen
+import com.mehdiacho.yap.ui.screens.UnlockByokScreen
+import com.mehdiacho.yap.ui.screens.PrivacySettingsScreen
+import com.mehdiacho.yap.ui.screens.TranscriptionSettingsScreen
 import com.mehdiacho.yap.ui.screens.LibraryScreen
 import com.mehdiacho.yap.ui.screens.SessionDetailScreen
 import com.mehdiacho.yap.ui.screens.SettingsScreen
@@ -50,7 +61,21 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
+        )
+        // Apply AFTER enableEdgeToEdge so these win over the styles it sets. MIUI/HyperOS applies a
+        // translucent contrast scrim behind the gesture pill in light mode; disabling contrast
+        // enforcement + fully transparent bars is the most it honors. Content still flows to the
+        // true bottom edge (edge-to-edge), so the bottom bar background reaches behind the pill.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = AndroidColor.TRANSPARENT
+        window.navigationBarColor = AndroidColor.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+            window.isStatusBarContrastEnforced = false
+        }
         if (intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true) autoStart.value = true
         intent?.let { handleShare(it) }
         com.mehdiacho.yap.overlay.FloatingBubble.startIfEnabled(this)
@@ -141,8 +166,18 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        // We handle insets ourselves: nav bar draws under the gesture pill (flush to the
+        // bottom edge), content clears the status bar via statusBarsPadding below.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            if (currentRoute in listOf(Routes.CAPTURE, Routes.LIBRARY, Routes.SETTINGS)) {
+            // Capture's immersive states (recording, processing, quota, etc.) hide the nav bar,
+            // as does Library's multi-select mode (its 4-action bar replaces the nav).
+            val captureImmersive by com.mehdiacho.yap.ui.CaptureChrome.immersive.collectAsState()
+            val librarySelecting by com.mehdiacho.yap.ui.LibraryChrome.selectionActive.collectAsState()
+            val showNav = currentRoute in listOf(Routes.CAPTURE, Routes.LIBRARY, Routes.SETTINGS) &&
+                !(currentRoute == Routes.CAPTURE && captureImmersive) &&
+                !(currentRoute == Routes.LIBRARY && librarySelecting)
+            if (showNav) {
                 fun go(route: String) = navController.navigate(route) {
                     popUpTo(navController.graph.startDestinationId) { saveState = true }
                     launchSingleTop = true
@@ -174,11 +209,24 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
             }
         }
     ) { innerPadding ->
+        val navContext = androidx.compose.ui.platform.LocalContext.current
         NavHost(
             navController = navController,
-            startDestination = Routes.CAPTURE,
+            startDestination = if (com.mehdiacho.yap.ui.screens.Onboarding.isDone(navContext))
+                Routes.CAPTURE else Routes.ONBOARDING,
+            // contentWindowInsets is zeroed above so screens draw edge-to-edge (behind the status
+            // bar). Each screen applies its own status-bar inset — inside its scroll container
+            // where scrolling-behind-the-bar is wanted. Bottom: the nav bar handles its own
+            // gesture inset; navbar-less screens add navigationBarsPadding themselves.
             modifier = Modifier.padding(innerPadding)
         ) {
+            composable(Routes.ONBOARDING) {
+                com.mehdiacho.yap.ui.screens.OnboardingFlow(viewModel = viewModel) {
+                    navController.navigate(Routes.CAPTURE) {
+                        popUpTo(Routes.ONBOARDING) { inclusive = true }
+                    }
+                }
+            }
             composable(Routes.CAPTURE) {
                 CaptureScreen(viewModel = viewModel, autoStart = autoStart)
             }
@@ -186,6 +234,11 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                 LibraryScreen(
                     viewModel = viewModel,
                     onOpenTrash = { navController.navigate(Routes.TRASH) },
+                    onRecordNew = {
+                        // FAB: jump to Capture and start recording immediately.
+                        autoStart.value = true
+                        navController.navigate(Routes.CAPTURE) { launchSingleTop = true }
+                    },
                 ) { sessionId ->
                     navController.navigate(Routes.createSessionDetailRoute(sessionId))
                 }
@@ -197,8 +250,26 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                 SettingsScreen(
                     onSignInClick = { navController.navigate(Routes.AUTH) },
                     onOpenSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
+                    onOpenCapture = { navController.navigate(Routes.SETTINGS_CAPTURE) },
+                    onOpenByok = { navController.navigate(Routes.BYOK_KEY) },
+                    onOpenPrivacy = { navController.navigate(Routes.SETTINGS_PRIVACY) },
+                    onOpenAppearance = { navController.navigate(Routes.SETTINGS_APPEARANCE) },
+                    onOpenTranscription = { navController.navigate(Routes.SETTINGS_TRANSCRIPTION) },
+                    onOpenAbout = { navController.navigate(Routes.SETTINGS_ABOUT) },
                 )
             }
+            composable(Routes.BYOK_KEY) {
+                ByokKeyScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenUnlock = { navController.navigate(Routes.BYOK_UNLOCK) },
+                )
+            }
+            composable(Routes.BYOK_UNLOCK) { UnlockByokScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.SETTINGS_CAPTURE) { CaptureSettingsScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.SETTINGS_PRIVACY) { PrivacySettingsScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.SETTINGS_APPEARANCE) { AppearanceSettingsScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.SETTINGS_TRANSCRIPTION) { TranscriptionSettingsScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.SETTINGS_ABOUT) { AboutSettingsScreen(onBack = { navController.popBackStack() }) }
             composable(Routes.AUTH) {
                 AuthScreen(onBack = { navController.popBackStack() })
             }

@@ -1,8 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Yap" parent="android:Theme.DeviceDefault.NoActionBar">
+    <!-- Activity window theme. Parent is Material Components' Theme.Material3.DayNight.NoActionBar —
+         the exact base used by edge-to-edge apps (e.g. Tachiyomi/Yokai) that render a truly
+         transparent navigation bar on MIUI/HyperOS. DayNight auto-switches light/dark. The
+         windowLight*Bar flags are driven per-mode by @bool/isLightMode (values vs values-night);
+         MIUI reads windowLightNavigationBar at window creation to decide the pill background.
+         Contrast enforcement is additionally disabled at runtime in MainActivity. -->
+    <style name="Theme.Yap" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">@bool/isLightMode</item>
+        <item name="android:windowLightNavigationBar">@bool/isLightMode</item>
     </style>
 </resources>

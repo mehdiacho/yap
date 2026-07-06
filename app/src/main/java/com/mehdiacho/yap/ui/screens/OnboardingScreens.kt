@@ -1,0 +1,687 @@
+package com.mehdiacho.yap.ui.screens
+
+import android.Manifest
+import android.content.Context
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Hub
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.mehdiacho.yap.audio.RecorderStatus
+import com.mehdiacho.yap.audio.RecordingBus
+import com.mehdiacho.yap.audio.RecordingController
+import com.mehdiacho.yap.data.AuthManager
+import com.mehdiacho.yap.ui.MainViewModel
+import com.mehdiacho.yap.ui.theme.Outfit
+import com.mehdiacho.yap.ui.theme.YapTheme
+import kotlinx.coroutines.launch
+
+// =====================================================================================
+// Onboarding (design section 05): Welcome → First note → Account → How it works →
+// AI key → Suggested setup. Real recorder, auth, and widget/tile pinning are wired.
+// =====================================================================================
+
+object Onboarding {
+    private const val PREFS = "yap_prefs"
+    private const val KEY_DONE = "onboarding_done"
+    fun isDone(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_DONE, false)
+    fun markDone(context: Context) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_DONE, true).apply()
+}
+
+@Composable
+fun OnboardingFlow(viewModel: MainViewModel, onFinish: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var step by remember { mutableStateOf(1) }
+    val recState by RecordingBus.state.collectAsState()
+
+    // First-note recording takes over step 2 while the recorder is live.
+    val recording = recState.status != RecorderStatus.IDLE
+
+    when {
+        step == 2 && recording -> OnbRecording(
+            paused = recState.status == RecorderStatus.PAUSED,
+            elapsedMs = recState.elapsedMs,
+            onPauseResume = {
+                if (recState.status == RecorderStatus.PAUSED) RecordingController.resume(context)
+                else RecordingController.pause(context)
+            },
+            onStop = { RecordingController.stop(context); step = 20 }, // → saved
+        )
+        step == 1 -> OnbWelcome(onStart = { step = 2 }, onHaveAccount = { step = 3 })
+        step == 2 -> OnbFirstNote(onRecorded = { /* recorder takes over */ }, onSkip = { step = 3 })
+        step == 20 -> OnbSaved(viewModel, onContinue = { step = 3 })
+        step == 3 -> OnbAccount(onDone = { step = 4 })
+        step == 4 -> OnbHowItWorks(onNext = { step = 5 })
+        step == 5 -> OnbAiKey(onContinue = { step = 6 })
+        step == 6 -> OnbSuggestedSetup(onFinish = { Onboarding.markDone(context); onFinish() })
+    }
+}
+
+/** 1 · Welcome — gradient icon mark, Display wordmark, two CTAs. */
+@Composable
+private fun OnbWelcome(onStart: () -> Unit, onHaveAccount: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    BoxWithConstraints(Modifier.fillMaxSize().background(cs.background)) {
+        val mark = (maxWidth.value * 0.233f).dp.coerceIn(72.dp, 96.dp) // §1.6 icon mark
+        Column(
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Column(
+                Modifier.weight(1f).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Box(
+                    Modifier.size(mark)
+                        .shadow(14.dp, RoundedCornerShape(24.dp), spotColor = cs.primary, ambientColor = cs.primary)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Brush.linearGradient(listOf(Color(0xFF6D5BEA), Color(0xFF5B5BD6), Color(0xFF4F46C8)))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Outlined.GraphicEq, null, tint = Color.White, modifier = Modifier.size(mark * 0.55f))
+                }
+                Spacer(Modifier.height(32.dp))
+                Text("Yap", fontFamily = Outfit, fontWeight = FontWeight.ExtraBold, fontSize = 44.sp,
+                    letterSpacing = (-1).sp, color = cs.onSurface)
+                Spacer(Modifier.height(20.dp))
+                Text("Capture any idea,\nthe instant it strikes.", fontSize = 18.sp, lineHeight = 26.sp,
+                    color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
+            }
+            Button(onClick = onStart, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                Text("Get started", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onHaveAccount, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                Text("I already have an account", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(38.dp))
+        }
+    }
+}
+
+/** 2 · First note — eyebrow, headline, hero mic; permission rationale sheet before recording. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OnbFirstNote(onRecorded: () -> Unit, onSkip: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var showRationale by remember { mutableStateOf(false) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result[Manifest.permission.RECORD_AUDIO] == true) {
+            RecordingController.start(context); onRecorded()
+        }
+    }
+    fun launchPermission() {
+        val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
+        else arrayOf(Manifest.permission.RECORD_AUDIO)
+        permissionLauncher.launch(perms)
+    }
+    val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+        context, Manifest.permission.RECORD_AUDIO
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(cs.background)) {
+        val dia = (maxWidth.value * 0.367f).dp.coerceIn(120.dp, 148.dp)
+        Column(
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.height(24.dp))
+            Text("STEP 2 OF 6", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.3.sp, color = cs.primary)
+            Spacer(Modifier.height(10.dp))
+            Text("Tap to capture\nyour first idea", fontFamily = Outfit, fontWeight = FontWeight.Bold,
+                fontSize = 26.sp, lineHeight = 30.sp, letterSpacing = (-0.3).sp,
+                color = cs.onSurface, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(10.dp))
+            Text("Ramble for a few seconds — we'll handle the rest.",
+                fontSize = 14.sp, color = cs.onSurfaceVariant, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 32.dp))
+
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Box(contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(dia).offset(y = 9.dp).blur(36.dp, BlurredEdgeTreatment.Unbounded)
+                        .clip(CircleShape).background(cs.primary.copy(alpha = 0.42f)))
+                    Box(
+                        Modifier.size(dia)
+                            .shadow(10.dp, CircleShape, spotColor = cs.primary, ambientColor = cs.primary)
+                            .clip(CircleShape).background(cs.primary)
+                            .clickable { if (hasPermission) { RecordingController.start(context); onRecorded() } else showRationale = true },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.Mic, "Record", tint = cs.onPrimary, modifier = Modifier.size(dia * 0.47f))
+                    }
+                }
+            }
+            Text("Hold to record longer · Tap to start", fontSize = 13.sp, color = YapTheme.extended.subdued)
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = onSkip) { Text("Skip", color = cs.onSurfaceVariant) }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    // Permission rationale sheet (design · first note · permission).
+    if (showRationale) {
+        ModalBottomSheet(
+            onDismissRequest = { showRationale = false },
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            containerColor = cs.surface,
+        ) {
+            Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 34.dp)) {
+                Box(Modifier.size(54.dp).clip(RoundedCornerShape(16.dp)).background(cs.primaryContainer),
+                    contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.Mic, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(30.dp))
+                }
+                Spacer(Modifier.height(16.dp))
+                Text("Allow microphone access", fontFamily = Outfit, fontWeight = FontWeight.Bold,
+                    fontSize = 21.sp, color = cs.onSurface)
+                Spacer(Modifier.height(8.dp))
+                Text("Yap needs your mic to capture ideas. Recordings stay on your device until you choose to refine them in the cloud.",
+                    fontSize = 14.sp, lineHeight = 21.sp, color = cs.onSurfaceVariant)
+                Spacer(Modifier.height(22.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = { showRationale = false }, shape = RoundedCornerShape(50),
+                        modifier = Modifier.weight(1f).height(50.dp)) {
+                        Text("Not now", fontWeight = FontWeight.SemiBold, color = cs.onSurfaceVariant)
+                    }
+                    Button(onClick = { showRationale = false; launchPermission() }, shape = RoundedCornerShape(50),
+                        modifier = Modifier.weight(1f).height(50.dp)) {
+                        Text("Allow", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 2 · First note · recording — timer, waveform, live draft, pause + stop transport. */
+@Composable
+private fun OnbRecording(
+    paused: Boolean,
+    elapsedMs: Long,
+    onPauseResume: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
+    val accent = ext.recording
+    // Rolling amplitude history for the waveform.
+    val bars = remember { mutableStateListOf<Float>().apply { repeat(24) { add(0.12f) } } }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val s = RecordingBus.state.value
+            if (s.status == RecorderStatus.RECORDING) { bars.removeAt(0); bars.add(s.amplitude.coerceIn(0.12f, 1f)) }
+            kotlinx.coroutines.delay(70)
+        }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(cs.background)) {
+        val centerDia = (maxWidth.value * 0.267f).dp.coerceIn(88.dp, 108.dp)
+        val sideDia = centerDia * 0.6f
+        Column(
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.height(18.dp))
+            val dotAlpha = if (paused) 1f else rememberDotPulse()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(9.dp).clip(CircleShape)
+                    .background((if (paused) cs.onSurfaceVariant else accent).copy(alpha = dotAlpha)))
+                Spacer(Modifier.width(7.dp))
+                Text(if (paused) "Paused" else "Recording",
+                    color = if (paused) cs.onSurfaceVariant else accent,
+                    fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(formatElapsedOnb(elapsedMs), fontFamily = Outfit, fontWeight = FontWeight.Bold,
+                fontSize = 40.sp, color = cs.onSurface)
+            Spacer(Modifier.height(8.dp))
+            Waveform11(bars, paused)
+
+            val draft by com.mehdiacho.yap.audio.LiveDraftEngine.draftText.collectAsState()
+            Spacer(Modifier.height(14.dp))
+            Column(
+                Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp))
+                    .background(cs.surfaceContainer).padding(16.dp)
+            ) {
+                Text("LIVE DRAFT", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp, color = cs.primary)
+                Spacer(Modifier.height(8.dp))
+                if (draft.isBlank()) {
+                    Text("Your words appear here as you speak…", fontSize = 14.sp, color = ext.subdued, lineHeight = 21.sp)
+                } else {
+                    val scroll = rememberScrollState()
+                    LaunchedEffect(draft) { scroll.animateScrollTo(scroll.maxValue) }
+                    Text(draft, fontSize = 15.sp, lineHeight = 23.sp, color = cs.onSurface,
+                        modifier = Modifier.verticalScroll(scroll))
+                }
+            }
+
+            Spacer(Modifier.height(18.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 34.dp)) {
+                TransportSideButton(sideDia,
+                    icon = if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                    desc = if (paused) "Resume" else "Pause", onClick = onPauseResume)
+                Spacer(Modifier.width(28.dp))
+                RecordStopButton(centerDia, paused, accent, onStop)
+                Spacer(Modifier.width(28.dp))
+                Spacer(Modifier.size(sideDia)) // design keeps the row balanced with an empty slot
+            }
+        }
+    }
+}
+
+private fun formatElapsedOnb(ms: Long): String {
+    val totalSec = ms / 1000
+    return "%d:%02d".format(totalSec / 60, totalSec % 60)
+}
+
+/** 2 · First note · saved — success disc, copy, preview card, Continue. */
+@Composable
+private fun OnbSaved(viewModel: MainViewModel, onContinue: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
+    val sessions by viewModel.allSessions.collectAsState()
+    val latest = sessions.firstOrNull()
+
+    Column(
+        Modifier.fillMaxSize().background(cs.background).statusBarsPadding().navigationBarsPadding()
+            .padding(horizontal = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Column(
+            Modifier.weight(1f).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Box(Modifier.size(96.dp).clip(CircleShape).background(ext.refinedContainer),
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Check, null, tint = ext.onRefinedContainer, modifier = Modifier.size(54.dp))
+            }
+            Spacer(Modifier.height(24.dp))
+            Text("Saved!", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 24.sp,
+                letterSpacing = (-0.3).sp, color = cs.onSurface)
+            Spacer(Modifier.height(10.dp))
+            Text("Your first idea is captured as a draft. It'll polish itself the next time you're online.",
+                fontSize = 15.sp, lineHeight = 22.sp, color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
+            if (latest != null) {
+                Spacer(Modifier.height(24.dp))
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainer)
+                    .padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        StatusChip(latest.status)
+                        Spacer(Modifier.weight(1f))
+                        Text("just now", fontSize = 11.sp, color = ext.subdued)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(latest.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                }
+            }
+        }
+        Button(onClick = onContinue, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(56.dp)) {
+            Text("Continue", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(38.dp))
+    }
+}
+
+/** 3 · Account — Google · email/password with loading and error states. */
+@Composable
+private fun OnbAccount(onDone: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun run(block: suspend () -> Unit) {
+        scope.launch {
+            busy = true; error = null
+            try { block(); onDone() } catch (e: Exception) {
+                error = e.message ?: "That email or password didn't match."
+            } finally { busy = false }
+        }
+    }
+
+    Column(
+        Modifier.fillMaxSize().background(cs.background).statusBarsPadding().navigationBarsPadding()
+            .verticalScroll(rememberScrollState()).padding(horizontal = 28.dp),
+    ) {
+        Spacer(Modifier.height(28.dp))
+        Text("Save your notes\nacross devices", fontFamily = Outfit, fontWeight = FontWeight.Bold,
+            fontSize = 26.sp, lineHeight = 30.sp, letterSpacing = (-0.3).sp, color = cs.onSurface)
+        Spacer(Modifier.height(10.dp))
+        Text("Or skip — everything works offline as a guest.", fontSize = 14.sp, color = cs.onSurfaceVariant)
+
+        Spacer(Modifier.height(30.dp))
+        if (error != null) {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(cs.errorContainer)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Error, null, tint = cs.error, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(error!!, fontSize = 13.sp, color = cs.onErrorContainer)
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+        OutlinedButton(
+            onClick = { run { AuthManager.signInWithGoogle(context) } },
+            enabled = !busy, shape = RoundedCornerShape(50),
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+        ) {
+            if (busy) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.5.dp)
+                Spacer(Modifier.width(12.dp))
+                Text("Signing you in…", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            } else {
+                Text("Continue with Google", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            HorizontalDivider(Modifier.weight(1f), color = cs.outlineVariant)
+            Text("  or  ", color = YapTheme.extended.subdued, fontSize = 12.sp)
+            HorizontalDivider(Modifier.weight(1f), color = cs.outlineVariant)
+        }
+        Spacer(Modifier.height(16.dp))
+        OutlinedTextField(
+            value = email, onValueChange = { email = it; error = null },
+            label = { Text("Email address") }, singleLine = true, isError = error != null,
+            shape = RoundedCornerShape(14.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = password, onValueChange = { password = it; error = null },
+            label = { Text("Password") }, singleLine = true, isError = error != null,
+            shape = RoundedCornerShape(14.dp),
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = { run { AuthManager.signInWithEmail(email.trim(), password) } },
+            enabled = !busy && email.isNotBlank() && password.length >= 6,
+            shape = RoundedCornerShape(50),
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+        ) { Text(if (error != null) "Try again" else "Create account", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+        if (error != null) {
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = { /* stub — password reset on the functionality list */ },
+                modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text("Forgot password?", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(24.dp))
+        TextButton(onClick = onDone, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text("Continue as guest", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.primary)
+        }
+        Spacer(Modifier.height(20.dp))
+    }
+}
+
+/** 4 · How it works — three feature cards, dot pagination, Next. */
+@Composable
+private fun OnbHowItWorks(onNext: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Column(
+        Modifier.fillMaxSize().background(cs.background).statusBarsPadding().navigationBarsPadding()
+            .padding(horizontal = 26.dp),
+    ) {
+        Spacer(Modifier.height(26.dp))
+        Text("How Yap works", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 25.sp,
+            letterSpacing = (-0.3).sp, color = cs.onSurface, modifier = Modifier.padding(horizontal = 4.dp))
+        Spacer(Modifier.height(22.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            FeatureCard(Icons.Default.Bolt, "Drafts instantly", "Transcribed on your phone, offline.")
+            FeatureCard(Icons.Default.AutoAwesome, "Polishes when online", "Cleaned up & formatted in the cloud.")
+            FeatureCard(Icons.Outlined.Hub, "Auto-organized", "Sorted into clusters & collections.")
+        }
+        // Dot pagination — this is page 1 of the info trio (design).
+        Row(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 30.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Box(Modifier.width(22.dp).height(7.dp).clip(RoundedCornerShape(4.dp)).background(cs.primary))
+            Box(Modifier.size(7.dp).clip(CircleShape).background(cs.surfaceVariant))
+            Box(Modifier.size(7.dp).clip(CircleShape).background(cs.surfaceVariant))
+        }
+        Button(onClick = onNext, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(56.dp)) {
+            Text("Next", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(34.dp))
+    }
+}
+
+@Composable
+private fun FeatureCard(icon: ImageVector, title: String, body: String) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surfaceContainerLow).padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(cs.primaryContainer),
+            contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(26.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column {
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+            Text(body, fontSize = 13.sp, lineHeight = 18.sp, color = cs.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp))
+        }
+    }
+}
+
+/** 5 · AI key — Yap's AI (selected) vs locked BYOK option. */
+@Composable
+private fun OnbAiKey(onContinue: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
+    Column(
+        Modifier.fillMaxSize().background(cs.background).statusBarsPadding().navigationBarsPadding()
+            .padding(horizontal = 26.dp),
+    ) {
+        Spacer(Modifier.height(26.dp))
+        Text("Choose your AI", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 25.sp,
+            letterSpacing = (-0.3).sp, color = cs.onSurface, modifier = Modifier.padding(horizontal = 4.dp))
+        Spacer(Modifier.height(8.dp))
+        Text("You can change this anytime in Settings.", fontSize = 14.sp, color = cs.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 4.dp))
+        Spacer(Modifier.height(22.dp))
+
+        // Yap's AI — selected
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surfaceContainerLow)
+                .border(2.dp, cs.primary, RoundedCornerShape(18.dp)).padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(cs.primary),
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.AutoAwesome, null, tint = cs.onPrimary, modifier = Modifier.size(24.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Use Yap's AI", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                Text("Free · 30 min/mo cloud refine", fontSize = 13.sp, color = cs.onSurfaceVariant)
+            }
+            Icon(Icons.Default.RadioButtonChecked, null, tint = cs.primary, modifier = Modifier.size(24.dp))
+        }
+        Spacer(Modifier.height(14.dp))
+        // BYOK — locked
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surface)
+                .border(1.dp, cs.outlineVariant, RoundedCornerShape(18.dp)).padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(cs.surfaceContainerHigh),
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Key, null, tint = ext.subdued, modifier = Modifier.size(24.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Use my own key", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Outlined.Lock, null, tint = ext.onOfflineContainer, modifier = Modifier.size(16.dp))
+                }
+                Text("Unlimited · BYOK · unlock required", fontSize = 13.sp, color = cs.onSurfaceVariant)
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Button(onClick = onContinue, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(56.dp)) {
+            Text("Continue", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(34.dp))
+    }
+}
+
+/** 6 · Suggested setup — widget + tile rows with real pin requests. */
+@Composable
+private fun OnbSuggestedSetup(onFinish: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    fun requestPinWidget() {
+        val mgr = android.appwidget.AppWidgetManager.getInstance(context)
+        val provider = android.content.ComponentName(context, com.mehdiacho.yap.widget.RecordWidgetProvider::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && mgr.isRequestPinAppWidgetSupported) {
+            mgr.requestPinAppWidget(provider, null, null)
+        } else {
+            android.widget.Toast.makeText(context, "Long-press your home screen → Widgets → Yap",
+                android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+    fun requestAddTile() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            val sbm = context.getSystemService(android.app.StatusBarManager::class.java)
+            sbm?.requestAddTileService(
+                android.content.ComponentName(context, com.mehdiacho.yap.tile.RecordTileService::class.java),
+                "Yap",
+                android.graphics.drawable.Icon.createWithResource(context, com.mehdiacho.yap.R.drawable.ic_tile_mic),
+                context.mainExecutor,
+            ) { }
+        } else {
+            android.widget.Toast.makeText(context, "Open Quick Settings → edit tiles → add Yap",
+                android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    Column(
+        Modifier.fillMaxSize().background(cs.background).statusBarsPadding().navigationBarsPadding()
+            .padding(horizontal = 26.dp),
+    ) {
+        Spacer(Modifier.height(26.dp))
+        Text("One-tap capture,\nfrom anywhere", fontFamily = Outfit, fontWeight = FontWeight.Bold,
+            fontSize = 25.sp, lineHeight = 29.sp, letterSpacing = (-0.3).sp, color = cs.onSurface,
+            modifier = Modifier.padding(horizontal = 4.dp))
+        Spacer(Modifier.height(8.dp))
+        Text("Add these so an idea is never more than a tap away.", fontSize = 14.sp,
+            color = cs.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
+        Spacer(Modifier.height(22.dp))
+
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            SetupRow(
+                tile = {
+                    Box(Modifier.size(56.dp).clip(RoundedCornerShape(16.dp))
+                        .background(Brush.linearGradient(listOf(Color(0xFF6D5BEA), Color(0xFF5B5BD6)))),
+                        contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Mic, null, tint = Color.White, modifier = Modifier.size(30.dp))
+                    }
+                },
+                title = "Home-screen widget", body = "Tap to record from your launcher.",
+                onAdd = ::requestPinWidget,
+            )
+            SetupRow(
+                tile = {
+                    Box(Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)).background(cs.primaryContainer),
+                        contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Tune, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(30.dp))
+                    }
+                },
+                title = "Quick Settings tile", body = "Record from the pull-down shade.",
+                onAdd = ::requestAddTile,
+            )
+        }
+
+        Button(onClick = onFinish, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(56.dp)) {
+            Text("Start capturing", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onFinish, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text("Skip for now", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = cs.primary)
+        }
+        Spacer(Modifier.height(26.dp))
+    }
+}
+
+@Composable
+private fun SetupRow(tile: @Composable () -> Unit, title: String, body: String, onAdd: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surfaceContainerLow).padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        tile()
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+            Text(body, fontSize = 13.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
+        }
+        Button(onClick = onAdd, shape = RoundedCornerShape(50),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+            Text("Add", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}

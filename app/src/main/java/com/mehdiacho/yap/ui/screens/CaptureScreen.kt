@@ -1,44 +1,77 @@
 package com.mehdiacho.yap.ui.screens
 
 import android.Manifest
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.widget.Toast
+import com.mehdiacho.yap.BuildConfig
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CloudDone
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.HourglassEmpty
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.MicOff
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material.icons.outlined.VpnKey
+import androidx.compose.material.icons.outlined.WorkspacePremium
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.audio.RecorderEvent
@@ -46,7 +79,9 @@ import com.mehdiacho.yap.audio.RecorderStatus
 import com.mehdiacho.yap.audio.RecordingBus
 import com.mehdiacho.yap.audio.RecordingController
 import com.mehdiacho.yap.data.Session
+import com.mehdiacho.yap.ui.CaptureChrome
 import com.mehdiacho.yap.ui.MainViewModel
+import com.mehdiacho.yap.ui.rememberOfflineState
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
 import kotlinx.coroutines.delay
@@ -71,10 +106,13 @@ fun CaptureScreen(
     }
     val state by RecordingBus.state.collectAsState()
 
+    var permDenied by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
-        if (result[Manifest.permission.RECORD_AUDIO] == true) RecordingController.start(context)
+        if (result[Manifest.permission.RECORD_AUDIO] == true) {
+            permDenied = false; RecordingController.start(context)
+        } else permDenied = true
     }
 
     fun requestAndStart() {
@@ -111,15 +149,38 @@ fun CaptureScreen(
 
     val sessions by viewModel.allSessions.collectAsState()
 
+    // UI-level states not tracked by the recorder (IDLE/RECORDING/PAUSED). Real triggers wire
+    // permission-denied and offline; `devState` is a debug-only previewer for the rest so every
+    // design in the kit is viewable without faking production conditions.
+    val (realOffline, recheckOnline) = rememberOfflineState()
+    var devState by remember { mutableStateOf<String?>(null) }
+    val offline = realOffline || devState == "offline"
+    val recorderIdle = state.status == RecorderStatus.IDLE
+
+    // Immersive capture states hide the bottom nav (design: no navbar on these frames).
+    val immersive = !recorderIdle || permDenied ||
+        devState == "processing" || devState == "error" || devState == "permission" || devState == "quota"
+    LaunchedEffect(immersive) { CaptureChrome.immersive.value = immersive }
+    DisposableEffect(Unit) { onDispose { CaptureChrome.immersive.value = false } }
+
     Box(Modifier.fillMaxSize()) {
-        if (state.status == RecorderStatus.IDLE) {
-            IdleContent(
+        when {
+            recorderIdle && devState == "processing" -> ProcessingContent { devState = null }
+            recorderIdle && devState == "error" ->
+                ErrorContent(recovered = "1:02", onResume = { devState = null }, onSave = { devState = null })
+            recorderIdle && (permDenied || devState == "permission") ->
+                PermissionDeniedContent(
+                    onGrant = { devState = null; requestAndStart() },
+                    onDismiss = { permDenied = false; devState = null },
+                )
+            recorderIdle -> IdleContent(
                 lastSession = sessions.firstOrNull(),
+                offline = offline,
+                onRecheckOnline = { recheckOnline(); if (devState == "offline") devState = null },
                 onRecord = ::requestAndStart,
                 onImport = { importLauncher.launch(arrayOf("audio/*", "video/*")) },
             )
-        } else {
-            RecordingContent(
+            else -> RecordingContent(
                 paused = state.status == RecorderStatus.PAUSED,
                 elapsedMs = state.elapsedMs,
                 bars = bars,
@@ -128,18 +189,42 @@ fun CaptureScreen(
                     else RecordingController.pause(context)
                 },
                 onStop = { RecordingController.stop(context) },
-                onDiscard = {
-                    RecordingController.discard(context)
-                    Toast.makeText(context, "Recording discarded", Toast.LENGTH_SHORT).show()
+                onBookmark = {
+                    // Stub — marker/bookmark feature to be wired later.
+                    Toast.makeText(context, "Bookmarked this moment", Toast.LENGTH_SHORT).show()
                 },
             )
+        }
+
+        // Quota-hit is a bottom sheet over the (dimmed) idle screen — dismiss via scrim/swipe.
+        if (recorderIdle && devState == "quota") {
+            QuotaSheet(
+                onUpgrade = { devState = null },
+                onOwnKey = { devState = null },
+                onDismiss = { devState = null },
+            )
+        }
+
+        // Debug-only previewer — cycles through the capture states in the design kit so each is
+        // viewable without faking production conditions. Compiled out of release builds.
+        if (BuildConfig.DEBUG && state.status == RecorderStatus.IDLE) {
+            val states = listOf<String?>(null, "processing", "quota", "error", "permission", "offline")
+            TextButton(
+                onClick = { devState = states[(states.indexOf(devState) + 1) % states.size] },
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 6.dp, bottom = 2.dp),
+            ) {
+                Text("preview: ${devState ?: "live"}", fontSize = 10.sp, color = YapTheme.extended.subdued)
+            }
         }
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun IdleContent(
     lastSession: Session?,
+    offline: Boolean = false,
+    onRecheckOnline: () -> Unit = {},
     onRecord: () -> Unit,
     onImport: () -> Unit,
 ) {
@@ -162,11 +247,15 @@ private fun IdleContent(
         // Spec §1.6 — ONLY these scale with screen width; everything else is fixed dp/sp.
         val wv = maxWidth.value
         val edge = (wv * 0.061f).dp.coerceIn(20.dp, 28.dp)   // screen edge margin
-        val captureDia = (wv * 0.367f).dp.coerceIn(120.dp, 148.dp) // §2.3 idle
+        val captureDia = (wv * 0.375f).dp.coerceIn(120.dp, 156.dp) // §2.3 idle
         val avatar = (wv * 0.106f).dp.coerceIn(34.dp, 44.dp)
         val micIcon = captureDia * 0.47f
 
+        // Banner visibility resets whenever connectivity flips, so going offline re-shows it.
+        var bannerDismissed by remember(offline) { mutableStateOf(false) }
+
         Column(Modifier.fillMaxSize().padding(horizontal = edge)) {
+            Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
             Spacer(Modifier.height(8.dp))
 
             // 1 · Top row — avatar + sync chip (§3.1)
@@ -179,15 +268,50 @@ private fun IdleContent(
                         fontWeight = FontWeight.Bold, fontSize = 16.sp, color = cs.onPrimaryContainer)
                 }
                 Spacer(Modifier.weight(1f))
+                if (offline) {
+                    // Tap: re-check connectivity. Long-press: re-show the banner (tooltip-style).
+                    Row(
+                        Modifier.clip(RoundedCornerShape(50))
+                            .combinedClickable(
+                                onClick = onRecheckOnline,
+                                onLongClick = { bannerDismissed = false },
+                            )
+                            .background(ext.warningSoft).padding(horizontal = 12.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.CloudOff, null, tint = ext.onOfflineContainer, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text("Offline", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = ext.onOfflineContainer)
+                    }
+                } else {
+                    Row(
+                        Modifier.clip(RoundedCornerShape(50))
+                            .background(ext.successSoft).padding(horizontal = 12.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.CloudDone, null, tint = ext.onRefinedContainer, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text(if (signedIn) "Synced" else "Guest",
+                            fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = ext.onRefinedContainer)
+                    }
+                }
+            }
+
+            // Offline banner — second on screen (below the top row), dismissible.
+            if (offline && !bannerDismissed) {
+                Spacer(Modifier.height(14.dp))
                 Row(
-                    Modifier.clip(RoundedCornerShape(50))
-                        .background(ext.successSoft).padding(horizontal = 12.dp, vertical = 5.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                        .background(ext.warningSoft).padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Outlined.CloudDone, null, tint = ext.onRefinedContainer, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text(if (signedIn) "Synced" else "Guest",
-                        fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = ext.onRefinedContainer)
+                    Icon(Icons.Outlined.CloudOff, null, tint = ext.onOfflineContainer, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Offline — draft saved, will refine when connected.",
+                        fontSize = 13.sp, lineHeight = 18.sp, color = ext.onOfflineContainer,
+                        modifier = Modifier.weight(1f))
+                    Icon(Icons.Filled.Close, "Dismiss", tint = ext.onOfflineContainer,
+                        modifier = Modifier.size(18.dp).clickable { bannerDismissed = true })
                 }
             }
 
@@ -197,7 +321,8 @@ private fun IdleContent(
                 fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 24.sp,
                 lineHeight = 28.sp, letterSpacing = (-0.4).sp, color = cs.onSurface)
             Spacer(Modifier.height(4.dp))
-            Text("What's on your mind?", fontSize = 13.sp, lineHeight = 19.sp, color = cs.onSurfaceVariant)
+            Text(if (offline) "Recording works fully offline." else "What's on your mind?",
+                fontSize = 13.sp, lineHeight = 19.sp, color = cs.onSurfaceVariant)
 
             // 3 · Last-note card (§2.4-lite)
             if (lastSession != null) {
@@ -243,13 +368,25 @@ private fun IdleContent(
                 verticalArrangement = Arrangement.Center,
             ) {
                 // 5 · Capture button + label + import pill
-                Box(
-                    Modifier.size(captureDia)
-                        .shadow(18.dp, CircleShape, spotColor = cs.primary, ambientColor = cs.primary)
-                        .clip(CircleShape).background(cs.primary).clickable { onRecord() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Rounded.Mic, "Record", tint = cs.onPrimary, modifier = Modifier.size(micIcon))
+                Box(contentAlignment = Alignment.Center) {
+                    // Soft purple glow behind the button — design: 0 18px 44px rgba(91,91,214,.42).
+                    // A blurred, offset primary disc gives the halo real depth (Compose shadow
+                    // alone reads too flat on a light surface). Unbounded lets it spread past bounds.
+                    Box(
+                        Modifier.size(captureDia)
+                            .offset(y = 9.dp)
+                            .blur(36.dp, BlurredEdgeTreatment.Unbounded)
+                            .clip(CircleShape)
+                            .background(cs.primary.copy(alpha = 0.42f))
+                    )
+                    Box(
+                        Modifier.size(captureDia)
+                            .shadow(10.dp, CircleShape, spotColor = cs.primary, ambientColor = cs.primary)
+                            .clip(CircleShape).background(cs.primary).clickable { onRecord() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.Mic, "Record", tint = cs.onPrimary, modifier = Modifier.size(micIcon))
+                    }
                 }
                 Spacer(Modifier.height(20.dp))
                 Text("Tap to record", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
@@ -278,6 +415,140 @@ private fun relativeTime(ts: Long): String {
     }
 }
 
+/** §Capture · processing — auto_awesome disc + spinner ring, two status lines, "Keep capturing". */
+@Composable
+private fun ProcessingContent(onKeepCapturing: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) {
+            Box(Modifier.size(108.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(108.dp).clip(CircleShape).background(cs.primaryContainer))
+                Icon(Icons.Filled.AutoAwesome, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(50.dp))
+                CircularProgressIndicator(Modifier.size(108.dp), color = cs.primary, strokeWidth = 3.dp)
+            }
+            Spacer(Modifier.height(28.dp))
+            Text("Polishing…", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = cs.onSurface)
+            Spacer(Modifier.height(8.dp))
+            Text("Transcribed on device ✓\nNow refining in the cloud.", fontSize = 15.sp, lineHeight = 22.sp,
+                color = cs.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Spacer(Modifier.height(22.dp))
+            Row(Modifier.clip(RoundedCornerShape(14.dp)).background(cs.surfaceContainer)
+                .padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Info, null, tint = cs.primary, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("You can leave — this finishes in the background.", fontSize = 12.sp, color = cs.onSurfaceVariant)
+            }
+        }
+        OutlinedButton(onClick = onKeepCapturing, shape = RoundedCornerShape(50),
+            modifier = Modifier.fillMaxWidth().height(54.dp)) { Text("Keep capturing", fontWeight = FontWeight.SemiBold) }
+        Spacer(Modifier.height(38.dp))
+    }
+}
+
+/** §Capture · quota-hit — bottom sheet, hourglass, "Cloud polish paused". */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QuotaSheet(onUpgrade: () -> Unit, onOwnKey: () -> Unit, onDismiss: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(),
+        containerColor = cs.surface,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        scrimColor = Color(0x7314121E),
+    ) {
+        Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 34.dp)) {
+            Box(Modifier.size(54.dp).clip(RoundedCornerShape(16.dp)).background(ext.offlineContainer),
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.HourglassEmpty, null, tint = ext.onOfflineContainer, modifier = Modifier.size(30.dp))
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("Cloud polish paused", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 21.sp, color = cs.onSurface)
+            Spacer(Modifier.height(8.dp))
+            Text("You're out of cloud minutes this month. Recording and on-device drafts still work — refinement resumes when you upgrade or add your own key.",
+                fontSize = 14.sp, lineHeight = 21.sp, color = cs.onSurfaceVariant)
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onUpgrade, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                Text("Upgrade to Pro", fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(onClick = onOwnKey, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                Text("Use my own key", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/** §Capture · permission-denied — circular error tile, "Microphone is off", direct grant. */
+@Composable
+private fun PermissionDeniedContent(onGrant: () -> Unit, onDismiss: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 34.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) {
+            Box(Modifier.size(96.dp).clip(CircleShape).background(cs.errorContainer), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.MicOff, null, tint = cs.error, modifier = Modifier.size(50.dp))
+            }
+            Spacer(Modifier.height(24.dp))
+            Text("Microphone is off", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = cs.onSurface)
+            Spacer(Modifier.height(10.dp))
+            Text("Yap can't record without mic access. Grant it to start capturing.",
+                fontSize = 15.sp, lineHeight = 22.sp, color = cs.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        }
+        Button(onClick = onGrant, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(54.dp)) {
+            Text("Grant permission", fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(6.dp))
+        TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text("Maybe later", fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(38.dp))
+    }
+}
+
+/** §Capture · error — "Recording interrupted" with recovered-audio chip. */
+@Composable
+private fun ErrorContent(recovered: String, onResume: () -> Unit, onSave: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 34.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) {
+            Box(Modifier.size(96.dp).clip(CircleShape).background(cs.errorContainer), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.ErrorOutline, null, tint = cs.error, modifier = Modifier.size(50.dp))
+            }
+            Spacer(Modifier.height(24.dp))
+            Text("Recording interrupted", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = cs.onSurface)
+            Spacer(Modifier.height(10.dp))
+            Text("The mic was taken by another app. Your audio so far is safe and buffered.",
+                fontSize = 15.sp, lineHeight = 22.sp, color = cs.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Spacer(Modifier.height(18.dp))
+            Row(Modifier.clip(RoundedCornerShape(12.dp)).background(ext.successSoft)
+                .padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Shield, null, tint = ext.onRefinedContainer, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("$recovered of audio recovered", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ext.onRefinedContainer)
+            }
+        }
+        Button(onClick = onResume, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(54.dp)) {
+            Icon(Icons.Outlined.Refresh, null, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
+            Text("Resume recording", fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(6.dp))
+        TextButton(onClick = onSave, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text("Save what I have", fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(38.dp))
+    }
+}
+
 @Composable
 private fun RecordingContent(
     paused: Boolean,
@@ -285,119 +556,148 @@ private fun RecordingContent(
     bars: SnapshotStateList<Float>,
     onPauseResume: () -> Unit,
     onStop: () -> Unit,
-    onDiscard: () -> Unit,
+    onBookmark: () -> Unit,
 ) {
-    val recording = YapTheme.extended.recording
-    val idle = MaterialTheme.colorScheme.outlineVariant
-    val waveColor = if (paused) idle else recording
+    val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
+    val accent = ext.recording
 
-    Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.height(28.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(9.dp).clip(CircleShape).background(if (paused) idle else recording))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                if (paused) "Paused" else "Recording",
-                color = if (paused) MaterialTheme.colorScheme.onSurfaceVariant else recording,
-                fontWeight = FontWeight.Bold, fontSize = 15.sp,
-            )
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            formatElapsed(elapsedMs),
-            style = MaterialTheme.typography.displayLarge, // Outfit, per the kit's big timer
-            color = MaterialTheme.colorScheme.onBackground,
-        )
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wv = maxWidth.value
+        val edge = (wv * 0.061f).dp.coerceIn(20.dp, 28.dp)
+        val centerDia = (wv * 0.267f).dp.coerceIn(88.dp, 108.dp) // §2.3 recording
+        val sideDia = centerDia * 0.6f                            // §2.3 side actions
 
-        // Live draft — streams in from the fed-stream recognizer while you speak.
-        val draft by com.mehdiacho.yap.audio.LiveDraftEngine.draftText.collectAsState()
-        if (draft.isNotBlank()) {
-            Spacer(Modifier.height(14.dp))
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 22.dp).weight(1f)
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .padding(14.dp)
-            ) {
-                Text(
-                    "LIVE DRAFT",
-                    fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary, letterSpacing = 1.sp,
-                )
-                Spacer(Modifier.height(6.dp))
-                val scroll = androidx.compose.foundation.rememberScrollState()
-                LaunchedEffect(draft) { scroll.animateScrollTo(scroll.maxValue) }
-                Text(
-                    draft,
-                    fontSize = 15.sp, lineHeight = 22.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.verticalScroll(scroll),
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-        } else {
-            Spacer(Modifier.weight(1f))
-        }
-
-        // Full-width, edge-to-edge, center-mirrored waveform.
-        Canvas(modifier = Modifier.fillMaxWidth().height(96.dp)) {
-            val n = bars.size
-            val gap = 3.dp.toPx()
-            val barW = ((size.width - gap * (n - 1)) / n).coerceAtLeast(1f)
-            for (i in 0 until n) {
-                val amp = bars[i]
-                val h = (amp * size.height).coerceIn(barW, size.height)
-                val x = i * (barW + gap)
-                val top = (size.height - h) / 2f
-                drawRoundRect(
-                    color = waveColor,
-                    topLeft = Offset(x, top),
-                    size = Size(barW, h),
-                    cornerRadius = CornerRadius(barW / 2f, barW / 2f),
-                )
-            }
-        }
-
-        Spacer(Modifier.weight(1f))
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = edge),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Discard: throw away the recording, nothing is saved.
-            Box(
-                modifier = Modifier.size(58.dp).clip(CircleShape)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                    .clickable { onDiscard() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Default.Delete, contentDescription = "Discard recording",
-                    tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(26.dp),
-                )
+            // 1 · Timer block (§3.2)
+            Spacer(Modifier.height(20.dp))
+            val dotAlpha = if (paused) 1f else rememberDotPulse()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(9.dp).clip(CircleShape)
+                    .background((if (paused) cs.onSurfaceVariant else accent).copy(alpha = dotAlpha)))
+                Spacer(Modifier.width(8.dp))
+                Text(if (paused) "Paused" else "Recording",
+                    color = if (paused) cs.onSurfaceVariant else accent,
+                    fontWeight = FontWeight.SemiBold, fontSize = 13.sp, letterSpacing = 0.6.sp)
             }
-            Spacer(Modifier.width(30.dp))
-            Box(
-                modifier = Modifier.size(96.dp).clip(CircleShape).background(recording).clickable { onStop() },
-                contentAlignment = Alignment.Center,
+            Spacer(Modifier.height(4.dp))
+            Text(formatElapsed(elapsedMs), fontFamily = Outfit, fontWeight = FontWeight.Bold,
+                fontSize = 44.sp, color = cs.onSurface)
+
+            // 2 · Waveform (§2.6) — 11 centered bars driven by live amplitude.
+            Spacer(Modifier.height(14.dp))
+            Waveform11(bars, paused)
+
+            // 3 · Flexible live-draft panel (§3.2 block 3)
+            val draft by com.mehdiacho.yap.audio.LiveDraftEngine.draftText.collectAsState()
+            Spacer(Modifier.height(16.dp))
+            Column(
+                Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp))
+                    .background(cs.surfaceContainer).padding(16.dp)
             ) {
-                Icon(Icons.Default.Stop, "Stop & save", tint = Color.White, modifier = Modifier.size(40.dp))
+                Text(if (draft.isBlank()) "DRAFT SO FAR" else "LIVE DRAFT", fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = cs.primary)
+                Spacer(Modifier.height(8.dp))
+                if (draft.isBlank()) {
+                    Text("Your words appear here as you speak…", fontSize = 14.sp,
+                        color = ext.subdued, lineHeight = 21.sp)
+                } else {
+                    val scroll = rememberScrollState()
+                    LaunchedEffect(draft) { scroll.animateScrollTo(scroll.maxValue) }
+                    Text(draft, fontSize = 15.sp, lineHeight = 23.sp, color = cs.onSurface,
+                        modifier = Modifier.verticalScroll(scroll))
+                }
             }
-            Spacer(Modifier.width(30.dp))
-            Box(
-                modifier = Modifier.size(58.dp).clip(CircleShape)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                    .clickable { onPauseResume() },
-                contentAlignment = Alignment.Center,
+
+            // 4 · Transport row (§3.2) — pause · stop(hero) · bookmark
+            Spacer(Modifier.height(20.dp))
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 30.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                    contentDescription = if (paused) "Resume" else "Pause",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp),
-                )
+                TransportSideButton(sideDia,
+                    icon = if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                    desc = if (paused) "Resume" else "Pause", onClick = onPauseResume)
+                Spacer(Modifier.width(30.dp))
+                RecordStopButton(centerDia, paused, accent, onStop)
+                Spacer(Modifier.width(30.dp))
+                TransportSideButton(sideDia, icon = Icons.Outlined.BookmarkBorder,
+                    desc = "Bookmark", onClick = onBookmark)
             }
         }
+    }
+}
+
+/** §2.7 dot pulse — opacity 1 → 0.4 → 1, ~1.35s. */
+@Composable
+internal fun rememberDotPulse(): Float {
+    val t = rememberInfiniteTransition(label = "dot")
+    val a by t.animateFloat(1f, 0.4f,
+        infiniteRepeatable(tween(1350, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "da")
+    return a
+}
+
+/** §2.6 waveform — 11 bars, 5dp wide, 4dp gap, centered & mirrored, recording accent. */
+@Composable
+internal fun Waveform11(bars: SnapshotStateList<Float>, paused: Boolean) {
+    val accent = YapTheme.extended.recording
+    val idle = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val color = if (paused) idle else accent
+    Canvas(Modifier.fillMaxWidth().height(60.dp)) {
+        val n = 11
+        val barW = 5.dp.toPx()
+        val gap = 4.dp.toPx()
+        val totalW = n * barW + (n - 1) * gap
+        val startX = (size.width - totalW) / 2f
+        val src = bars
+        for (i in 0 until n) {
+            val idx = if (src.size <= 1) 0 else (i * (src.size - 1) / (n - 1)).coerceIn(0, src.size - 1)
+            val amp = (if (src.isEmpty()) 0.2f else src[idx]).coerceIn(0.12f, 1f)
+            val h = amp * size.height
+            val x = startX + i * (barW + gap)
+            val top = (size.height - h) / 2f
+            drawRoundRect(color = color, topLeft = Offset(x, top), size = Size(barW, h),
+                cornerRadius = CornerRadius(barW / 2f, barW / 2f))
+        }
+    }
+}
+
+/** §2.3 recording hero — accent circle, rounded stop square, §2.7 pulse ring while recording. */
+@Composable
+internal fun RecordStopButton(dia: Dp, paused: Boolean, accent: Color, onClick: () -> Unit) {
+    Box(contentAlignment = Alignment.Center) {
+        if (!paused) {
+            val t = rememberInfiniteTransition(label = "ring")
+            val scale by t.animateFloat(1f, 1.18f,
+                infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Restart), label = "rs")
+            val alpha by t.animateFloat(0.55f, 0f,
+                infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Restart), label = "ra")
+            Box(Modifier.size(dia)
+                .graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha }
+                .clip(CircleShape).background(accent))
+        }
+        Box(Modifier.size(dia).clip(CircleShape).background(accent).clickable { onClick() },
+            contentAlignment = Alignment.Center) {
+            val sq = dia * 0.29f
+            Box(Modifier.size(sq).clip(RoundedCornerShape(sq * 0.25f)).background(Color.White))
+        }
+    }
+}
+
+/** §2.3 side action — Surface + 1dp Outline-Variant stroke, icon 45% of button. */
+@Composable
+internal fun TransportSideButton(dia: Dp, icon: ImageVector, desc: String, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Box(
+        Modifier.size(dia).clip(CircleShape).background(cs.surface)
+            .border(1.dp, cs.outlineVariant, CircleShape).clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, desc, tint = cs.onSurfaceVariant, modifier = Modifier.size(dia * 0.45f))
     }
 }
 

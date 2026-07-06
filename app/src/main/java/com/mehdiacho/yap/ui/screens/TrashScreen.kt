@@ -26,7 +26,7 @@ fun TrashScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     var confirmForever by remember { mutableStateOf<Session?>(null) }
     var confirmEmpty by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
