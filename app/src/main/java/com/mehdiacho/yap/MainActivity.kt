@@ -359,6 +359,12 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                     viewModel = viewModel,
                     sessionId = sessionId,
                     onOpenSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
+                    onAppendRecording = { session ->
+                        // Append-to-note: the next recording merges into this note.
+                        viewModel.setAppendTarget(session)
+                        autoStart.value = true
+                        navController.navigate(Routes.CAPTURE) { launchSingleTop = true }
+                    },
                     onBack = { navController.popBackStack() },
                 )
             }

@@ -60,6 +60,7 @@ fun SessionDetailScreen(
     viewModel: MainViewModel,
     sessionId: String,
     onOpenSubscription: () -> Unit = {},
+    onAppendRecording: (com.mehdiacho.yap.data.Session) -> Unit = {},
     onBack: () -> Unit,
 ) {
     // Stable flow: remember by id so we don't recreate the StateFlow every recomposition.
@@ -133,6 +134,8 @@ fun SessionDetailScreen(
                 Icon(Icons.Default.MoreVert, "More", tint = cs.onSurface,
                     modifier = Modifier.clickable { menuOpen = true })
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Add a recording") },
+                        onClick = { menuOpen = false; onAppendRecording(currentSession) })
                     DropdownMenuItem(text = { Text("Edit title") },
                         onClick = { menuOpen = false; titleDraft = currentSession.title; showEditTitle = true })
                     DropdownMenuItem(text = { Text("Edit text") },

@@ -59,6 +59,95 @@ export async function transcribeAndFormalize(
   return { rawText, ...meta };
 }
 
+/**
+ * Append-to-note: transcribe a NEW clip, then integrate it into an EXISTING note
+ * without rewriting unrelated content (e.g. new items land on the existing list).
+ */
+export async function transcribeAndAppend(
+  audio: Buffer,
+  mimeType: string,
+  existingTitle: string,
+  existingFormatted: string,
+  existingDraft: string,
+  apiKey: string
+): Promise<{ rawText: string; formattedText: string; name: string }> {
+  const ai = new GoogleGenAI({ apiKey });
+  const base64 = audio.toString("base64");
+
+  const transcription = await ai.models.generateContent({
+    model: MODEL,
+    contents: {
+      parts: [
+        { inlineData: { mimeType, data: base64 } },
+        {
+          text:
+            "Precisely transcribe this audio. Return only the transcription text. " +
+            "No metadata, no speaker labels, just the words spoken.",
+        },
+      ],
+    },
+  });
+  const rawText = (transcription.text || "").trim();
+  if (!rawText) {
+    return { rawText: "", formattedText: existingFormatted, name: existingTitle };
+  }
+
+  const prompt = `You are updating an EXISTING note with NEWLY RECORDED content. The user re-opened this note and spoke an addition — integrate it, do not regenerate the document.
+
+### Existing note title:
+${existingTitle}
+
+### Existing note (Markdown):
+${existingFormatted || existingDraft}
+
+### New transcript to integrate:
+${rawText}
+
+### Integration rules (strict):
+1. The existing note is the source of truth. Preserve its content, wording, and structure — never rewrite, reorder, or reformat parts the new content doesn't touch.
+2. Put the new content where it belongs: if the note is a list and the new content adds entries, append them to that list (skip items already present). If it continues an existing section, extend that section. Only create a new section when nothing fits.
+3. Clean the new content (remove filler words) and match the note's existing style and formatting.
+4. If the new content corrects or supersedes something in the note, update just that part.
+5. Title: keep "${existingTitle}" unless it is a placeholder like "Untitled" or "Recording", in which case propose a better one.
+6. Markdown rules: body as plain paragraphs/lists; "## " section headers only where genuinely needed; never put sentences inside headings.
+
+Return ONLY a JSON object: {"name": string, "formattedText": string (the FULL updated note)}.`;
+
+  const res = await ai.models.generateContent({
+    model: MODEL,
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          formattedText: { type: Type.STRING },
+        },
+        required: ["name", "formattedText"],
+      },
+    },
+  });
+
+  try {
+    const text = (res.text || "{}").replace(/```json/g, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(text);
+    const merged = parsed.formattedText ?? "";
+    return {
+      rawText,
+      // Guard the failure mode where the model returns only the addition: the merged doc
+      // should never be dramatically shorter than what it started with.
+      formattedText:
+        merged.length >= existingFormatted.length * 0.6 && merged.length > 0
+          ? merged
+          : `${existingFormatted}\n\n${rawText}`,
+      name: parsed.name ?? existingTitle,
+    };
+  } catch {
+    return { rawText, formattedText: `${existingFormatted}\n\n${rawText}`, name: existingTitle };
+  }
+}
+
 export interface ReviewBlock {
   versions: string[];
   activeIndex: number;

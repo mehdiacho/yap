@@ -79,6 +79,55 @@ object TranscriptionClient {
         )
     }
 
+    /** Re-upload a (merged) recording to an existing storage path, or create one. */
+    suspend fun uploadAudioTo(file: File, existingPath: String?): String {
+        ensureSignedIn()
+        val uid = auth.currentUser!!.uid
+        val path = existingPath ?: "users/$uid/audio/${file.name}"
+        awaitTask(FirebaseStorage.getInstance().reference.child(path).putFile(Uri.fromFile(file)))
+        return path
+    }
+
+    data class AppendResult(val rawText: String, val formattedText: String, val name: String)
+
+    /**
+     * Append-to-note: transcribe a new clip and merge it into the existing note.
+     * The clip goes inline (append clips are short); ~15 MB guard keeps us under the
+     * callable payload limit — longer additions should be their own note.
+     */
+    suspend fun appendTranscribe(
+        clip: File,
+        durationMs: Long,
+        title: String,
+        existingDraft: String,
+        existingFormatted: String,
+    ): AppendResult {
+        ensureSignedIn()
+        require(clip.length() < 15L * 1024 * 1024) {
+            "That addition is too long to append — record it as its own note."
+        }
+        val b64 = Base64.encodeToString(clip.readBytes(), Base64.NO_WRAP)
+        val result = awaitTask(
+            functions.getHttpsCallable("appendToSession").call(
+                hashMapOf(
+                    "audioBase64" to b64,
+                    "mimeType" to "audio/wav",
+                    "durationMs" to durationMs,
+                    "title" to title,
+                    "existingDraft" to existingDraft.take(100_000),
+                    "existingFormatted" to existingFormatted.take(100_000),
+                )
+            )
+        )
+        @Suppress("UNCHECKED_CAST")
+        val map = result.getData() as? Map<String, Any?> ?: emptyMap()
+        return AppendResult(
+            rawText = map["rawText"] as? String ?: "",
+            formattedText = map["formattedText"] as? String ?: existingFormatted,
+            name = map["name"] as? String ?: title,
+        )
+    }
+
     /** "Polish now" — formalize existing draft text without an audio round-trip. */
     suspend fun refineText(draftText: String): TranscriptionResult {
         ensureSignedIn()

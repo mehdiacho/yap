@@ -1,7 +1,13 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
-import { transcribeAndFormalize, formalizeText, reviewAndPropagate, ReviewBlock } from "./gemini";
+import {
+  transcribeAndFormalize,
+  transcribeAndAppend,
+  formalizeText,
+  reviewAndPropagate,
+  ReviewBlock,
+} from "./gemini";
 
 admin.initializeApp();
 
@@ -106,6 +112,59 @@ export const transcribeSession = onCall(
         stack: e?.stack,
       });
       throw new HttpsError("internal", `Transcription failed: ${e?.message ?? "unknown"}`);
+    }
+  }
+);
+
+/**
+ * appendToSession — the user re-opened a note and recorded an addition. Transcribes the
+ * new clip and integrates it into the existing note (lists get appended, sections extend;
+ * nothing unrelated is rewritten). Quota is charged like a normal transcription.
+ *
+ * Request:  { audioBase64|storagePath, mimeType?, durationMs?, title, existingFormatted, existingDraft }
+ * Response: { rawText, formattedText, name }
+ */
+export const appendToSession = onCall(
+  { region: "africa-south1", secrets: [GEMINI_API_KEY], timeoutSeconds: 300, memory: "512MiB" },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    const data = request.data ?? {};
+    const mimeType: string = data.mimeType || "audio/wav";
+
+    let audio: Buffer;
+    if (data.storagePath) {
+      try {
+        const bucket = process.env.STORAGE_BUCKET || "yap-mehdiacho.firebasestorage.app";
+        const [buf] = await admin.storage().bucket(bucket).file(data.storagePath).download();
+        audio = buf;
+      } catch (e: any) {
+        throw new HttpsError("not-found", `Could not read audio at ${data.storagePath}`);
+      }
+    } else if (data.audioBase64) {
+      audio = Buffer.from(data.audioBase64, "base64");
+    } else {
+      throw new HttpsError("invalid-argument", "Provide storagePath or audioBase64.");
+    }
+
+    const claimedSec = (typeof data.durationMs === "number" ? data.durationMs : 0) / 1000;
+    const wavExactSec = audio.length / 32000;
+    const seconds = mimeType === "audio/wav" ? wavExactSec : Math.max(claimedSec, wavExactSec);
+    const quotaSec = Math.ceil(Math.max(1, Math.min(seconds, 3 * 3600)));
+    const entitlement = await getEntitlement(request.auth.uid);
+    await checkAndRecordUsage(request.auth.uid, quotaSec, capForPlan(entitlement.plan));
+
+    try {
+      return await transcribeAndAppend(
+        audio,
+        mimeType,
+        String(data.title ?? "Untitled"),
+        String(data.existingFormatted ?? ""),
+        String(data.existingDraft ?? ""),
+        GEMINI_API_KEY.value()
+      );
+    } catch (e: any) {
+      console.error("appendToSession failed", { message: e?.message });
+      throw new HttpsError("internal", `Append failed: ${e?.message ?? "unknown"}`);
     }
   }
 );

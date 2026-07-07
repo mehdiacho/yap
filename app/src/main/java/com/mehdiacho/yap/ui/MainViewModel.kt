@@ -52,6 +52,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _sessionsLoaded = MutableStateFlow(false)
     val sessionsLoaded: StateFlow<Boolean> = _sessionsLoaded.asStateFlow()
 
+    // Append-to-note: when set, the next finished recording merges into this note
+    // instead of creating a new one. Cleared on finish/discard.
+    private val _appendTarget = MutableStateFlow<Session?>(null)
+    val appendTarget: StateFlow<Session?> = _appendTarget.asStateFlow()
+    fun setAppendTarget(session: Session?) { _appendTarget.value = session }
+
     init {
         viewModelScope.launch {
             runCatching { repository.allSessions().first() }
@@ -63,8 +69,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Persist a real session whenever a recording finishes.
         viewModelScope.launch {
             RecordingBus.events.collect { event ->
-                if (event is RecorderEvent.Finished) {
-                    startTranscription(event.filePath, event.durationMs, "audio/wav", event.bookmarks)
+                when (event) {
+                    is RecorderEvent.Finished -> {
+                        val target = _appendTarget.value
+                        _appendTarget.value = null
+                        if (target != null) appendRecording(target, event.filePath, event.durationMs, event.bookmarks)
+                        else startTranscription(event.filePath, event.durationMs, "audio/wav", event.bookmarks)
+                    }
+                    is RecorderEvent.Discarded -> _appendTarget.value = null
+                    else -> {}
                 }
             }
         }
@@ -260,6 +273,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try { repository.upsert(session) } catch (e: Exception) {
                 Log.e("Yap", "update failed: ${e.message}", e)
             }
+        }
+    }
+
+    /**
+     * Append-to-note: transcribe the new clip, merge it into the existing note (server-side
+     * integration prompt), and — when the original audio is on this device — splice the new
+     * audio onto the original WAV so the note keeps one continuous recording.
+     */
+    private suspend fun appendRecording(
+        target: Session,
+        clipPath: String,
+        clipDurationMs: Long,
+        clipBookmarks: List<Long>,
+    ) {
+        runCatching { repository.upsert(target.copy(status = "TRANSCRIBING")) }
+        try {
+            val clip = File(clipPath)
+            val r = TranscriptionClient.appendTranscribe(
+                clip, clipDurationMs, target.title, target.draftText, target.formattedText ?: ""
+            )
+
+            // Audio splice — only when the original is a local Yap WAV (typical same-device flow).
+            var audioPath = target.audioPath
+            var storagePath = target.storagePath
+            var durationMs = target.durationMs
+            var bookmarks = target.bookmarks
+            val original = target.audioPath?.let { File(it) }
+            if (original != null && com.mehdiacho.yap.audio.WavUtils.isYapWav(original) &&
+                com.mehdiacho.yap.audio.WavUtils.isYapWav(clip)
+            ) {
+                runCatching {
+                    com.mehdiacho.yap.audio.WavUtils.append(original, clip)
+                    durationMs = target.durationMs + clipDurationMs
+                    bookmarks = target.bookmarks + clipBookmarks.map { it + target.durationMs }
+                    // Replace the cloud copy in place and drop any stale cached download.
+                    storagePath = TranscriptionClient.uploadAudioTo(original, target.storagePath)
+                    target.storagePath?.let { sp ->
+                        runCatching { com.mehdiacho.yap.data.AudioCache.fileFor(getApplication(), sp).delete() }
+                    }
+                    clip.delete()
+                }.onFailure { Log.w("Yap", "audio splice failed (text still merged): ${it.message}") }
+            }
+
+            val title = r.name.ifBlank { target.title }
+            repository.upsert(
+                target.copy(
+                    title = title,
+                    draftText = if (r.rawText.isBlank()) target.draftText
+                        else target.draftText + "\n\n" + r.rawText,
+                    formattedText = r.formattedText.ifBlank { target.formattedText },
+                    audioPath = audioPath,
+                    storagePath = storagePath,
+                    durationMs = durationMs,
+                    bookmarks = bookmarks,
+                    status = "DONE",
+                )
+            )
+            com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), target.id, title)
+        } catch (e: Exception) {
+            Log.e("Yap", "append failed: ${e.message}", e)
+            runCatching { repository.upsert(target) } // restore prior state
         }
     }
 

@@ -218,6 +218,7 @@ fun CaptureScreen(
                 paused = state.status == RecorderStatus.PAUSED,
                 elapsedMs = state.elapsedMs,
                 bars = bars,
+                appendTitle = viewModel.appendTarget.collectAsState().value?.title,
                 onPauseResume = {
                     if (state.status == RecorderStatus.PAUSED) RecordingController.resume(context)
                     else RecordingController.pause(context)
@@ -588,6 +589,7 @@ private fun RecordingContent(
     paused: Boolean,
     elapsedMs: Long,
     bars: SnapshotStateList<Float>,
+    appendTitle: String? = null,
     onPauseResume: () -> Unit,
     onStop: () -> Unit,
     onDiscard: () -> Unit,
@@ -621,6 +623,21 @@ private fun RecordingContent(
             Spacer(Modifier.height(4.dp))
             Text(formatElapsed(elapsedMs), fontFamily = Outfit, fontWeight = FontWeight.Bold,
                 fontSize = 44.sp, color = cs.onSurface)
+
+            // Append-to-note indicator — this recording merges into an existing note.
+            if (appendTitle != null) {
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.clip(RoundedCornerShape(50)).background(cs.primaryContainer)
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.AutoAwesome, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Adding to \"${appendTitle.take(28)}${if (appendTitle.length > 28) "…" else ""}\"",
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer)
+                }
+            }
 
             // 2 · Waveform (§2.6) — 11 centered bars driven by live amplitude.
             Spacer(Modifier.height(14.dp))
