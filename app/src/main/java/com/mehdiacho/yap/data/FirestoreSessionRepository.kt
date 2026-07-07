@@ -83,6 +83,8 @@ class FirestoreSessionRepository {
         "category" to category,
         "topicCluster" to topicCluster,
         "trashedAt" to trashedAt,
+        "pinned" to pinned,
+        "bookmarks" to bookmarks,
     )
 
     private fun DocumentSnapshot.toSession(): Session? {
@@ -100,7 +102,13 @@ class FirestoreSessionRepository {
             category = getString("category") ?: "Memo",
             topicCluster = getString("topicCluster") ?: "General",
             trashedAt = getLong("trashedAt"),
+            pinned = getBoolean("pinned") ?: false,
+            bookmarks = (get("bookmarks") as? List<*>)?.mapNotNull { (it as? Number)?.toLong() } ?: emptyList(),
         )
+    }
+
+    suspend fun setPinned(id: String, pinned: Boolean) {
+        awaitTask(col().document(id).update("pinned", pinned))
     }
 
     private suspend fun <T> awaitTask(task: com.google.android.gms.tasks.Task<T>): T =

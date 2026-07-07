@@ -46,6 +46,7 @@ import com.mehdiacho.yap.ui.MainViewModel
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 
 // Amber accents for Smart Review flagged blocks (design #E0A52E family).
@@ -84,7 +85,12 @@ fun SessionDetailScreen(
     var titleDraft by remember { mutableStateOf("") }
     var editingBody by remember { mutableStateOf(false) }
     var bodyDraft by remember { mutableStateOf("") }
-    var reviewPreview by remember { mutableStateOf(false) } // debug-only Smart Review preview
+    // Smart Review — real run against the deployed smartReview function.
+    val scope = rememberCoroutineScope()
+    var reviewRunning by remember { mutableStateOf(false) }
+    var reviewBlocks by remember { mutableStateOf<List<String>?>(null) }
+    var reviewFlags by remember { mutableStateOf<Map<Int, com.mehdiacho.yap.data.TranscriptionClient.ReviewedBlock>>(emptyMap()) }
+    val reviewActive = reviewRunning || reviewBlocks != null
     fun currentText(): String =
         if (viewMode == "Formatted") currentSession.formattedText ?: currentSession.draftText
         else currentSession.draftText
@@ -122,7 +128,7 @@ fun SessionDetailScreen(
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back",
                 modifier = Modifier.clickable { onBack() }, tint = cs.onSurface)
-            if (reviewPreview) ReviewingChip() else StatusChip(currentSession.status)
+            if (reviewRunning) ReviewingChip() else StatusChip(currentSession.status)
             Box {
                 Icon(Icons.Default.MoreVert, "More", tint = cs.onSurface,
                     modifier = Modifier.clickable { menuOpen = true })
@@ -147,9 +153,39 @@ fun SessionDetailScreen(
                             }
                             context.startActivity(android.content.Intent.createChooser(send, "Share note"))
                         })
-                    if (BuildConfig.DEBUG) {
-                        DropdownMenuItem(text = { Text(if (reviewPreview) "Hide Smart Review preview" else "Preview Smart Review") },
-                            onClick = { menuOpen = false; reviewPreview = !reviewPreview })
+                    if (hasFormatted) {
+                        DropdownMenuItem(
+                            text = { Text(if (reviewActive) "Dismiss Smart Review" else "Run Smart Review") },
+                            onClick = {
+                                menuOpen = false
+                                if (reviewActive) {
+                                    reviewBlocks = null; reviewFlags = emptyMap(); reviewRunning = false
+                                } else {
+                                    val blocks = (currentSession.formattedText ?: "")
+                                        .split("\n\n").map { it.trim() }.filter { it.isNotBlank() }
+                                    if (blocks.isEmpty()) return@DropdownMenuItem
+                                    reviewBlocks = blocks
+                                    reviewRunning = true
+                                    scope.launch {
+                                        try {
+                                            val results = com.mehdiacho.yap.data.TranscriptionClient.smartReview(blocks)
+                                            val flagged = results.filter { it.flagged }
+                                            if (flagged.isEmpty()) {
+                                                android.widget.Toast.makeText(context,
+                                                    "Smart Review found no issues", android.widget.Toast.LENGTH_SHORT).show()
+                                                reviewBlocks = null
+                                            } else {
+                                                reviewFlags = flagged.associateBy { it.blockIndex }
+                                            }
+                                        } catch (e: Exception) {
+                                            android.widget.Toast.makeText(context,
+                                                e.message ?: "Smart Review failed", android.widget.Toast.LENGTH_LONG).show()
+                                            reviewBlocks = null
+                                        } finally { reviewRunning = false }
+                                    }
+                                }
+                            },
+                        )
                     }
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text("Delete", color = cs.error) },
@@ -210,8 +246,8 @@ fun SessionDetailScreen(
             }
         }
 
-        // Smart Review banner (preview)
-        if (reviewPreview) {
+        // Smart Review banner while checking
+        if (reviewRunning) {
             Row(
                 Modifier.padding(horizontal = 22.dp).padding(top = 14.dp).fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp)).background(ReviewBannerBg)
@@ -220,7 +256,7 @@ fun SessionDetailScreen(
             ) {
                 Icon(Icons.Default.Verified, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(10.dp))
-                Text("Smart Review — checking 1 of 6 blocks…", fontSize = 13.sp,
+                Text("Smart Review — checking ${reviewBlocks?.size ?: 0} blocks…", fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer)
             }
         }
@@ -242,10 +278,7 @@ fun SessionDetailScreen(
                 }
                 Box(
                     Modifier.clip(RoundedCornerShape(50)).background(cs.primary)
-                        .clickable {
-                            // Stub — cloud refine trigger to be wired (functionality table).
-                            android.widget.Toast.makeText(context, "Polishing coming soon", android.widget.Toast.LENGTH_SHORT).show()
-                        }
+                        .clickable { viewModel.polishSession(currentSession) }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 ) { Text("Polish now", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.onPrimary) }
             }
@@ -310,7 +343,40 @@ fun SessionDetailScreen(
                     }
                 }
                 content.isBlank() -> Text("No transcription available.", fontSize = 15.sp, color = cs.onSurfaceVariant)
-                reviewPreview -> SmartReviewDemoBody(content)
+                reviewBlocks != null && reviewFlags.isNotEmpty() -> {
+                    // Smart Review results — flagged blocks get the amber card with Keep/Fix.
+                    val blocks = reviewBlocks!!
+                    Column {
+                        blocks.forEachIndexed { i, block ->
+                            val flag = reviewFlags[i]
+                            if (flag != null) {
+                                SmartReviewFlaggedBlock(
+                                    text = block,
+                                    highlight = null,
+                                    warningTitle = "Possible issue",
+                                    warningBody = flag.reason ?: "Smart Review suggests a correction. Fix applies it.",
+                                    fixLabel = "Fix",
+                                    onKeep = {
+                                        val left = reviewFlags - i
+                                        reviewFlags = left
+                                        if (left.isEmpty()) reviewBlocks = null
+                                    },
+                                    onFix = {
+                                        val newBlocks = blocks.toMutableList().also { it[i] = flag.newText }
+                                        viewModel.updateSession(
+                                            currentSession.copy(formattedText = newBlocks.joinToString("\n\n")))
+                                        val left = reviewFlags - i
+                                        reviewFlags = left
+                                        reviewBlocks = if (left.isEmpty()) null else newBlocks
+                                    },
+                                )
+                            } else {
+                                com.mikepenz.markdown.m3.Markdown(content = block)
+                            }
+                            Spacer(Modifier.height(14.dp))
+                        }
+                    }
+                }
                 viewMode == "Formatted" && hasFormatted -> {
                     // Dialogue renderer when the note reads as speaker-labelled lines; markdown otherwise.
                     val dialogue = remember(content) { parseDialogue(content) }
@@ -322,8 +388,8 @@ fun SessionDetailScreen(
             Spacer(Modifier.height(16.dp))
         }
 
-        // Smart Review summary bar (preview)
-        if (reviewPreview) {
+        // Smart Review summary bar — real issue count while results are on screen.
+        if (reviewBlocks != null && reviewFlags.isNotEmpty()) {
             Column {
                 HorizontalDivider(thickness = 1.dp, color = cs.outlineVariant)
                 Box(
@@ -334,8 +400,8 @@ fun SessionDetailScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Verified, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(19.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Smart Review · 1 issue found", fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer)
+                        Text("Smart Review · ${reviewFlags.size} issue${if (reviewFlags.size == 1) "" else "s"} found",
+                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer)
                     }
                 }
                 Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
@@ -361,6 +427,7 @@ fun SessionDetailScreen(
                 audioPath = currentSession.audioPath,
                 storagePath = currentSession.storagePath,
                 fallbackDurationMs = currentSession.durationMs,
+                bookmarks = currentSession.bookmarks,
             )
         }
     }
@@ -454,25 +521,6 @@ private fun DialogueBody(items: List<DialogueItem>) {
 }
 
 // ---------- Smart Review flagged block ----------
-
-/** Demo body for the Smart Review preview — first paragraph plain, then the flagged block. */
-@Composable
-private fun SmartReviewDemoBody(content: String) {
-    val cs = MaterialTheme.colorScheme
-    Column {
-        Text(content.lineSequence().firstOrNull { it.isNotBlank() } ?: "Make the free tier generous so paying feels like a tip.",
-            fontSize = 14.sp, lineHeight = 21.sp, color = cs.onSurface)
-        Spacer(Modifier.height(14.dp))
-        SmartReviewFlaggedBlock(
-            text = "Drop Pro to $1.99 and watch retention climb.",
-            highlight = "$1.99",
-            warningTitle = "Possible mis-hear",
-            warningBody = "\"$1.99\" may have been \"$2.99\". Tap to hear the audio.",
-            fixLabel = "Fix to $2.99",
-            onKeep = {}, onFix = {},
-        )
-    }
-}
 
 /**
  * Droppable Smart Review component — a flagged block with amber border, highlighted span,
@@ -642,7 +690,12 @@ private fun DetailSkeleton(onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AudioPlayerBar(audioPath: String?, storagePath: String?, fallbackDurationMs: Long) {
+private fun AudioPlayerBar(
+    audioPath: String?,
+    storagePath: String?,
+    fallbackDurationMs: Long,
+    bookmarks: List<Long> = emptyList(),
+) {
     val player = remember { MediaPlayer() }
     var available by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
@@ -750,8 +803,23 @@ private fun AudioPlayerBar(audioPath: String?, storagePath: String?, fallbackDur
             track = { state ->
                 val frac = if (state.valueRange.endInclusive > 0f)
                     (state.value / state.valueRange.endInclusive).coerceIn(0f, 1f) else 0f
-                Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(cs.surfaceVariant)) {
-                    Box(Modifier.fillMaxWidth(frac).height(4.dp).clip(RoundedCornerShape(2.dp)).background(cs.primary))
+                Box(Modifier.fillMaxWidth().height(10.dp), contentAlignment = Alignment.CenterStart) {
+                    Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(cs.surfaceVariant)) {
+                        Box(Modifier.fillMaxWidth(frac).height(4.dp).clip(RoundedCornerShape(2.dp)).background(cs.primary))
+                    }
+                    // Bookmark markers dropped while recording.
+                    if (durationMs > 0 && bookmarks.isNotEmpty()) {
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            bookmarks.forEach { t ->
+                                val f = (t.toFloat() / durationMs).coerceIn(0f, 1f)
+                                Box(
+                                    Modifier.offset(x = maxWidth * f - 3.dp)
+                                        .size(6.dp).clip(CircleShape)
+                                        .background(YapTheme.extended.recording)
+                                )
+                            }
+                        }
+                    }
                 }
             },
             modifier = Modifier.weight(1f).height(24.dp),

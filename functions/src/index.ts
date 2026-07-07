@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
-import { transcribeAndFormalize, reviewAndPropagate, ReviewBlock } from "./gemini";
+import { transcribeAndFormalize, formalizeText, reviewAndPropagate, ReviewBlock } from "./gemini";
 
 admin.initializeApp();
 
@@ -106,6 +106,30 @@ export const transcribeSession = onCall(
         stack: e?.stack,
       });
       throw new HttpsError("internal", `Transcription failed: ${e?.message ?? "unknown"}`);
+    }
+  }
+);
+
+/**
+ * refineText — "Polish now" for draft-only notes: formalizes existing draft text
+ * without an audio round-trip. Text refine is cheap, so it doesn't consume the
+ * per-minute transcription quota (still requires auth).
+ *
+ * Request:  { draftText: string }
+ * Response: { name, description, tags, category, topicCluster, formattedText }
+ */
+export const refineText = onCall(
+  { region: "africa-south1", secrets: [GEMINI_API_KEY], timeoutSeconds: 120 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    const draftText = String(request.data?.draftText ?? "").trim();
+    if (!draftText) throw new HttpsError("invalid-argument", "draftText required");
+    if (draftText.length > 100_000) throw new HttpsError("invalid-argument", "draft too long");
+    try {
+      return await formalizeText(draftText, GEMINI_API_KEY.value());
+    } catch (e: any) {
+      console.error("refineText failed", { message: e?.message });
+      throw new HttpsError("internal", `Refine failed: ${e?.message ?? "unknown"}`);
     }
   }
 );

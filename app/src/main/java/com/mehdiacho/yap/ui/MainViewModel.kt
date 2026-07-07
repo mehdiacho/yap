@@ -64,7 +64,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             RecordingBus.events.collect { event ->
                 if (event is RecorderEvent.Finished) {
-                    startTranscription(event.filePath, event.durationMs, "audio/wav")
+                    startTranscription(event.filePath, event.durationMs, "audio/wav", event.bookmarks)
                 }
             }
         }
@@ -193,7 +193,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun startTranscription(audioPath: String, durationMs: Long, mimeType: String) {
+    private suspend fun startTranscription(
+        audioPath: String,
+        durationMs: Long,
+        mimeType: String,
+        bookmarks: List<Long> = emptyList(),
+    ) {
         // Live draft from the fed-stream recognizer (recordings only; empty for imports).
         val isOwnRecording = mimeType == "audio/wav"
         var session = Session(
@@ -202,7 +207,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             draftText = if (isOwnRecording) com.mehdiacho.yap.audio.LiveDraftEngine.currentDraft() else "",
             audioPath = audioPath,
             durationMs = durationMs,
-            status = "TRANSCRIBING"
+            status = "TRANSCRIBING",
+            bookmarks = bookmarks,
         )
         try {
             repository.upsert(session)
@@ -224,9 +230,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         try {
             val r = TranscriptionClient.transcribe(File(audioPath), mimeType, durationMs)
+            val title = r.name.ifBlank { "Recording" }
             repository.upsert(
                 session.copy(
-                    title = r.name.ifBlank { "Recording" },
+                    title = title,
                     draftText = r.rawText,
                     formattedText = r.formattedText,
                     category = r.category.ifBlank { "Memo" },
@@ -235,6 +242,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     status = "DONE"
                 )
             )
+            // Heads-up "Your note is polished ✨" — skipped while the app is on screen.
+            com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
         } catch (e: Exception) {
             Log.e("Yap", "transcription failed for $audioPath ($mimeType): ${e.message}", e)
             val quotaHit = (e as? com.google.firebase.functions.FirebaseFunctionsException)?.code ==
@@ -250,6 +259,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try { repository.upsert(session) } catch (e: Exception) {
                 Log.e("Yap", "update failed: ${e.message}", e)
+            }
+        }
+    }
+
+    /** "Polish now" — cloud-formalize a draft-only note's existing text (no audio round-trip). */
+    fun polishSession(session: Session) {
+        viewModelScope.launch {
+            runCatching { repository.upsert(session.copy(status = "TRANSCRIBING")) }
+            try {
+                val r = TranscriptionClient.refineText(session.draftText)
+                val title = r.name.ifBlank { session.title }
+                repository.upsert(
+                    session.copy(
+                        title = title,
+                        formattedText = r.formattedText,
+                        category = r.category.ifBlank { session.category },
+                        topicCluster = r.topicCluster.ifBlank { session.topicCluster },
+                        status = "DONE",
+                    )
+                )
+                com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
+            } catch (e: Exception) {
+                Log.e("Yap", "polish failed: ${e.message}", e)
+                runCatching { repository.upsert(session) } // restore prior state
+            }
+        }
+    }
+
+    /** Pin/unpin notes — pinned notes sort first in the Library. */
+    fun setPinned(ids: Collection<String>, pinned: Boolean) {
+        viewModelScope.launch {
+            ids.forEach { id ->
+                try { repository.setPinned(id, pinned) } catch (e: Exception) {
+                    Log.e("Yap", "pin failed for $id: ${e.message}", e)
+                }
             }
         }
     }

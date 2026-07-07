@@ -79,6 +79,54 @@ object TranscriptionClient {
         )
     }
 
+    /** "Polish now" — formalize existing draft text without an audio round-trip. */
+    suspend fun refineText(draftText: String): TranscriptionResult {
+        ensureSignedIn()
+        val result = awaitTask(
+            functions.getHttpsCallable("refineText").call(hashMapOf("draftText" to draftText))
+        )
+        @Suppress("UNCHECKED_CAST")
+        val map = result.getData() as? Map<String, Any?> ?: emptyMap()
+        return TranscriptionResult(
+            rawText = draftText,
+            name = map["name"] as? String ?: "Note",
+            description = map["description"] as? String ?: "",
+            tags = (map["tags"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
+            category = map["category"] as? String ?: "Memo",
+            topicCluster = map["topicCluster"] as? String ?: "General",
+            formattedText = map["formattedText"] as? String ?: draftText,
+            storagePath = null,
+        )
+    }
+
+    data class ReviewedBlock(
+        val blockIndex: Int,
+        val newText: String,
+        val flagged: Boolean,
+        val reason: String?,
+    )
+
+    /** Smart Review — sends paragraph blocks, returns flagged/corrected blocks. */
+    suspend fun smartReview(blocks: List<String>): List<ReviewedBlock> {
+        ensureSignedIn()
+        val payload = hashMapOf(
+            "blocks" to blocks.map { hashMapOf("versions" to listOf(it), "activeIndex" to 0) }
+        )
+        val result = awaitTask(functions.getHttpsCallable("smartReview").call(payload))
+        @Suppress("UNCHECKED_CAST")
+        val map = result.getData() as? Map<String, Any?> ?: emptyMap()
+        val updated = map["updatedBlocks"] as? List<*> ?: emptyList<Any>()
+        return updated.mapNotNull { item ->
+            val m = item as? Map<*, *> ?: return@mapNotNull null
+            ReviewedBlock(
+                blockIndex = (m["blockIndex"] as? Number)?.toInt() ?: return@mapNotNull null,
+                newText = m["newText"] as? String ?: "",
+                flagged = m["flagged"] as? Boolean ?: false,
+                reason = m["reason"] as? String,
+            )
+        }
+    }
+
     private suspend fun <T> awaitTask(task: Task<T>): T = suspendCancellableCoroutine { cont ->
         task.addOnSuccessListener { cont.resume(it) }
             .addOnFailureListener { cont.resumeWithException(it) }

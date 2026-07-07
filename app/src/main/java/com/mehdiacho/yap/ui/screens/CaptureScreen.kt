@@ -112,12 +112,22 @@ fun CaptureScreen(
     val state by RecordingBus.state.collectAsState()
 
     var permDenied by remember { mutableStateOf(false) }
+    var permDeniedForever by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         if (result[Manifest.permission.RECORD_AUDIO] == true) {
-            permDenied = false; RecordingController.start(context)
-        } else permDenied = true
+            permDenied = false; permDeniedForever = false
+            RecordingController.start(context)
+        } else {
+            permDenied = true
+            // "Don't ask again": the system refuses to show the dialog — the only path
+            // left is app settings, so the CTA reroutes there.
+            val activity = context as? android.app.Activity
+            permDeniedForever = activity != null &&
+                !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity, Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     fun requestAndStart() {
@@ -175,7 +185,19 @@ fun CaptureScreen(
                 ErrorContent(recovered = "1:02", onResume = { devState = null }, onSave = { devState = null })
             recorderIdle && (permDenied || devState == "permission") ->
                 PermissionDeniedContent(
-                    onGrant = { devState = null; requestAndStart() },
+                    settingsRoute = permDeniedForever,
+                    onGrant = {
+                        devState = null
+                        if (permDeniedForever) {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    android.net.Uri.parse("package:" + context.packageName)
+                                )
+                            )
+                            permDenied = false // re-checked when they come back and tap the mic
+                        } else requestAndStart()
+                    },
                     onDismiss = { permDenied = false; devState = null },
                 )
             recorderIdle -> IdleContent(
@@ -185,6 +207,12 @@ fun CaptureScreen(
                 onRecord = ::requestAndStart,
                 onImport = { importLauncher.launch(arrayOf("audio/*", "video/*")) },
                 onOpenSession = onOpenSession,
+            )
+            // Real interruption: another app took the mic — service auto-paused and flagged it.
+            state.silenced -> ErrorContent(
+                recovered = formatElapsed(state.elapsedMs),
+                onResume = { RecordingController.resume(context) },
+                onSave = { RecordingController.stop(context) },
             )
             else -> RecordingContent(
                 paused = state.status == RecorderStatus.PAUSED,
@@ -200,8 +228,8 @@ fun CaptureScreen(
                     Toast.makeText(context, "Recording discarded", Toast.LENGTH_SHORT).show()
                 },
                 onBookmark = {
-                    // Stub — marker/bookmark feature to be wired later.
-                    Toast.makeText(context, "Bookmarked this moment", Toast.LENGTH_SHORT).show()
+                    RecordingController.bookmark(context)
+                    Toast.makeText(context, "Moment bookmarked", Toast.LENGTH_SHORT).show()
                 },
             )
         }
@@ -483,7 +511,11 @@ private fun QuotaSheet(onUpgrade: () -> Unit, onOwnKey: () -> Unit, onDismiss: (
 
 /** §Capture · permission-denied — circular error tile, "Microphone is off", direct grant. */
 @Composable
-private fun PermissionDeniedContent(onGrant: () -> Unit, onDismiss: () -> Unit) {
+private fun PermissionDeniedContent(
+    settingsRoute: Boolean = false,
+    onGrant: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val cs = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 34.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
@@ -495,12 +527,15 @@ private fun PermissionDeniedContent(onGrant: () -> Unit, onDismiss: () -> Unit) 
             Spacer(Modifier.height(24.dp))
             Text("Microphone is off", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = cs.onSurface)
             Spacer(Modifier.height(10.dp))
-            Text("Yap can't record without mic access. Grant it to start capturing.",
+            Text(
+                if (settingsRoute)
+                    "Yap can't record without mic access. Enable it in system settings to start capturing."
+                else "Yap can't record without mic access. Grant it to start capturing.",
                 fontSize = 15.sp, lineHeight = 22.sp, color = cs.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
         Button(onClick = onGrant, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(54.dp)) {
-            Text("Grant permission", fontWeight = FontWeight.SemiBold)
+            Text(if (settingsRoute) "Open settings" else "Grant permission", fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.height(6.dp))
         TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) {

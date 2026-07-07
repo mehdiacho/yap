@@ -12,5 +12,7 @@ data class Session(
     val durationMs: Long = 0L,
     val category: String = "Memo",
     val topicCluster: String = "General",
-    val trashedAt: Long? = null       // soft delete; purged ~30 days after this timestamp
+    val trashedAt: Long? = null,      // soft delete; purged ~30 days after this timestamp
+    val pinned: Boolean = false,      // pinned notes sort first in the Library
+    val bookmarks: List<Long> = emptyList(), // elapsed-ms markers dropped while recording
 )

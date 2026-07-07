@@ -130,6 +130,16 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        com.mehdiacho.yap.ui.Notifier.appInForeground = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        com.mehdiacho.yap.ui.Notifier.appInForeground = false
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

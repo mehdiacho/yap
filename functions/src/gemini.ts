@@ -161,6 +161,13 @@ ${rawText}
 5. **TopicCluster**: A short shared project/theme name if the content clearly belongs to one; otherwise "General".
 6. **FormattedText**: A cleaned, formalized Markdown version. Remove filler words (um, like, you know). Structure for readability: use headers, bullet points, bold key terms, tables for comparisons/numbers, blockquotes and dialogue formatting where appropriate.
 
+### FormattedText markdown rules (strict):
+- Do NOT include a document title heading — the Name field is the title. Start with body content.
+- Section headers use exactly "## " (H2), sparingly — only when the content genuinely has sections. Short notes need no headers at all.
+- Headings are single short lines. NEVER put body sentences, lists, or whole paragraphs inside a heading.
+- The bulk of the output must be plain paragraphs and lists — if most lines start with '#', the output is wrong.
+- For dialogue, use "**SPEAKER:** line" formatting. For action items, use a bullet list.
+
 Return ONLY a valid JSON object matching the schema. No markdown fences, no commentary.`;
 
   const res = await ai.models.generateContent({
@@ -183,8 +190,39 @@ Return ONLY a valid JSON object matching the schema. No markdown fences, no comm
     },
   });
 
+  const first = parseFormalizeResponse(res.text, rawText);
+
+  // Format verification: when heading structure is clearly broken (the "everything is a
+  // heading" failure mode), do exactly one corrective repair pass on the markdown.
+  if (markdownLooksBroken(first.formattedText)) {
+    console.warn("formalize: broken markdown detected, running repair pass");
+    try {
+      const repair = await ai.models.generateContent({
+        model: MODEL,
+        contents:
+          `The following Markdown misuses headings (body text inside '#' lines, or nearly ` +
+          `every line is a heading). Rewrite it with correct structure: body content as plain ` +
+          `paragraphs and lists; at most a few short "## " section headers; no title heading. ` +
+          `Preserve the meaning and all content. Return ONLY the fixed Markdown.\n\n` +
+          first.formattedText,
+      });
+      const fixed = (repair.text || "").trim();
+      if (fixed && !markdownLooksBroken(fixed)) {
+        return { ...first, formattedText: fixed };
+      }
+    } catch (e: any) {
+      console.warn("formalize repair pass failed", { message: e?.message });
+    }
+  }
+  return first;
+}
+
+function parseFormalizeResponse(
+  raw: string | undefined,
+  fallbackText: string
+): Omit<TranscriptionResult, "rawText"> {
   try {
-    const text = (res.text || "{}").replace(/```json/g, "").replace(/```/g, "").trim();
+    const text = (raw || "{}").replace(/```json/g, "").replace(/```/g, "").trim();
     const parsed = JSON.parse(text);
     return {
       name: parsed.name ?? "Untitled Note",
@@ -192,7 +230,7 @@ Return ONLY a valid JSON object matching the schema. No markdown fences, no comm
       tags: Array.isArray(parsed.tags) ? parsed.tags : [],
       category: parsed.category ?? "Memo",
       topicCluster: parsed.topicCluster ?? "General",
-      formattedText: parsed.formattedText ?? rawText,
+      formattedText: parsed.formattedText ?? fallbackText,
     };
   } catch {
     return {
@@ -201,7 +239,27 @@ Return ONLY a valid JSON object matching the schema. No markdown fences, no comm
       tags: [],
       category: "Memo",
       topicCluster: "General",
-      formattedText: rawText,
+      formattedText: fallbackText,
     };
   }
+}
+
+/** Heuristic for the observed failure mode: heading-dominated or run-on-heading markdown. */
+function markdownLooksBroken(md: string): boolean {
+  const lines = md.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+  if (lines.length < 3) return false;
+  const headings = lines.filter((l) => /^#{1,6}\s/.test(l));
+  if (headings.length === 0) return false;
+  const dominated = headings.length / lines.length > 0.5;
+  const runOn = headings.some((l) => l.length > 120);
+  return dominated || runOn;
+}
+
+/** Text-only refine for "Polish now" on draft-only notes (no audio round-trip). */
+export async function formalizeText(
+  rawText: string,
+  apiKey: string
+): Promise<Omit<TranscriptionResult, "rawText">> {
+  const ai = new GoogleGenAI({ apiKey });
+  return formalize(ai, rawText);
 }

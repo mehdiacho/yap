@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Autorenew
@@ -105,20 +106,43 @@ fun LibraryScreen(
     LaunchedEffect(selecting) { LibraryChrome.selectionActive.value = selecting }
     DisposableEffect(Unit) { onDispose { LibraryChrome.selectionActive.value = false } }
 
+    // Voice search — system speech recognizer fills the query.
+    val voiceLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val spoken = result.data
+            ?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+        if (!spoken.isNullOrBlank()) { query = spoken; searchFocused = true }
+    }
+    fun launchVoiceSearch() {
+        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Search your notes")
+        }
+        runCatching { voiceLauncher.launch(intent) }
+            .onFailure { stub("Voice search isn't available on this device —") }
+    }
+
     val categories = remember(sessions) {
-        listOf("All") + sessions.map { it.category }.filter { it.isNotBlank() }.distinct().take(6)
+        listOf("All") +
+            (if (sessions.any { it.pinned }) listOf("Pinned") else emptyList()) +
+            sessions.map { it.category }.filter { it.isNotBlank() }.distinct().take(6)
     }
     val filtered = remember(sessions, query, activeFilter) {
         val q = query.trim().lowercase()
         sessions.filter { s ->
-            (activeFilter == "All" || s.category == activeFilter) &&
+            (activeFilter == "All" ||
+                (activeFilter == "Pinned" && s.pinned) ||
+                s.category == activeFilter) &&
                 (q.isBlank() ||
                     s.title.lowercase().contains(q) ||
                     s.draftText.lowercase().contains(q) ||
                     (s.formattedText?.lowercase()?.contains(q) == true) ||
                     s.category.lowercase().contains(q) ||
                     s.topicCluster.lowercase().contains(q))
-        }
+        }.sortedByDescending { it.pinned } // stable: pinned first, newest-first within each
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -213,7 +237,7 @@ fun LibraryScreen(
                         active = searching,
                         onFocusChange = { searchFocused = it },
                         onExit = { query = ""; searchFocused = false },
-                        onVoice = { stub("Voice search") },
+                        onVoice = ::launchVoiceSearch,
                     )
                 }
 
@@ -346,7 +370,13 @@ fun LibraryScreen(
                     ) {
                         SelectionAction(Icons.Outlined.Hub, "Group", cs.onPrimaryContainer) { stub("Group") }
                         SelectionAction(Icons.Outlined.AutoAwesome, "Formalize", cs.onPrimaryContainer) { stub("Formalize") }
-                        SelectionAction(Icons.Outlined.PushPin, "Pin", cs.onPrimaryContainer) { stub("Pin") }
+                        // Pin toggles: if every selected note is already pinned, unpin them.
+                        val allPinned = selection.isNotEmpty() &&
+                            sessions.filter { it.id in selection }.all { it.pinned }
+                        SelectionAction(Icons.Outlined.PushPin, if (allPinned) "Unpin" else "Pin", cs.onPrimaryContainer) {
+                            viewModel.setPinned(selection, !allPinned)
+                            selection = emptySet()
+                        }
                         SelectionAction(Icons.Outlined.Delete, "Delete", cs.error) { confirmTrash = true }
                     }
                     Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
@@ -563,6 +593,11 @@ fun SessionCard(
                     }
                 }
                 Spacer(Modifier.weight(1f))
+                if (session.pinned && !selectionMode) {
+                    Icon(Icons.Filled.PushPin, "Pinned", tint = cs.primary,
+                        modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(6.dp))
+                }
                 if (!selectionMode) {
                     // Offline-availability glyph on THIS device.
                     val context = androidx.compose.ui.platform.LocalContext.current

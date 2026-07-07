@@ -33,6 +33,7 @@ class RecordingService : Service() {
     const val ACTION_RESUME = "com.mehdiacho.yap.RECORD_RESUME"
     const val ACTION_STOP = "com.mehdiacho.yap.RECORD_STOP"
     const val ACTION_DISCARD = "com.mehdiacho.yap.RECORD_DISCARD"
+    const val ACTION_BOOKMARK = "com.mehdiacho.yap.RECORD_BOOKMARK"
 
     private const val CHANNEL_ID = "yap_recording"
     private const val NOTIF_ID = 1001
@@ -44,7 +45,10 @@ class RecordingService : Service() {
 
   @Volatile private var status = RecorderStatus.IDLE
   @Volatile private var discardRequested = false
+  @Volatile private var silenced = false
+  private val bookmarks = java.util.Collections.synchronizedList(mutableListOf<Long>())
   private var worker: Thread? = null
+  private var silenceCallback: android.media.AudioManager.AudioRecordingCallback? = null
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -52,11 +56,48 @@ class RecordingService : Service() {
     when (intent?.action) {
       ACTION_START -> startRecording()
       ACTION_PAUSE -> if (status == RecorderStatus.RECORDING) { status = RecorderStatus.PAUSED; pushState(0f); refreshNotification() }
-      ACTION_RESUME -> if (status == RecorderStatus.PAUSED) { status = RecorderStatus.RECORDING; pushState(0f); refreshNotification() }
+      ACTION_RESUME -> if (status == RecorderStatus.PAUSED) {
+        silenced = false // user chose to continue after an interruption
+        status = RecorderStatus.RECORDING; pushState(0f); refreshNotification()
+      }
       ACTION_STOP -> status = RecorderStatus.IDLE
       ACTION_DISCARD -> { discardRequested = true; status = RecorderStatus.IDLE }
+      ACTION_BOOKMARK -> if (status == RecorderStatus.RECORDING) {
+        bookmarks.add(RecordingBus.current().elapsedMs)
+      }
     }
     return START_STICKY
+  }
+
+  /**
+   * Recording-interruption detection (design · Capture error): when another app takes
+   * the mic, the OS silences our AudioRecord instead of stopping it. Auto-pause and
+   * flag the state so the UI can offer Resume / Save-what-I-have. API 29+.
+   */
+  private fun watchForSilencing(sessionId: Int) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+    val am = getSystemService(android.media.AudioManager::class.java) ?: return
+    val cb = object : android.media.AudioManager.AudioRecordingCallback() {
+      override fun onRecordingConfigChanged(configs: MutableList<android.media.AudioRecordingConfiguration>) {
+        val mine = configs.firstOrNull { it.clientAudioSessionId == sessionId } ?: return
+        if (mine.isClientSilenced && status == RecorderStatus.RECORDING) {
+          silenced = true
+          status = RecorderStatus.PAUSED
+          pushState(0f)
+          refreshNotification()
+        }
+      }
+    }
+    silenceCallback = cb
+    am.registerAudioRecordingCallback(cb, android.os.Handler(mainLooper))
+  }
+
+  private fun unwatchSilencing() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+    silenceCallback?.let {
+      getSystemService(android.media.AudioManager::class.java)?.unregisterAudioRecordingCallback(it)
+    }
+    silenceCallback = null
   }
 
   private fun startRecording() {
@@ -64,6 +105,8 @@ class RecordingService : Service() {
     createChannel()
     startForegroundCompat()
     discardRequested = false
+    silenced = false
+    bookmarks.clear()
     status = RecorderStatus.RECORDING
     RecordingBus.update(RecorderUiState(RecorderStatus.RECORDING, 0L, 0f))
     LiveDraftEngine.start(this) // fed-stream live draft (no-op below API 33 / no recognizer)
@@ -87,6 +130,7 @@ class RecordingService : Service() {
       if (recorder.state != AudioRecord.STATE_INITIALIZED) {
         recorder.release(); fail("recorder-init"); return@thread
       }
+      watchForSilencing(recorder.audioSessionId)
 
       val raf = RandomAccessFile(file, "rw")
       raf.write(ByteArray(44)) // header placeholder
@@ -119,8 +163,9 @@ class RecordingService : Service() {
           writeWavHeader(raf, dataBytes); raf.close()
           val durationMs = dataBytes * 1000 / BYTE_RATE
           RecordingBus.update(RecorderUiState())
-          RecordingBus.emit(RecorderEvent.Finished(file.absolutePath, durationMs))
+          RecordingBus.emit(RecorderEvent.Finished(file.absolutePath, durationMs, bookmarks.toList()))
         }
+        unwatchSilencing()
         cleanup()
       }
     }
@@ -143,7 +188,7 @@ class RecordingService : Service() {
     val cur = RecordingBus.current()
     val elapsed = if (dataBytes >= 0) dataBytes * 1000 / BYTE_RATE else cur.elapsedMs
     val smoothed = cur.amplitude * 0.35f + amplitude * 0.65f // responsive
-    RecordingBus.update(RecorderUiState(status, elapsed, smoothed))
+    RecordingBus.update(RecorderUiState(status, elapsed, smoothed, silenced))
   }
 
   /** Perceptual level 0..1 from RMS mapped through a dB floor (good visual response at arm's length). */
