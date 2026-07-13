@@ -25,6 +25,7 @@ export {
   applyReferral,
   onSessionCreatedReferral,
 } from "./lifecycle";
+export { verifyPlayPurchase } from "./billing";
 import { getEntitlement, capForPlan } from "./accounts";
 
 // Set with: firebase functions:secrets:set GEMINI_API_KEY

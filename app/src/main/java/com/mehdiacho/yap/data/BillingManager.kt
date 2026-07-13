@@ -13,6 +13,8 @@ import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
+import kotlinx.coroutines.launch
+import kotlin.coroutines.resume
 
 /**
  * Play Billing scaffold. Product ids must exist in Play Console before flows return
@@ -91,13 +93,40 @@ object BillingManager {
 
     private fun handlePurchase(purchase: Purchase) {
         if (purchase.purchaseState != Purchase.PurchaseState.PURCHASED) return
-        // TODO(server): verify purchase.purchaseToken via a verifyPlayPurchase callable that
-        // grants the entitlement, THEN acknowledge. Acknowledging client-side keeps the
-        // purchase alive during development but grants nothing by itself.
-        if (!purchase.isAcknowledged) {
-            client?.acknowledgePurchase(
-                AcknowledgePurchaseParams.newBuilder().setPurchaseToken(purchase.purchaseToken).build()
-            ) { result -> Log.d(TAG, "acknowledge: ${result.responseCode}") }
+        val productId = purchase.products.firstOrNull() ?: return
+        // Server-side verification grants the entitlement; only then acknowledge (Play
+        // auto-refunds unacknowledged purchases after ~3 days, so a failed verification
+        // self-heals instead of granting nothing for money taken).
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                TranscriptionClient.ensureSignedIn()
+                val functions = com.google.firebase.functions.FirebaseFunctions.getInstance("africa-south1")
+                kotlinx.coroutines.suspendCancellableCoroutine<Any?> { cont ->
+                    functions.getHttpsCallable("verifyPlayPurchase")
+                        .call(hashMapOf("productId" to productId, "purchaseToken" to purchase.purchaseToken))
+                        .addOnSuccessListener { cont.resume(it, null) }
+                        .addOnFailureListener { cont.cancel(it) }
+                }
+                Log.i(TAG, "purchase verified + entitlement granted for $productId")
+                if (!purchase.isAcknowledged) {
+                    client?.acknowledgePurchase(
+                        AcknowledgePurchaseParams.newBuilder().setPurchaseToken(purchase.purchaseToken).build()
+                    ) { result -> Log.d(TAG, "acknowledge: ${result.responseCode}") }
+                }
+            } catch (e: Exception) {
+                // Leave unacknowledged — Play retries via onPurchasesUpdated / query on next start.
+                Log.e(TAG, "verifyPlayPurchase failed for $productId: ${e.message}", e)
+            }
+        }
+    }
+
+    /** Re-checks any pending unacknowledged purchases (call on app start after init). */
+    fun reconcilePending() {
+        val c = client ?: return
+        listOf(BillingClient.ProductType.SUBS, BillingClient.ProductType.INAPP).forEach { type ->
+            c.queryPurchasesAsync(
+                com.android.billingclient.api.QueryPurchasesParams.newBuilder().setProductType(type).build()
+            ) { _, purchases -> purchases.forEach(::handlePurchase) }
         }
     }
 }

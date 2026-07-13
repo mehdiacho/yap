@@ -1,4 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
 
 plugins {
   alias(libs.plugins.android.application)
@@ -25,11 +26,17 @@ android {
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      // Upload key for Play App Signing. Credentials live in keystore.properties at the
+      // repo root (git-ignored — BACK IT UP together with upload-keystore.jks). Env vars
+      // override for CI.
+      val props = Properties()
+      val propsFile = rootProject.file("keystore.properties")
+      if (propsFile.exists()) propsFile.inputStream().use { props.load(it) }
+      storeFile = file(System.getenv("KEYSTORE_PATH")
+        ?: "${rootDir}/${props.getProperty("storeFile") ?: "upload-keystore.jks"}")
+      storePassword = System.getenv("STORE_PASSWORD") ?: props.getProperty("storePassword")
+      keyAlias = System.getenv("KEY_ALIAS") ?: props.getProperty("keyAlias") ?: "upload"
+      keyPassword = System.getenv("KEY_PASSWORD") ?: props.getProperty("keyPassword")
     }
   }
 

@@ -105,6 +105,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         intent?.let { handleShare(it) }
         com.mehdiacho.yap.data.SettingsStore.init(this)
         com.mehdiacho.yap.data.BillingManager.init(this)
+        com.mehdiacho.yap.data.BillingManager.reconcilePending()
         com.mehdiacho.yap.overlay.FloatingBubble.startIfEnabled(this)
         publishShareShortcut()
         setContent {

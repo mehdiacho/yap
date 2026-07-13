@@ -19,3 +19,7 @@ debug.keystore
 
 firebase-debug.log
 .firebase/
+
+# Play upload key — NEVER commit (back up privately)
+upload-keystore.jks
+keystore.properties
