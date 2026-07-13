@@ -3,7 +3,7 @@ import * as admin from "firebase-admin";
 import { GoogleAuth } from "google-auth-library";
 
 const REGION = "africa-south1";
-const PACKAGE_NAME = "com.mehdiacho.yap";
+const PACKAGE_NAME = "app.greenforrest.yap";
 const MONTH_MS = 32 * 86_400_000; // grace day over a calendar month
 const YEAR_MS = 367 * 86_400_000;
 
