@@ -87,10 +87,10 @@ fun SubscriptionScreen(onBack: () -> Unit) {
 
                     // Plan cards — design copy and pricing.
                     PlanCard(
-                        name = "Pro", price = "$2.99", priceSuffix = "/mo · $24.99/yr",
+                        name = "Pro", price = "$1.99", priceSuffix = "/mo · $19.99/yr",
                         desc = "30 hrs/mo refine · 2 GB · AI actions · priority",
                         current = s.plan == "pro",
-                        onSelect = { purchasing = com.mehdiacho.yap.data.BillingManager.PRO_MONTHLY to "Pro · $2.99/mo" },
+                        onSelect = { purchasing = com.mehdiacho.yap.data.BillingManager.PRO_MONTHLY to "Pro · $1.99/mo" },
                     )
                     Spacer(Modifier.height(12.dp))
                     PlanCard(

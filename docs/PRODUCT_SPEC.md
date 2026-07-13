@@ -309,16 +309,16 @@ Optional per-recording toggle (port existing bridge-stitch + reindex). Off by de
 - **Multi-tenant isolation:** **Replace the open Firestore rules** (`allow read,write: if true`) with per-user rules: a user can read/write only their own `users/{uid}/sessions/...`. (Current global `sessions` collection is a security hole and must be migrated.)
 **Core principle:** On-device draft + **local-only** use is **always free** and costs us ~nothing (no model cost, no storage). What users pay for is **our managed Gemini key** and/or **our cloud storage + sync**. BYOK removes our biggest variable cost (the API), so BYOK is *earned/gated*, not the free default.
 
-- **Tiers (finalized from `docs/PRICING_SPEC.md`; Pro price may drop to $1.99 — see note):**
+- **Tiers (finalized from `docs/PRICING_SPEC.md`; Pro = $1.99/mo, decided 2026-07-13):**
 
 | Tier | AI key | Cloud storage / sync | Price | Caps / inclusions |
 |---|---|---|---|---|
 | **Free (managed)** | Ours (metered) | Included | $0 | **30 min/mo** cloud refine · **50 MB** backup · on-device unlimited & free |
-| **Pro (managed)** | Ours (generous) | Included | **$2.99/mo · $24.99/yr** | **1,800 min/mo (30 hrs)** cloud refine · **2 GB** backup · AI actions · priority |
+| **Pro (managed)** | Ours (generous) | Included | **$1.99/mo · $19.99/yr** | **1,800 min/mo (30 hrs)** cloud refine · **2 GB** backup · AI actions · priority |
 | **BYOK + storage** | User's key | Included | **$0.99/mo** | Unlimited AI (their cost) · **2 GB** our sync/backup |
 | **BYOK local-only** | User's key | None (device only) | **$0 after unlock** | Unlimited AI (their cost) · no cloud; ~$0 to us |
 
-> **Pro price note:** spec'd at **$2.99**; you're considering **$1.99** ("feels basically free"). Margins support either (Typical user ≈ 96% GM at $2.99). Design the Subscription screen so the price is a single easily-swapped value.
+> **Pro price note:** DECIDED 2026-07-13: **$1.99/mo · $19.99/yr**. Margins support either (Typical user ≈ 96% GM at $2.99). Design the Subscription screen so the price is a single easily-swapped value.
 
 - **BYOK is gated** (it grants near-free app access, so it's earned): unlock via **(a) one-time $4.99** OR **(b) 5 completed referrals.**
 - **Completed referral =** referred user signs up **AND saves ≥ 3 voice notes** (proves real use; blocks emulator farms), **OR** makes any in-app payment (auto-counts immediately).

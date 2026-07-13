@@ -57,7 +57,7 @@ Because your infrastructure costs are exceptionally low (under $0.80 for 20 hour
 
 #### **Pro Tier (Managed Key)**
 
-* **Price:** **$2.99 / month** or **$24.99 / year**.  
+* **Price:** **$1.99 / month** or **$19.99 / year** (decided 2026-07-13; originally spec'd $2.99/$24.99).  
 * **Inclusions:** **30 hours (1800 minutes)** of cloud refinement/month. **2 GB** of audio backup.  
 * **Margin & Breakeven:** A Typical user yields a **96% gross margin**. Even a Heavy user (20 hours) yields a **73% margin**. Breakeven is roughly 80 hours of cloud processing a month—which dictates your fair-use limit.  
 * **Fair Use Clause:** Hard stop at 30 hours (1800 mins); users must wait until the next cycle or plug in a BYOK key for overages.
