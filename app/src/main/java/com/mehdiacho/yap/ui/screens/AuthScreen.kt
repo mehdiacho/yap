@@ -27,6 +27,7 @@ fun AuthScreen(onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -55,21 +56,7 @@ fun AuthScreen(onBack: () -> Unit) {
                 "Everything you've captured as a guest carries over.",
                 fontSize = 14.sp, color = cs.onSurfaceVariant, lineHeight = 20.sp)
 
-            Spacer(Modifier.height(28.dp))
-            OutlinedButton(
-                onClick = { run { AuthManager.signInWithGoogle(context) } },
-                enabled = !busy, shape = RoundedCornerShape(50),
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-            ) { Text("Continue with Google", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-
-            Spacer(Modifier.height(20.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                HorizontalDivider(Modifier.weight(1f), color = cs.outlineVariant)
-                Text("  or  ", color = YapTheme.extended.subdued, fontSize = 13.sp)
-                HorizontalDivider(Modifier.weight(1f), color = cs.outlineVariant)
-            }
-            Spacer(Modifier.height(20.dp))
-
+            Spacer(Modifier.height(24.dp))
             OutlinedTextField(
                 value = email, onValueChange = { email = it }, label = { Text("Email") }, singleLine = true,
                 shape = RoundedCornerShape(14.dp),
@@ -80,13 +67,25 @@ fun AuthScreen(onBack: () -> Unit) {
             OutlinedTextField(
                 value = password, onValueChange = { password = it }, label = { Text("Password") }, singleLine = true,
                 shape = RoundedCornerShape(14.dp),
-                visualTransformation = PasswordVisualTransformation(),
+                visualTransformation = if (showPassword) androidx.compose.ui.text.input.VisualTransformation.None
+                    else PasswordVisualTransformation(),
+                trailingIcon = { PeekabooToggle(showPassword) { showPassword = !showPassword } },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(16.dp))
             Button(
-                onClick = { run { AuthManager.signInWithEmail(email.trim(), password) } },
+                onClick = {
+                    run {
+                        val r = AuthManager.signInWithEmail(email.trim(), password)
+                        if (!r.existingAccount) {
+                            runCatching { AuthManager.sendEmailVerification() }
+                            android.widget.Toast.makeText(context,
+                                "Verification email sent to ${email.trim()}",
+                                android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
                 enabled = !busy && email.isNotBlank() && password.length >= 6,
                 shape = RoundedCornerShape(50),
                 modifier = Modifier.fillMaxWidth().height(54.dp),
@@ -118,12 +117,19 @@ fun AuthScreen(onBack: () -> Unit) {
                 Text(it, color = cs.error, fontSize = 13.sp)
             }
 
-            // Docked-bottom "Continue as guest" link (§3.10).
+            // Docked-bottom: Google (animated gradient) above the guest link (§3.10).
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                HorizontalDivider(Modifier.weight(1f), color = cs.outlineVariant)
+                Text("  or  ", color = YapTheme.extended.subdued, fontSize = 13.sp)
+                HorizontalDivider(Modifier.weight(1f), color = cs.outlineVariant)
+            }
+            Spacer(Modifier.height(14.dp))
+            GoogleGradientButton(busy = busy) { run { AuthManager.signInWithGoogle(context) } }
+            TextButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 6.dp)) {
                 Text("Continue as guest", fontSize = 14.sp, color = cs.onSurfaceVariant)
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
         }
     }
 }

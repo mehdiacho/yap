@@ -49,9 +49,20 @@ object AuthManager {
             .setFilterByAuthorizedAccounts(false)
             .build()
         val request = GetCredentialRequest.Builder().addCredentialOption(option).build()
-        val result = cm.getCredential(activityContext, request)
+        val result = try {
+            cm.getCredential(activityContext, request)
+        } catch (e: androidx.credentials.exceptions.NoCredentialException) {
+            // Typically Play services still fetching its credentials module (fresh installs)
+            // or refreshing its verification cache — config-correct devices recover on retry.
+            throw Exception("Google sign-in isn't ready on this device yet — wait a minute and try again, or use email.")
+        }
         val idToken = GoogleIdTokenCredential.createFrom(result.credential.data).idToken
         return linkOrSignIn(GoogleAuthProvider.getCredential(idToken, null))
+    }
+
+    /** Fires Firebase's verification email at the freshly created account (non-blocking UX). */
+    suspend fun sendEmailVerification() {
+        auth.currentUser?.let { awaitTask(it.sendEmailVerification()) }
     }
 
     /** Email/password — same call handles create-on-anonymous (link) and existing accounts. */

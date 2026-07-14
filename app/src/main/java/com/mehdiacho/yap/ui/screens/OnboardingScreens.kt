@@ -266,6 +266,7 @@ private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone:
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -306,26 +307,6 @@ private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone:
             }
             Spacer(Modifier.height(12.dp))
         }
-        OutlinedButton(
-            onClick = { run { AuthManager.signInWithGoogle(context) } },
-            enabled = !busy, shape = RoundedCornerShape(50),
-            modifier = Modifier.fillMaxWidth().height(54.dp),
-        ) {
-            if (busy) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.5.dp)
-                Spacer(Modifier.width(12.dp))
-                Text("Signing you in…", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            } else {
-                Text("Continue with Google", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            HorizontalDivider(Modifier.weight(1f), color = cs.outlineVariant)
-            Text("  or  ", color = YapTheme.extended.subdued, fontSize = 12.sp)
-            HorizontalDivider(Modifier.weight(1f), color = cs.outlineVariant)
-        }
-        Spacer(Modifier.height(16.dp))
         OutlinedTextField(
             value = email, onValueChange = { email = it; error = null },
             label = { Text("Email address") }, singleLine = true, isError = error != null,
@@ -338,14 +319,31 @@ private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone:
             value = password, onValueChange = { password = it; error = null },
             label = { Text("Password") }, singleLine = true, isError = error != null,
             shape = RoundedCornerShape(14.dp),
-            visualTransformation = PasswordVisualTransformation(),
+            visualTransformation = if (showPassword) androidx.compose.ui.text.input.VisualTransformation.None
+                else PasswordVisualTransformation(),
+            trailingIcon = { PeekabooToggle(showPassword) { showPassword = !showPassword } },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth(),
         )
+        // Requirements are visible from the first keystroke — not only after a failure.
+        if (!login) PasswordChecklist(password)
         Spacer(Modifier.height(16.dp))
         Button(
-            onClick = { run { AuthManager.signInWithEmail(email.trim(), password) } },
-            enabled = !busy && email.isNotBlank() && password.length >= 6,
+            onClick = {
+                run {
+                    AuthManager.signInWithEmail(email.trim(), password).also { r ->
+                        // Brand-new email accounts get a (non-blocking) verification email.
+                        if (!login && !r.existingAccount) {
+                            runCatching { AuthManager.sendEmailVerification() }
+                            android.widget.Toast.makeText(context,
+                                "Verification email sent to ${email.trim()}",
+                                android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            },
+            enabled = !busy && email.isNotBlank() &&
+                (if (login) password.isNotEmpty() else passwordMeetsPolicy(password)),
             shape = RoundedCornerShape(50),
             modifier = Modifier.fillMaxWidth().height(54.dp),
         ) {
@@ -386,10 +384,17 @@ private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone:
         }
         Spacer(Modifier.weight(1f))
         Spacer(Modifier.height(20.dp))
-        TextButton(onClick = { onDone(false) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            HorizontalDivider(Modifier.weight(1f), color = cs.outlineVariant)
+            Text("  or  ", color = YapTheme.extended.subdued, fontSize = 12.sp)
+            HorizontalDivider(Modifier.weight(1f), color = cs.outlineVariant)
+        }
+        Spacer(Modifier.height(16.dp))
+        GoogleGradientButton(busy = busy) { run { AuthManager.signInWithGoogle(context) } }
+        TextButton(onClick = { onDone(false) }, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp)) {
             Text("Continue as guest", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.primary)
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(14.dp))
     }
 }
 
