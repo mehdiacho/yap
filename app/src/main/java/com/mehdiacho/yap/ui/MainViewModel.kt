@@ -34,22 +34,91 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val trashedSessions: StateFlow<List<Session>> = repository.trashedSessions()
+        .catch { e ->
+            Log.e("Yap", "trash listener failed: ${e.message}", e)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // Session id to open next (post-capture / share import). StateFlow so a cold-start
     // share doesn't lose the event before the UI subscribes; consumed by the UI.
     private val _pendingOpen = MutableStateFlow<String?>(null)
     val pendingOpen: StateFlow<String?> = _pendingOpen.asStateFlow()
     fun consumePendingOpen() { _pendingOpen.value = null }
 
+    // True after the first Firestore snapshot lands — drives the Library loading skeleton
+    // (before this, an empty list means "still loading", not "no notes").
+    private val _sessionsLoaded = MutableStateFlow(false)
+    val sessionsLoaded: StateFlow<Boolean> = _sessionsLoaded.asStateFlow()
+
+    // Append-to-note: when set, the next finished recording merges into this note
+    // instead of creating a new one. Cleared on finish/discard.
+    private val _appendTarget = MutableStateFlow<Session?>(null)
+    val appendTarget: StateFlow<Session?> = _appendTarget.asStateFlow()
+    fun setAppendTarget(session: Session?) { _appendTarget.value = session }
+
+    init {
+        viewModelScope.launch {
+            runCatching { repository.allSessions().first() }
+            _sessionsLoaded.value = true
+        }
+    }
+
     init {
         // Persist a real session whenever a recording finishes.
         viewModelScope.launch {
             RecordingBus.events.collect { event ->
-                if (event is RecorderEvent.Finished) {
-                    startTranscription(event.filePath, event.durationMs, "audio/wav")
+                when (event) {
+                    is RecorderEvent.Finished -> {
+                        val target = _appendTarget.value
+                        _appendTarget.value = null
+                        if (target != null) appendRecording(target, event.filePath, event.durationMs, event.bookmarks)
+                        else startTranscription(event.filePath, event.durationMs, "audio/wav", event.bookmarks)
+                    }
+                    is RecorderEvent.Discarded -> _appendTarget.value = null
+                    else -> {}
                 }
             }
         }
         backfillAudioToStorage()
+        purgeExpiredTrash()
+    }
+
+    /** Anything in the trash for more than 30 days is permanently removed. */
+    private fun purgeExpiredTrash() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val cutoff = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
+                repository.trashedSessions().first()
+                    .filter { (it.trashedAt ?: Long.MAX_VALUE) < cutoff }
+                    .forEach { s ->
+                        Log.i("Yap", "purging expired trash: ${s.id} '${s.title}'")
+                        deleteSessionCompletely(s)
+                    }
+            } catch (e: Exception) {
+                Log.w("Yap", "trash purge failed: ${e.message}")
+            }
+        }
+    }
+
+    /** Move notes to the trash (restorable for 30 days). */
+    fun trashSessions(ids: Collection<String>) {
+        viewModelScope.launch {
+            ids.forEach { id ->
+                try { repository.trash(id) } catch (e: Exception) {
+                    Log.e("Yap", "trash failed for $id: ${e.message}", e)
+                }
+            }
+        }
+    }
+
+    fun restoreSession(id: String) {
+        viewModelScope.launch {
+            try { repository.restore(id) } catch (e: Exception) {
+                Log.e("Yap", "restore failed: ${e.message}", e)
+            }
+        }
     }
 
     /**
@@ -137,14 +206,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun startTranscription(audioPath: String, durationMs: Long, mimeType: String) {
-        val session = Session(
+    private suspend fun startTranscription(
+        audioPath: String,
+        durationMs: Long,
+        mimeType: String,
+        bookmarks: List<Long> = emptyList(),
+    ) {
+        // Live draft from the fed-stream recognizer (recordings only; empty for imports).
+        val isOwnRecording = mimeType == "audio/wav"
+        var session = Session(
             id = UUID.randomUUID().toString(),
             title = "Transcribing…",
-            draftText = "",
+            draftText = if (isOwnRecording) com.mehdiacho.yap.audio.LiveDraftEngine.currentDraft() else "",
             audioPath = audioPath,
             durationMs = durationMs,
-            status = "TRANSCRIBING"
+            status = "TRANSCRIBING",
+            bookmarks = bookmarks,
         )
         try {
             repository.upsert(session)
@@ -152,13 +229,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Log.e("Yap", "failed to save session: ${e.message}", e)
             return
         }
-        _pendingOpen.value = session.id // open the note immediately (shows "Transcribing…")
+        _pendingOpen.value = session.id // open the note immediately (draft visible right away)
+
+        if (isOwnRecording) {
+            // Final draft segments flush a moment after the stream closes — pick them up.
+            // Generation-tagged: if a new recording starts during the wait, consume returns ""
+            // and we keep the draft snapshot instead of stealing the new session's text.
+            val draftGen = com.mehdiacho.yap.audio.LiveDraftEngine.generation
+            kotlinx.coroutines.delay(2500)
+            val finalDraft = com.mehdiacho.yap.audio.LiveDraftEngine.consumeDraft(draftGen)
+            if (finalDraft.length > session.draftText.length) {
+                session = session.copy(draftText = finalDraft)
+                runCatching { repository.upsert(session) }
+            }
+        }
 
         try {
             val r = TranscriptionClient.transcribe(File(audioPath), mimeType, durationMs)
+            val title = r.name.ifBlank { "Recording" }
             repository.upsert(
                 session.copy(
-                    title = r.name.ifBlank { "Recording" },
+                    title = title,
                     draftText = r.rawText,
                     formattedText = r.formattedText,
                     category = r.category.ifBlank { "Memo" },
@@ -167,6 +258,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     status = "DONE"
                 )
             )
+            // Heads-up "Your note is polished ✨" — skipped while the app is on screen.
+            com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
         } catch (e: Exception) {
             Log.e("Yap", "transcription failed for $audioPath ($mimeType): ${e.message}", e)
             val quotaHit = (e as? com.google.firebase.functions.FirebaseFunctionsException)?.code ==
@@ -186,10 +279,111 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Append-to-note: transcribe the new clip and merge it into the existing note (server-side
+     * integration prompt). The audio is NOT spliced — the clip stays its own recording, and the
+     * detail player pages through primary + appended clips with swipe dots.
+     */
+    private suspend fun appendRecording(
+        target: Session,
+        clipPath: String,
+        clipDurationMs: Long,
+        clipBookmarks: List<Long>,
+    ) {
+        runCatching { repository.upsert(target.copy(status = "TRANSCRIBING")) }
+        try {
+            val clip = File(clipPath)
+            val r = TranscriptionClient.appendTranscribe(
+                clip, clipDurationMs, target.title, target.draftText, target.formattedText ?: ""
+            )
+
+            // Cloud copy is best-effort — the clip stays playable locally either way.
+            val clipStoragePath = runCatching { TranscriptionClient.uploadAudioTo(clip, null) }
+                .onFailure { Log.w("Yap", "clip upload failed (kept local-only): ${it.message}") }
+                .getOrNull()
+            val extra = com.mehdiacho.yap.data.ExtraRecording(
+                audioPath = clip.absolutePath,
+                storagePath = clipStoragePath,
+                durationMs = clipDurationMs,
+                bookmarks = clipBookmarks,
+            )
+
+            val title = r.name.ifBlank { target.title }
+            repository.upsert(
+                target.copy(
+                    title = title,
+                    draftText = if (r.rawText.isBlank()) target.draftText
+                        else target.draftText + "\n\n" + r.rawText,
+                    formattedText = r.formattedText.ifBlank { target.formattedText },
+                    extraRecordings = target.extraRecordings + extra,
+                    status = "DONE",
+                )
+            )
+            com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), target.id, title)
+        } catch (e: Exception) {
+            Log.e("Yap", "append failed: ${e.message}", e)
+            runCatching { repository.upsert(target) } // restore prior state
+        }
+    }
+
+    /** "Polish now" — cloud-formalize a draft-only note's existing text (no audio round-trip). */
+    fun polishSession(session: Session) {
+        viewModelScope.launch {
+            runCatching { repository.upsert(session.copy(status = "TRANSCRIBING")) }
+            try {
+                val r = TranscriptionClient.refineText(session.draftText)
+                val title = r.name.ifBlank { session.title }
+                repository.upsert(
+                    session.copy(
+                        title = title,
+                        formattedText = r.formattedText,
+                        category = r.category.ifBlank { session.category },
+                        topicCluster = r.topicCluster.ifBlank { session.topicCluster },
+                        status = "DONE",
+                    )
+                )
+                com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
+            } catch (e: Exception) {
+                Log.e("Yap", "polish failed: ${e.message}", e)
+                runCatching { repository.upsert(session) } // restore prior state
+            }
+        }
+    }
+
+    /** Pin/unpin notes — pinned notes sort first in the Library. */
+    fun setPinned(ids: Collection<String>, pinned: Boolean) {
+        viewModelScope.launch {
+            ids.forEach { id ->
+                try { repository.setPinned(id, pinned) } catch (e: Exception) {
+                    Log.e("Yap", "pin failed for $id: ${e.message}", e)
+                }
+            }
+        }
+    }
+
     fun deleteSession(id: String) {
         viewModelScope.launch {
             try { repository.delete(id) } catch (e: Exception) {
                 Log.e("Yap", "delete failed: ${e.message}", e)
+            }
+        }
+    }
+
+    /** Delete the note everywhere: Firestore doc, local audio, cached download, cloud object. */
+    fun deleteSessionCompletely(session: Session) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try { repository.delete(session.id) } catch (e: Exception) {
+                Log.e("Yap", "delete doc failed: ${e.message}", e)
+                return@launch
+            }
+            val locals = listOfNotNull(session.audioPath) + session.extraRecordings.mapNotNull { it.audioPath }
+            val remotes = listOfNotNull(session.storagePath) + session.extraRecordings.mapNotNull { it.storagePath }
+            locals.forEach { runCatching { File(it).delete() } }
+            remotes.forEach { path ->
+                runCatching { com.mehdiacho.yap.data.AudioCache.fileFor(getApplication(), path).delete() }
+                runCatching {
+                    com.google.firebase.storage.FirebaseStorage.getInstance().reference.child(path).delete()
+                }
             }
         }
     }

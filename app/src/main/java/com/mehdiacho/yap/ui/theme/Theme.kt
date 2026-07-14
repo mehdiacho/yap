@@ -90,6 +90,10 @@ data class YapExtendedColors(
   val offline: Color,
   val offlineContainer: Color,
   val onOfflineContainer: Color,
+  val subdued: Color,
+  val successSoft: Color,
+  val draftNeutral: Color,
+  val warningSoft: Color,
 )
 
 private val LightExtended = YapExtendedColors(
@@ -101,6 +105,10 @@ private val LightExtended = YapExtendedColors(
   offline = OfflineLight,
   offlineContainer = OfflineContainerLight,
   onOfflineContainer = OnOfflineContainerLight,
+  subdued = SubduedLight,
+  successSoft = SuccessSoftLight,
+  draftNeutral = DraftNeutralLight,
+  warningSoft = WarningSoftLight,
 )
 
 private val DarkExtended = YapExtendedColors(
@@ -112,6 +120,10 @@ private val DarkExtended = YapExtendedColors(
   offline = OfflineDark,
   offlineContainer = OfflineContainerDark,
   onOfflineContainer = OnOfflineContainerDark,
+  subdued = SubduedDark,
+  successSoft = SuccessSoftDark,
+  draftNeutral = DraftNeutralDark,
+  warningSoft = WarningSoftDark,
 )
 
 val LocalYapExtendedColors = staticCompositionLocalOf { LightExtended }
@@ -127,9 +139,12 @@ fun YapTheme(
   darkTheme: Boolean = isSystemInDarkTheme(),
   // Brand-consistent by default. Dynamic color (Material You) is opt-in via Settings.
   dynamicColor: Boolean = false,
+  // AMOLED "pure black" dark: true-black background/surfaces (near-black containers keep
+  // elevation legible). Placeholder palette — proper Claude Design pass pending.
+  amoled: Boolean = false,
   content: @Composable () -> Unit,
 ) {
-  val colorScheme =
+  var colorScheme =
     when {
       dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
         val context = LocalContext.current
@@ -138,6 +153,17 @@ fun YapTheme(
       darkTheme -> DarkColorScheme
       else -> LightColorScheme
     }
+  if (darkTheme && amoled) {
+    colorScheme = colorScheme.copy(
+      background = Color.Black,
+      surface = Color.Black,
+      surfaceContainerLowest = Color.Black,
+      surfaceContainerLow = Color(0xFF0A0A0E),
+      surfaceContainer = Color(0xFF101016),
+      surfaceContainerHigh = Color(0xFF16161D),
+      surfaceContainerHighest = Color(0xFF1C1C24),
+    )
+  }
   val extended = if (darkTheme) DarkExtended else LightExtended
 
   CompositionLocalProvider(LocalYapExtendedColors provides extended) {

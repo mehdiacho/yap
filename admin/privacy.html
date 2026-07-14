@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yap — Privacy Policy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { max-width: 720px; margin: 0 auto; padding: 40px 20px 80px;
+         font: 16px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif; color: #1B1B21; background: #FCFBFF; }
+  @media (prefers-color-scheme: dark) { body { color: #E5E1E9; background: #131318; } }
+  h1 { font-size: 28px; letter-spacing: -0.02em; }
+  h2 { font-size: 19px; margin-top: 36px; }
+  .muted { opacity: 0.7; font-size: 14px; }
+  a { color: #5B5BD6; } @media (prefers-color-scheme: dark) { a { color: #C5C0FF; } }
+  ul { padding-left: 22px; }
+</style>
+</head>
+<body>
+<h1>Yap — Privacy Policy</h1>
+<p class="muted">Effective: 13 July 2026 · Applies to the Yap Android app (package <code>app.greenforrest.yap</code>)</p>
+
+<p>Yap is a voice idea-capture app: you record a thought, Yap transcribes it and turns it into an
+organized note. This policy explains what data the app handles, why, and the control you have
+over it. The short version: <b>your recordings and notes are yours</b> — we process them only to
+provide the features you use, we don't sell data, and we don't show ads.</p>
+
+<h2>Data we collect and why</h2>
+<ul>
+  <li><b>Voice recordings (microphone).</b> Created only when you start a recording. Stored on
+  your device, and — unless you enable on-device-only mode — uploaded to your private cloud
+  storage area so your notes sync across devices and can be transcribed.</li>
+  <li><b>Transcripts and notes.</b> The text produced from your recordings, plus edits you make.
+  Stored in your private cloud database area and on your device.</li>
+  <li><b>Account information.</b> If you sign in: your email address, name, and profile photo
+  from your Google account or the email address you register with. Guest use is supported —
+  a random anonymous ID is used instead.</li>
+  <li><b>Usage metering.</b> Minutes of cloud transcription used per month and storage bytes,
+  kept to enforce plan quotas.</li>
+  <li><b>Purchase state.</b> If you buy a subscription or unlock, Google Play processes the
+  payment; we receive and store only a purchase token and the entitlement it grants — never
+  your payment details.</li>
+</ul>
+
+<h2>How processing works</h2>
+<ul>
+  <li><b>On-device first.</b> Live draft transcription runs through your device's speech
+  recognizer while you speak.</li>
+  <li><b>Cloud refinement.</b> When a note is "polished", the audio or draft text is processed
+  by our backend (Google Cloud Functions) which calls Google's Gemini API to transcribe and
+  format it. Google processes this data as a service provider; it is not used to identify you.</li>
+  <li><b>Storage and sync.</b> Notes and audio live in Google Firebase (Firestore and Cloud
+  Storage) in a per-user area only your signed-in account can access, in the
+  <code>africa-south1</code> (Johannesburg) region. Data is encrypted in transit.</li>
+  <li><b>Bring-your-own-key.</b> If you use your own AI provider key, it is stored only on your
+  device and sent per-request; we never store it on our servers.</li>
+</ul>
+
+<h2>What we don't do</h2>
+<ul>
+  <li>No selling of personal data. No advertising, and no third-party advertising SDKs.</li>
+  <li>No access to your contacts, location, photos, or messages.</li>
+  <li>No recording unless you start one — the microphone is used only during an active
+  recording session you initiate, shown by a persistent notification.</li>
+</ul>
+
+<h2>Your controls</h2>
+<ul>
+  <li><b>Export.</b> Settings → Privacy &amp; data → "Export my data" produces a zip of your
+  notes and on-device audio.</li>
+  <li><b>Delete a note.</b> Notes moved to trash are recoverable for 30 days, then permanently
+  removed (device, database, and cloud audio).</li>
+  <li><b>Delete your account.</b> Settings → Privacy &amp; data → "Delete account" permanently
+  removes your notes, recordings, usage records, and the account itself from our servers.</li>
+  <li><b>Audio retention.</b> Settings let you keep audio, discard it after transcription, or
+  auto-delete it after 30 days.</li>
+  <li><b>On-device only mode.</b> Prevents audio from being sent to the cloud.</li>
+</ul>
+
+<h2>Retention</h2>
+<p>Your content is retained until you delete it or delete your account. Trashed notes are purged
+about 30 days after trashing. Backups of inactive free accounts may be deleted after six months
+of inactivity, with notice where possible.</p>
+
+<h2>Children</h2>
+<p>Yap is not directed at children under 13, and we do not knowingly collect data from them.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes materially, the app will point to the updated version at this URL,
+with the effective date above revised.</p>
+
+<h2>Contact</h2>
+<p>Questions or requests: <a href="mailto:mehdiacho@gmail.com">mehdiacho@gmail.com</a></p>
+</body>
+</html>

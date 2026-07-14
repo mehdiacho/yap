@@ -9,6 +9,10 @@
   "firestore": {
     "rules": "firestore.rules"
   },
+  "hosting": {
+    "public": "admin",
+    "ignore": ["firebase.json", "**/.*"]
+  },
   "storage": {
     "rules": "storage.rules"
   }

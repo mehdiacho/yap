@@ -17,10 +17,15 @@ data class RecorderUiState(
   val status: RecorderStatus = RecorderStatus.IDLE,
   val elapsedMs: Long = 0L,
   val amplitude: Float = 0f, // smoothed 0..1, drives the waveform
+  val silenced: Boolean = false, // another app took the mic (auto-paused; audio so far is safe)
 )
 
 sealed interface RecorderEvent {
-  data class Finished(val filePath: String, val durationMs: Long) : RecorderEvent
+  data class Finished(
+    val filePath: String,
+    val durationMs: Long,
+    val bookmarks: List<Long> = emptyList(), // elapsed-ms markers dropped while recording
+  ) : RecorderEvent
   data class Failed(val reason: String) : RecorderEvent
   data object Discarded : RecorderEvent
 }
@@ -45,6 +50,7 @@ object RecordingController {
   fun resume(context: Context) = send(context, RecordingService.ACTION_RESUME)
   fun stop(context: Context) = send(context, RecordingService.ACTION_STOP)
   fun discard(context: Context) = send(context, RecordingService.ACTION_DISCARD)
+  fun bookmark(context: Context) = send(context, RecordingService.ACTION_BOOKMARK)
 
   private fun send(context: Context, action: String, foreground: Boolean = false) {
     val intent = Intent(context, RecordingService::class.java).setAction(action)

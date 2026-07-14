@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300..800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block">
+<style>
+  body { margin: 0; background: radial-gradient(circle at 50% 0%, #2A2640, #15131F 70%); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+  * { box-sizing: border-box; }
+  @keyframes yapPulse { 0%,100% { transform: scale(1); opacity: .55; } 50% { transform: scale(1.18); opacity: 0; } }
+  @keyframes yapBar { 0%,100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
+  @keyframes yapFade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  @keyframes yapSpin { to { transform: rotate(360deg); } }
+</style>
+</helmet>
+
+<div style="font-family:'Roboto Flex',sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px 60px;gap:26px;">
+
+  <div style="text-align:center;">
+    <div style="font-family:'Outfit',sans-serif;font-weight:800;font-size:26px;letter-spacing:-.02em;color:#fff;">Yap · Hero Flow</div>
+    <div style="font-size:14px;color:rgba(255,255,255,.6);margin-top:6px;">Tap through: Capture → Recording → Processing → Session Detail</div>
+  </div>
+
+  <!-- Phone -->
+  <div style="width:332px;height:712px;border-radius:46px;background:#0B0A12;padding:9px;box-shadow:0 30px 70px rgba(0,0,0,.5);flex:none;">
+    <div style="width:100%;height:100%;border-radius:38px;background:#FCFBFF;overflow:hidden;position:relative;display:flex;flex-direction:column;">
+
+      <!-- status bar -->
+      <div style="height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;flex:none;z-index:5;"><span style="font:600 13px 'Roboto Flex';color:{{ barColor }};">9:41</span><span style="display:flex;gap:6px;align-items:center;color:{{ barColor }};"><span style="font-family:'Material Symbols Rounded';font-size:16px;">signal_cellular_alt</span><span style="font-family:'Material Symbols Rounded';font-size:16px;">wifi</span><span style="font-family:'Material Symbols Rounded';font-size:16px;">battery_full</span></span></div>
+
+      <!-- screen body, swapped by state -->
+      <div style="flex:1;position:relative;overflow:hidden;">{{ screen }}</div>
+
+    </div>
+  </div>
+
+  <!-- controls -->
+  <div style="display:flex;gap:10px;align-items:center;">
+    <button onClick="{{ reset }}" style="font-family:'Roboto Flex';font-size:13px;font-weight:600;color:#fff;background:rgba(255,255,255,.12);border:none;border-radius:999px;padding:11px 20px;cursor:pointer;display:flex;align-items:center;gap:7px;"><span style="font-family:'Material Symbols Rounded';font-size:17px;">restart_alt</span>Restart flow</button>
+    <div style="font-size:12px;color:rgba(255,255,255,.45);">Step {{ stepNum }} / 5 · {{ stepName }}</div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { step: 'idle', elapsed: 0 };
+
+  componentDidMount() {
+    this._tick = setInterval(() => {
+      if (this.state.step === 'recording') {
+        this.setState(s => ({ elapsed: s.elapsed + 1 }));
+      }
+    }, 1000);
+  }
+  componentWillUnmount() { clearInterval(this._tick); }
+
+  go(step, extra) { this.setState({ step, ...(extra || {}) }); }
+
+  fmt(t) {
+    const m = Math.floor(t / 60), s = t % 60;
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  // ---- shared bits -------------------------------------------------
+  bottomNav(active) {
+    const item = (icon, label, key) => {
+      const on = active === key;
+      return React.createElement('div', { style: { display:'flex', flexDirection:'column', alignItems:'center', gap:'3px', cursor:'pointer' } },
+        React.createElement('span', { style: { display:'flex', alignItems:'center', justifyContent:'center', width:'56px', height:'30px', borderRadius:'16px', background: on ? '#E4E0FF' : 'transparent' } },
+          React.createElement('span', { style: { fontFamily:"'Material Symbols Rounded'", fontSize:'23px', color: on ? '#3A37A0' : '#47464F', fontVariationSettings: on ? "'FILL' 1" : "'FILL' 0" } }, icon)),
+        React.createElement('span', { style: { fontSize:'11px', fontWeight: on ? 600 : 500, color: on ? '#1B1B21' : '#47464F' } }, label));
+    };
+    return React.createElement('div', { style: { height:'72px', background:'#F2EFF7', display:'flex', alignItems:'center', justifyContent:'space-around', flex:'none' } },
+      item('mic', 'Capture', 'cap'), item('library_books', 'Library', 'lib'), item('settings', 'Settings', 'set'));
+  }
+
+  waveform(color) {
+    const heights = [22,42,30,54,38,50,26,46,34,48,30];
+    return React.createElement('div', { style: { display:'flex', alignItems:'center', justifyContent:'center', gap:'4px', height:'60px', padding:'14px 22px 0' } },
+      heights.map((h, i) => React.createElement('div', { key:i, style: {
+        width:'5px', height: h+'px', borderRadius:'3px', background: color,
+        animation: `yapBar ${0.8 + (i % 4) * 0.1}s ease-in-out infinite ${(i * 0.05).toFixed(2)}s`
+      } })));
+  }
+
+  // ---- screens -----------------------------------------------------
+  screenIdle() {
+    const e = React.createElement;
+    return e('div', { key:'idle', style:{ position:'absolute', inset:0, display:'flex', flexDirection:'column', animation:'yapFade .35s ease' } },
+      e('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 22px 0' } },
+        e('span', { style:{ width:'38px', height:'38px', borderRadius:'19px', background:'#E4E0FF', color:'#3A37A0', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:'15px' } }, 'S'),
+        e('span', { style:{ display:'inline-flex', alignItems:'center', gap:'6px', background:'#EAF6EE', color:'#0F5132', borderRadius:'999px', padding:'6px 12px', fontSize:'12px', fontWeight:600 } },
+          e('span', { style:{ fontFamily:"'Material Symbols Rounded'", fontSize:'15px' } }, 'cloud_done'), 'Synced')),
+      e('div', { style:{ padding:'22px 28px 0' } },
+        e('div', { style:{ fontFamily:"'Outfit',sans-serif", fontWeight:700, fontSize:'24px', letterSpacing:'-.01em', color:'#1B1B21' } }, 'Good morning, Sam'),
+        e('div', { style:{ fontSize:'14px', color:'#47464F', marginTop:'4px' } }, "What's on your mind?")),
+      e('div', { style:{ padding:'20px 24px 0' } },
+        e('div', { style:{ background:'#F2EFF7', borderRadius:'18px', padding:'14px 16px' } },
+          e('div', { style:{ fontSize:'11px', fontWeight:600, color:'#8B8896', letterSpacing:'.03em', marginBottom:'5px' } }, 'LAST NOTE'),
+          e('div', { style:{ fontSize:'15px', fontWeight:600, color:'#1B1B21' } }, 'Pricing idea — drop Pro to feel free'))),
+      e('div', { style:{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' } },
+        e('div', { onClick:() => this.go('recording', { elapsed: 0 }),
+          style:{ width:'132px', height:'132px', borderRadius:'66px', background:'#5B5BD6', boxShadow:'0 18px 44px rgba(91,91,214,.42)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' } },
+          e('span', { style:{ fontFamily:"'Material Symbols Rounded'", fontSize:'62px', color:'#fff', fontVariationSettings:"'FILL' 1" } }, 'mic')),
+        e('div', { style:{ fontSize:'15px', fontWeight:600, color:'#1B1B21', marginTop:'20px' } }, 'Tap to record')),
+      this.bottomNav('cap'));
+  }
+
+  screenRecording(paused) {
+    const e = React.createElement;
+    return e('div', { key:'rec', style:{ position:'absolute', inset:0, display:'flex', flexDirection:'column', animation:'yapFade .35s ease' } },
+      e('div', { style:{ textAlign:'center', padding:'20px 0 4px' } },
+        paused
+          ? e('span', { style:{ display:'inline-flex', alignItems:'center', gap:'7px', color:'#47464F', fontWeight:700, fontSize:'15px' } },
+              e('span', { style:{ fontFamily:"'Material Symbols Rounded'", fontSize:'18px', color:'#FF6B6B' } }, 'pause_circle'), 'Paused')
+          : e('span', { style:{ display:'inline-flex', alignItems:'center', gap:'7px', color:'#FF6B6B', fontWeight:700, fontSize:'15px' } },
+              e('span', { style:{ width:'9px', height:'9px', borderRadius:'5px', background:'#FF6B6B', animation:'yapPulse 1.3s ease-in-out infinite' } }), 'Recording'),
+        e('div', { style:{ fontFamily:"'Outfit',sans-serif", fontWeight:700, fontSize:'44px', color:'#1B1B21', marginTop:'4px', letterSpacing:'.01em' } }, this.fmt(this.state.elapsed))),
+      paused
+        ? e('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', gap:'4px', height:'60px', padding:'14px 22px 0', opacity:.5 } },
+            [22,42,30,54,38,50,26,46,34,48,30].map((h,i) => e('div',{ key:i, style:{ width:'5px', height:h+'px', borderRadius:'3px', background:'#C8C5D0' } })))
+        : this.waveform('#FF6B6B'),
+      e('div', { style:{ margin:'16px 22px 0', background:'#F2EFF7', borderRadius:'16px', padding:'16px', flex:1, overflow:'hidden' } },
+        e('div', { style:{ fontSize:'11px', fontWeight:600, color:'#5B5BD6', letterSpacing:'.04em', marginBottom:'8px' } }, paused ? 'DRAFT SO FAR' : 'LIVE DRAFT'),
+        e('div', { style:{ fontSize:'15px', color:'#1B1B21', lineHeight:1.55 } },
+          'okay so for the launch plan we should lead with the free tier being genuinely generous, then the paid plan feels like supporting us',
+          paused ? '.' : e('span', { style:{ color:'#8B8896' } }, ' rather than unlocking basics — also…'))),
+      e('div', { style:{ padding:'18px 28px 30px', display:'flex', alignItems:'center', justifyContent:'center', gap:'30px' } },
+        // left: pause/resume
+        e('div', { onClick:() => this.go(paused ? 'recording' : 'paused'),
+          style:{ width:'58px', height:'58px', borderRadius:'29px', border: paused ? 'none' : '1px solid #C8C5D0', background: paused ? '#fff' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' } },
+          e('span', { style:{ fontFamily:"'Material Symbols Rounded'", fontSize:'28px', color: paused ? '#BA1A1A' : '#47464F', fontVariationSettings:"'FILL' 1" } }, paused ? 'stop' : 'pause')),
+        // center stop / record
+        paused
+          ? e('div', { onClick:() => this.go('recording'),
+              style:{ width:'96px', height:'96px', borderRadius:'48px', background:'#fff', border:'3px solid #FF6B6B', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' } },
+              e('span', { style:{ fontFamily:"'Material Symbols Rounded'", fontSize:'50px', color:'#FF6B6B', fontVariationSettings:"'FILL' 1" } }, 'play_arrow'))
+          : e('div', { onClick:() => this.go('processing'), style:{ position:'relative', width:'96px', height:'96px', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' } },
+              e('div', { style:{ position:'absolute', inset:0, borderRadius:'48px', background:'#FF6B6B', animation:'yapPulse 1.8s ease-in-out infinite' } }),
+              e('div', { style:{ position:'relative', width:'96px', height:'96px', borderRadius:'48px', background:'#FF6B6B', boxShadow:'0 12px 30px rgba(255,107,107,.45)', display:'flex', alignItems:'center', justifyContent:'center' } },
+                e('span', { style:{ width:'28px', height:'28px', borderRadius:'7px', background:'#fff' } }))),
+        e('div', { style:{ width:'58px', height:'58px' } })));
+  }
+
+  screenProcessing() {
+    const e = React.createElement;
+    if (!this._procT) { this._procT = setTimeout(() => { this._procT = null; this.go('detail'); }, 2600); }
+    return e('div', { key:'proc', style:{ position:'absolute', inset:0, display:'flex', flexDirection:'column', animation:'yapFade .35s ease' } },
+      e('div', { style:{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'0 32px', textAlign:'center' } },
+        e('div', { style:{ width:'108px', height:'108px', borderRadius:'54px', background:'#E4E0FF', display:'flex', alignItems:'center', justifyContent:'center', position:'relative' } },
+          e('div', { style:{ position:'absolute', inset:0, borderRadius:'54px', border:'3px solid #5B5BD6', borderTopColor:'transparent', animation:'yapSpin 1s linear infinite' } }),
+          e('span', { style:{ fontFamily:"'Material Symbols Rounded'", fontSize:'50px', color:'#3A37A0', fontVariationSettings:"'FILL' 1" } }, 'auto_awesome')),
+        e('div', { style:{ fontFamily:"'Outfit',sans-serif", fontWeight:700, fontSize:'22px', marginTop:'28px', color:'#1B1B21' } }, 'Polishing…'),
+        e('div', { style:{ fontSize:'15px', color:'#47464F', marginTop:'8px', lineHeight:1.5 } }, 'Transcribed on device ✓'),
+        e('div', { style:{ fontSize:'15px', color:'#47464F', lineHeight:1.5 } }, 'Now refining in the cloud.')),
+      e('div', { style:{ padding:'0 28px 38px' } },
+        e('div', { onClick:() => { clearTimeout(this._procT); this._procT=null; this.go('detail'); },
+          style:{ height:'54px', borderRadius:'27px', border:'1px solid #C8C5D0', color:'#5B5BD6', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:600, fontSize:'15px', cursor:'pointer' } }, 'Skip ahead')));
+  }
+
+  screenDetail() {
+    const e = React.createElement;
+    return e('div', { key:'detail', style:{ position:'absolute', inset:0, display:'flex', flexDirection:'column', animation:'yapFade .35s ease' } },
+      e('div', { style:{ padding:'6px 18px 0', display:'flex', alignItems:'center', justifyContent:'space-between' } },
+        e('span', { onClick:() => this.go('idle'), style:{ fontFamily:"'Material Symbols Rounded'", fontSize:'24px', color:'#1B1B21', cursor:'pointer' } }, 'arrow_back'),
+        e('span', { style:{ display:'inline-flex', alignItems:'center', gap:'6px', background:'#B8F0CF', color:'#0F5132', borderRadius:'999px', padding:'5px 12px', fontSize:'12px', fontWeight:600 } },
+          e('span', { style:{ fontFamily:"'Material Symbols Rounded'", fontSize:'14px', fontVariationSettings:"'FILL' 1" } }, 'check_circle'), 'Refined'),
+        e('span', { style:{ fontFamily:"'Material Symbols Rounded'", fontSize:'24px', color:'#1B1B21' } }, 'more_vert')),
+      e('div', { style:{ padding:'14px 22px 0' } },
+        e('div', { style:{ fontFamily:"'Outfit',sans-serif", fontWeight:700, fontSize:'23px', letterSpacing:'-.015em', lineHeight:1.12, color:'#1B1B21' } }, 'App launch plan — pricing'),
+        e('div', { style:{ display:'flex', gap:'6px', marginTop:'12px', flexWrap:'wrap' } },
+          e('span', { style:{ background:'#E4E0FF', color:'#3A37A0', borderRadius:'8px', padding:'4px 9px', fontSize:'11px', fontWeight:600 } }, 'Brainstorm'),
+          e('span', { style:{ background:'#F2EFF7', color:'#47464F', borderRadius:'8px', padding:'4px 9px', fontSize:'11px' } }, 'pricing'))),
+      e('div', { style:{ margin:'14px 22px 0', background:'#F2EFF7', borderRadius:'14px', padding:'5px', display:'flex' } },
+        e('div', { style:{ flex:1, textAlign:'center', background:'#fff', borderRadius:'11px', padding:'8px', fontSize:'13px', fontWeight:600, color:'#1B1B21', boxShadow:'0 1px 3px rgba(0,0,0,.08)' } }, 'Formatted'),
+        e('div', { style:{ flex:1, textAlign:'center', padding:'8px', fontSize:'13px', color:'#47464F' } }, 'Raw')),
+      e('div', { style:{ flex:1, overflow:'hidden', padding:'16px 22px 0' } },
+        e('div', { style:{ fontWeight:700, fontSize:'16px', color:'#1B1B21', marginBottom:'6px' } }, 'The core insight'),
+        e('div', { style:{ fontSize:'14px', lineHeight:1.55, color:'#33323A', marginBottom:'14px' } }, 'Lead with a genuinely generous free tier so paying feels like supporting us, not unlocking basics.'),
+        e('div', { style:{ fontWeight:700, fontSize:'16px', color:'#1B1B21', marginBottom:'6px' } }, 'Next steps'),
+        e('div', { style:{ fontSize:'14px', lineHeight:1.7, color:'#33323A' } },
+          e('div', { style:{ display:'flex', gap:'8px' } }, e('span', { style:{ color:'#5B5BD6' } }, '•'), 'Reframe Pro as "support us"'),
+          e('div', { style:{ display:'flex', gap:'8px' } }, e('span', { style:{ color:'#5B5BD6' } }, '•'), 'Send pricing table to finance'))),
+      e('div', { style:{ padding:'12px 22px', display:'flex', alignItems:'center', gap:'12px', borderTop:'1px solid #EEECF3', flex:'none' } },
+        e('span', { style:{ width:'40px', height:'40px', borderRadius:'20px', background:'#5B5BD6', display:'flex', alignItems:'center', justifyContent:'center' } },
+          e('span', { style:{ fontFamily:"'Material Symbols Rounded'", fontSize:'22px', color:'#fff', fontVariationSettings:"'FILL' 1" } }, 'play_arrow')),
+        e('div', { style:{ flex:1, height:'4px', borderRadius:'2px', background:'#E5E1EC', position:'relative' } },
+          e('div', { style:{ position:'absolute', left:0, top:0, height:'4px', width:'38%', borderRadius:'2px', background:'#5B5BD6' } })),
+        e('span', { style:{ fontSize:'12px', color:'#47464F' } }, '1:23')));
+  }
+
+  renderVals() {
+    const step = this.state.step;
+    let screen, stepNum, stepName, barColor = '#1B1B21';
+    if (step === 'idle') { screen = this.screenIdle(); stepNum = 1; stepName = 'Capture'; }
+    else if (step === 'recording') { screen = this.screenRecording(false); stepNum = 2; stepName = 'Recording'; }
+    else if (step === 'paused') { screen = this.screenRecording(true); stepNum = 2; stepName = 'Paused'; }
+    else if (step === 'processing') { screen = this.screenProcessing(); stepNum = 3; stepName = 'Processing'; }
+    else { screen = this.screenDetail(); stepNum = 5; stepName = 'Session Detail'; }
+    if (step === 'recording' || step === 'paused') stepNum = 2;
+    return {
+      screen, stepNum, stepName, barColor,
+      reset: () => { clearTimeout(this._procT); this._procT = null; this.go('idle', { elapsed: 0 }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
 
 plugins {
   alias(libs.plugins.android.application)
@@ -14,22 +15,29 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.mehdiacho.yap"
+    applicationId = "app.greenforrest.yap"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // CI (GitHub Actions) passes a monotonically increasing code; local builds use the literal.
+    versionCode = System.getenv("YAP_VERSION_CODE")?.toIntOrNull() ?: 1
+    versionName = System.getenv("YAP_VERSION_NAME") ?: "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      // Upload key for Play App Signing. Credentials live in keystore.properties at the
+      // repo root (git-ignored — BACK IT UP together with upload-keystore.jks). Env vars
+      // override for CI.
+      val props = Properties()
+      val propsFile = rootProject.file("keystore.properties")
+      if (propsFile.exists()) propsFile.inputStream().use { props.load(it) }
+      storeFile = file(System.getenv("KEYSTORE_PATH")
+        ?: "${rootDir}/${props.getProperty("storeFile") ?: "upload-keystore.jks"}")
+      storePassword = System.getenv("STORE_PASSWORD") ?: props.getProperty("storePassword")
+      keyAlias = System.getenv("KEY_ALIAS") ?: props.getProperty("keyAlias") ?: "upload"
+      keyPassword = System.getenv("KEY_PASSWORD") ?: props.getProperty("keyPassword")
     }
   }
 
@@ -81,6 +89,13 @@ dependencies {
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
   implementation(libs.androidx.compose.material3)
+  // Material Components — provides the Theme.Material3.* window themes used as the Activity theme
+  // (matches how edge-to-edge apps like Tachiyomi/Yokai get a truly transparent MIUI nav bar).
+  implementation(libs.google.android.material)
+  // App lock (Privacy & data → biometric gate). Requires MainActivity : FragmentActivity.
+  implementation(libs.androidx.biometric)
+  // Play Billing scaffold — flows work once products exist in Play Console.
+  implementation(libs.billing.ktx)
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
@@ -98,6 +113,7 @@ dependencies {
   implementation("com.google.firebase:firebase-functions")
   implementation("com.google.firebase:firebase-storage")
   implementation("com.google.firebase:firebase-firestore")
+  implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.26.0")
   implementation("androidx.credentials:credentials:1.3.0")
   implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
   implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")

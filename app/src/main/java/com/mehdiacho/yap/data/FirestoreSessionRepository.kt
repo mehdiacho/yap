@@ -7,6 +7,7 @@ import com.google.firebase.firestore.Query
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -25,7 +26,7 @@ class FirestoreSessionRepository {
         db.collection("users").document(uid).collection("sessions")
     }
 
-    fun allSessions(): Flow<List<Session>> = callbackFlow {
+    private fun rawSessions(): Flow<List<Session>> = callbackFlow {
         val collection = col()
         val reg = collection.orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snap, err ->
@@ -33,6 +34,24 @@ class FirestoreSessionRepository {
                 if (snap != null) trySend(snap.documents.mapNotNull { it.toSession() })
             }
         awaitClose { reg.remove() }
+    }
+
+    /** Active notes (not in trash). */
+    fun allSessions(): Flow<List<Session>> =
+        rawSessions().map { list -> list.filter { it.trashedAt == null } }
+
+    /** Trashed notes, newest trash first. */
+    fun trashedSessions(): Flow<List<Session>> =
+        rawSessions().map { list ->
+            list.filter { it.trashedAt != null }.sortedByDescending { it.trashedAt }
+        }
+
+    suspend fun trash(id: String) {
+        awaitTask(col().document(id).update("trashedAt", System.currentTimeMillis()))
+    }
+
+    suspend fun restore(id: String) {
+        awaitTask(col().document(id).update("trashedAt", null))
     }
 
     fun sessionById(id: String): Flow<Session?> = callbackFlow {
@@ -63,6 +82,17 @@ class FirestoreSessionRepository {
         "durationMs" to durationMs,
         "category" to category,
         "topicCluster" to topicCluster,
+        "trashedAt" to trashedAt,
+        "pinned" to pinned,
+        "bookmarks" to bookmarks,
+        "extraRecordings" to extraRecordings.map {
+            mapOf(
+                "audioPath" to it.audioPath,
+                "storagePath" to it.storagePath,
+                "durationMs" to it.durationMs,
+                "bookmarks" to it.bookmarks,
+            )
+        },
     )
 
     private fun DocumentSnapshot.toSession(): Session? {
@@ -79,7 +109,25 @@ class FirestoreSessionRepository {
             durationMs = getLong("durationMs") ?: 0L,
             category = getString("category") ?: "Memo",
             topicCluster = getString("topicCluster") ?: "General",
+            trashedAt = getLong("trashedAt"),
+            pinned = getBoolean("pinned") ?: false,
+            bookmarks = (get("bookmarks") as? List<*>)?.mapNotNull { (it as? Number)?.toLong() } ?: emptyList(),
+            extraRecordings = (get("extraRecordings") as? List<*>)?.mapNotNull { raw ->
+                (raw as? Map<*, *>)?.let { m ->
+                    ExtraRecording(
+                        audioPath = m["audioPath"] as? String,
+                        storagePath = m["storagePath"] as? String,
+                        durationMs = (m["durationMs"] as? Number)?.toLong() ?: 0L,
+                        bookmarks = (m["bookmarks"] as? List<*>)?.mapNotNull { (it as? Number)?.toLong() }
+                            ?: emptyList(),
+                    )
+                }
+            } ?: emptyList(),
         )
+    }
+
+    suspend fun setPinned(id: String, pinned: Boolean) {
+        awaitTask(col().document(id).update("pinned", pinned))
     }
 
     private suspend fun <T> awaitTask(task: com.google.android.gms.tasks.Task<T>): T =

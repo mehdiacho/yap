@@ -1,7 +1,13 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
-import { transcribeAndFormalize } from "./gemini";
+import {
+  transcribeAndFormalize,
+  transcribeAndAppend,
+  formalizeText,
+  reviewAndPropagate,
+  ReviewBlock,
+} from "./gemini";
 
 admin.initializeApp();
 
@@ -13,6 +19,13 @@ export {
   adminCreatePromo,
   adminListPromos,
 } from "./accounts";
+export {
+  deleteAccount,
+  getReferralInfo,
+  applyReferral,
+  onSessionCreatedReferral,
+} from "./lifecycle";
+export { verifyPlayPurchase } from "./billing";
 import { getEntitlement, capForPlan } from "./accounts";
 
 // Set with: firebase functions:secrets:set GEMINI_API_KEY
@@ -100,6 +113,107 @@ export const transcribeSession = onCall(
         stack: e?.stack,
       });
       throw new HttpsError("internal", `Transcription failed: ${e?.message ?? "unknown"}`);
+    }
+  }
+);
+
+/**
+ * appendToSession — the user re-opened a note and recorded an addition. Transcribes the
+ * new clip and integrates it into the existing note (lists get appended, sections extend;
+ * nothing unrelated is rewritten). Quota is charged like a normal transcription.
+ *
+ * Request:  { audioBase64|storagePath, mimeType?, durationMs?, title, existingFormatted, existingDraft }
+ * Response: { rawText, formattedText, name }
+ */
+export const appendToSession = onCall(
+  { region: "africa-south1", secrets: [GEMINI_API_KEY], timeoutSeconds: 300, memory: "512MiB" },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    const data = request.data ?? {};
+    const mimeType: string = data.mimeType || "audio/wav";
+
+    let audio: Buffer;
+    if (data.storagePath) {
+      try {
+        const bucket = process.env.STORAGE_BUCKET || "yap-mehdiacho.firebasestorage.app";
+        const [buf] = await admin.storage().bucket(bucket).file(data.storagePath).download();
+        audio = buf;
+      } catch (e: any) {
+        throw new HttpsError("not-found", `Could not read audio at ${data.storagePath}`);
+      }
+    } else if (data.audioBase64) {
+      audio = Buffer.from(data.audioBase64, "base64");
+    } else {
+      throw new HttpsError("invalid-argument", "Provide storagePath or audioBase64.");
+    }
+
+    const claimedSec = (typeof data.durationMs === "number" ? data.durationMs : 0) / 1000;
+    const wavExactSec = audio.length / 32000;
+    const seconds = mimeType === "audio/wav" ? wavExactSec : Math.max(claimedSec, wavExactSec);
+    const quotaSec = Math.ceil(Math.max(1, Math.min(seconds, 3 * 3600)));
+    const entitlement = await getEntitlement(request.auth.uid);
+    await checkAndRecordUsage(request.auth.uid, quotaSec, capForPlan(entitlement.plan));
+
+    try {
+      return await transcribeAndAppend(
+        audio,
+        mimeType,
+        String(data.title ?? "Untitled"),
+        String(data.existingFormatted ?? ""),
+        String(data.existingDraft ?? ""),
+        GEMINI_API_KEY.value()
+      );
+    } catch (e: any) {
+      console.error("appendToSession failed", { message: e?.message });
+      throw new HttpsError("internal", `Append failed: ${e?.message ?? "unknown"}`);
+    }
+  }
+);
+
+/**
+ * refineText — "Polish now" for draft-only notes: formalizes existing draft text
+ * without an audio round-trip. Text refine is cheap, so it doesn't consume the
+ * per-minute transcription quota (still requires auth).
+ *
+ * Request:  { draftText: string }
+ * Response: { name, description, tags, category, topicCluster, formattedText }
+ */
+export const refineText = onCall(
+  { region: "africa-south1", secrets: [GEMINI_API_KEY], timeoutSeconds: 120 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    const draftText = String(request.data?.draftText ?? "").trim();
+    if (!draftText) throw new HttpsError("invalid-argument", "draftText required");
+    if (draftText.length > 100_000) throw new HttpsError("invalid-argument", "draft too long");
+    try {
+      return await formalizeText(draftText, GEMINI_API_KEY.value());
+    } catch (e: any) {
+      console.error("refineText failed", { message: e?.message });
+      throw new HttpsError("internal", `Refine failed: ${e?.message ?? "unknown"}`);
+    }
+  }
+);
+
+/**
+ * smartReview — propagate the user's manual block corrections across the whole
+ * document and flag semantic shifts. Request: { blocks: [{versions, activeIndex}] }
+ * Response: { updatedBlocks: [{blockIndex, newText, flagged, reason?}] }
+ */
+export const smartReview = onCall(
+  { region: "africa-south1", secrets: [GEMINI_API_KEY], timeoutSeconds: 120 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    const blocks = request.data?.blocks as ReviewBlock[] | undefined;
+    if (!Array.isArray(blocks) || blocks.length === 0) {
+      throw new HttpsError("invalid-argument", "blocks required");
+    }
+    if (blocks.length > 500) throw new HttpsError("invalid-argument", "too many blocks");
+    try {
+      const updatedBlocks = await reviewAndPropagate(blocks, GEMINI_API_KEY.value());
+      return { updatedBlocks };
+    } catch (e: any) {
+      console.error("smartReview failed", { message: e?.message });
+      throw new HttpsError("internal", `Smart review failed: ${e?.message ?? "unknown"}`);
     }
   }
 );

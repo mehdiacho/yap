@@ -7,12 +7,65 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:179392577570:android:c69bb85e567d9ec0fa0a7b",
+        "android_client_info": {
+          "package_name": "app.greenforrest.yap"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "179392577570-mjgp0dv9m8edtvp62683jqrm1aaknnqn.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "app.greenforrest.yap",
+            "certificate_hash": "c678ca9f4f4d9c13fc41674b22f50f4ad0a22297"
+          }
+        },
+        {
+          "client_id": "179392577570-ubdi6f37pv2ia723nje3a4m53fnn9o5g.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "app.greenforrest.yap",
+            "certificate_hash": "8b3c2953662f64e201d09cf5b81b763bb53c5ea4"
+          }
+        },
+        {
+          "client_id": "179392577570-06vml3add35mtve74jcekgrrqtj39qjr.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBfF6VFIUyhVdJ_KoO9U4a2ohoCG8QHkWQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "179392577570-06vml3add35mtve74jcekgrrqtj39qjr.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:179392577570:android:45c8e2466971ee6bfa0a7b",
         "android_client_info": {
           "package_name": "com.mehdiacho.yap"
         }
       },
       "oauth_client": [
+        {
+          "client_id": "179392577570-4ulm8lktjp1jnhq9k8c3pfs7tca5i9m6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mehdiacho.yap",
+            "certificate_hash": "c678ca9f4f4d9c13fc41674b22f50f4ad0a22297"
+          }
+        },
         {
           "client_id": "179392577570-dni9r81l2ft1pvi3mjkhvbn1tphpmuf2.apps.googleusercontent.com",
           "client_type": 1,
