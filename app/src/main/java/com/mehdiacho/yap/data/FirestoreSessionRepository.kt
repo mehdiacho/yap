@@ -85,6 +85,14 @@ class FirestoreSessionRepository {
         "trashedAt" to trashedAt,
         "pinned" to pinned,
         "bookmarks" to bookmarks,
+        "extraRecordings" to extraRecordings.map {
+            mapOf(
+                "audioPath" to it.audioPath,
+                "storagePath" to it.storagePath,
+                "durationMs" to it.durationMs,
+                "bookmarks" to it.bookmarks,
+            )
+        },
     )
 
     private fun DocumentSnapshot.toSession(): Session? {
@@ -104,6 +112,17 @@ class FirestoreSessionRepository {
             trashedAt = getLong("trashedAt"),
             pinned = getBoolean("pinned") ?: false,
             bookmarks = (get("bookmarks") as? List<*>)?.mapNotNull { (it as? Number)?.toLong() } ?: emptyList(),
+            extraRecordings = (get("extraRecordings") as? List<*>)?.mapNotNull { raw ->
+                (raw as? Map<*, *>)?.let { m ->
+                    ExtraRecording(
+                        audioPath = m["audioPath"] as? String,
+                        storagePath = m["storagePath"] as? String,
+                        durationMs = (m["durationMs"] as? Number)?.toLong() ?: 0L,
+                        bookmarks = (m["bookmarks"] as? List<*>)?.mapNotNull { (it as? Number)?.toLong() }
+                            ?: emptyList(),
+                    )
+                }
+            } ?: emptyList(),
         )
     }
 

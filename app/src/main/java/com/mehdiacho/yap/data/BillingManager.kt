@@ -13,6 +13,9 @@ import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.coroutines.resume
 
@@ -33,11 +36,53 @@ object BillingManager {
     private const val TAG = "YapBilling"
     private var client: BillingClient? = null
 
+    /** UI-observable lifecycle of the purchase the user just started (not reconciliation). */
+    sealed interface PurchasePhase {
+        data object Idle : PurchasePhase
+        /** Play sheet is up (or about to be) — user hasn't committed yet. */
+        data class Initiating(val productId: String) : PurchasePhase
+        /** Play took the payment; server-side verification is running. */
+        data class Verifying(val productId: String) : PurchasePhase
+        data class Confirmed(val productId: String) : PurchasePhase
+        data class Cancelled(val productId: String) : PurchasePhase
+        data class Failed(val productId: String?, val message: String) : PurchasePhase
+    }
+
+    private val _purchasePhase = MutableStateFlow<PurchasePhase>(PurchasePhase.Idle)
+    val purchasePhase: StateFlow<PurchasePhase> = _purchasePhase.asStateFlow()
+    fun resetPurchasePhase() { _purchasePhase.value = PurchasePhase.Idle }
+
+    /** productId of the purchase the UI is watching, or null when nothing is in flight. */
+    private val watchedProductId: String?
+        get() = when (val p = _purchasePhase.value) {
+            is PurchasePhase.Initiating -> p.productId
+            is PurchasePhase.Verifying -> p.productId
+            else -> null
+        }
+
     private val purchasesListener = PurchasesUpdatedListener { result, purchases ->
-        if (result.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
-            purchases.forEach(::handlePurchase)
-        } else {
-            Log.w(TAG, "purchase flow ended: ${result.responseCode} ${result.debugMessage}")
+        val watched = watchedProductId
+        when {
+            result.responseCode == BillingClient.BillingResponseCode.OK && purchases != null ->
+                purchases.forEach(::handlePurchase)
+            result.responseCode == BillingClient.BillingResponseCode.USER_CANCELED -> {
+                Log.i(TAG, "purchase flow cancelled by user")
+                if (watched != null) _purchasePhase.value = PurchasePhase.Cancelled(watched)
+            }
+            else -> {
+                Log.w(TAG, "purchase flow ended: ${result.responseCode} ${result.debugMessage}")
+                if (watched != null) _purchasePhase.value = PurchasePhase.Failed(
+                    watched,
+                    when (result.responseCode) {
+                        BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED ->
+                            "You already own this — restoring it now."
+                        BillingClient.BillingResponseCode.SERVICE_UNAVAILABLE,
+                        BillingClient.BillingResponseCode.NETWORK_ERROR ->
+                            "Google Play couldn't be reached. Check your connection."
+                        else -> "Google Play couldn't complete the payment."
+                    },
+                )
+            }
         }
     }
 
@@ -64,6 +109,7 @@ object BillingManager {
      */
     fun launchPurchase(activity: Activity, productId: String, onError: (String) -> Unit) {
         val c = client ?: return onError("Billing isn't ready yet")
+        _purchasePhase.value = PurchasePhase.Initiating(productId)
         val isSub = productId != BYOK_UNLOCK
         val params = QueryProductDetailsParams.newBuilder()
             .setProductList(listOf(
@@ -76,6 +122,7 @@ object BillingManager {
         c.queryProductDetailsAsync(params) { result, details ->
             val product: ProductDetails? = details.firstOrNull()
             if (result.responseCode != BillingClient.BillingResponseCode.OK || product == null) {
+                _purchasePhase.value = PurchasePhase.Idle
                 onError("Payments aren't live yet — coming soon")
                 return@queryProductDetailsAsync
             }
@@ -92,8 +139,19 @@ object BillingManager {
     }
 
     private fun handlePurchase(purchase: Purchase) {
-        if (purchase.purchaseState != Purchase.PurchaseState.PURCHASED) return
         val productId = purchase.products.firstOrNull() ?: return
+        // Only the purchase the UI launched drives the modal; reconciliation stays silent.
+        val uiDriven = watchedProductId == productId
+        if (purchase.purchaseState != Purchase.PurchaseState.PURCHASED) {
+            if (uiDriven && purchase.purchaseState == Purchase.PurchaseState.PENDING) {
+                _purchasePhase.value = PurchasePhase.Failed(
+                    productId,
+                    "Payment is pending — you'll get access as soon as Google Play confirms it.",
+                )
+            }
+            return
+        }
+        if (uiDriven) _purchasePhase.value = PurchasePhase.Verifying(productId)
         // Server-side verification grants the entitlement; only then acknowledge (Play
         // auto-refunds unacknowledged purchases after ~3 days, so a failed verification
         // self-heals instead of granting nothing for money taken).
@@ -113,9 +171,15 @@ object BillingManager {
                         AcknowledgePurchaseParams.newBuilder().setPurchaseToken(purchase.purchaseToken).build()
                     ) { result -> Log.d(TAG, "acknowledge: ${result.responseCode}") }
                 }
+                if (watchedProductId == productId) _purchasePhase.value = PurchasePhase.Confirmed(productId)
             } catch (e: Exception) {
                 // Leave unacknowledged — Play retries via onPurchasesUpdated / query on next start.
                 Log.e(TAG, "verifyPlayPurchase failed for $productId: ${e.message}", e)
+                if (watchedProductId == productId) _purchasePhase.value = PurchasePhase.Failed(
+                    productId,
+                    "Payment went through but we couldn't confirm it yet. " +
+                        "It will be applied automatically — no money is lost.",
+                )
             }
         }
     }

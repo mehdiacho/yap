@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Colorize
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Fingerprint
@@ -246,6 +247,30 @@ fun PrivacySettingsScreen(onBack: () -> Unit) {
                 } else store.setAppLock(false)
             })
         }
+        if (appLock) {
+            val lockTimeout by store.lockTimeoutMins.collectAsState()
+            Row(
+                Modifier.fillMaxWidth().padding(start = 2.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Lock after", fontSize = 13.sp, color = cs.onSurfaceVariant)
+                Spacer(Modifier.width(10.dp))
+                listOf(0 to "Right away", 1 to "1 min", 5 to "5 min", 15 to "15 min").forEach { (mins, label) ->
+                    val selected = lockTimeout == mins
+                    Text(
+                        label, fontSize = 12.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(end = 6.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(if (selected) cs.primaryContainer else cs.surfaceContainer)
+                            .clickable { store.setLockTimeoutMins(mins) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                }
+            }
+        }
 
         SubEyebrow("AUDIO RETENTION")
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainer)) {
@@ -414,8 +439,12 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
         }
         Spacer(Modifier.height(20.dp))
         HorizontalDivider(thickness = 1.dp, color = cs.surfaceContainerHigh)
-        SubRow(Icons.Outlined.Colorize, "Dynamic color", "Match my wallpaper (Material You)", divider = false) {
+        SubRow(Icons.Outlined.Colorize, "Dynamic color", "Match my wallpaper (Material You)") {
             Switch(checked = dynamicColor, onCheckedChange = { store.setDynamicColor(it) })
+        }
+        val amoledDark by store.amoledDark.collectAsState()
+        SubRow(Icons.Outlined.DarkMode, "Pure black dark", "True black on AMOLED screens", divider = false) {
+            Switch(checked = amoledDark, onCheckedChange = { store.setAmoledDark(it) })
         }
     }
 }

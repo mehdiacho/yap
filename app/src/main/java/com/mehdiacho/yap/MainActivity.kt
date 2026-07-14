@@ -60,7 +60,6 @@ import com.mehdiacho.yap.ui.theme.YapTheme
 class MainActivity : androidx.fragment.app.FragmentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private val autoStart = mutableStateOf(false)
-    private val unlocked = mutableStateOf(false) // app-lock gate; resets every activity creation
 
     /** Shows the biometric/device-credential prompt; flips [unlocked] on success. */
     private fun promptUnlock() {
@@ -95,8 +94,14 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         // enforcement + fully transparent bars is the most it honors. Content still flows to the
         // true bottom edge (edge-to-edge), so the bottom bar background reaches behind the pill.
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = AndroidColor.TRANSPARENT
-        window.navigationBarColor = AndroidColor.TRANSPARENT
+        if (Build.VERSION.SDK_INT < 35) {
+            // Deprecated no-ops on Android 15+ (edge-to-edge is enforced there); still needed
+            // below 35 for the MIUI/HyperOS nav-bar scrim fix.
+            @Suppress("DEPRECATION")
+            window.statusBarColor = AndroidColor.TRANSPARENT
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = AndroidColor.TRANSPARENT
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
             window.isStatusBarContrastEnforced = false
@@ -112,6 +117,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             // Theme prefs drive the app theme live (Appearance settings).
             val themeMode by com.mehdiacho.yap.data.SettingsStore.themeMode.collectAsState()
             val dynamicColor by com.mehdiacho.yap.data.SettingsStore.dynamicColor.collectAsState()
+            val amoledDark by com.mehdiacho.yap.data.SettingsStore.amoledDark.collectAsState()
             YapTheme(
                 darkTheme = when (themeMode) {
                     "light" -> false
@@ -119,6 +125,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     else -> androidx.compose.foundation.isSystemInDarkTheme()
                 },
                 dynamicColor = dynamicColor,
+                amoled = amoledDark,
             ) {
                 val appLock by com.mehdiacho.yap.data.SettingsStore.appLock.collectAsState()
                 val isUnlocked by unlocked
@@ -134,11 +141,24 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     override fun onStart() {
         super.onStart()
         com.mehdiacho.yap.ui.Notifier.appInForeground = true
+        // Evaluate the lock only when the app genuinely left the foreground (or cold-started) —
+        // rotation keeps its unlock. Within the configured timeout the gate silently opens, so
+        // e.g. tapping a "note polished" notification a minute later needs no fresh unlock
+        // (unless the user chose "Immediately").
+        if (leftForeground) {
+            unlocked.value = !com.mehdiacho.yap.data.SettingsStore.shouldRelock()
+            leftForeground = false
+        }
     }
 
     override fun onStop() {
         super.onStop()
         com.mehdiacho.yap.ui.Notifier.appInForeground = false
+        // Rotation also passes through onStop — don't count it as leaving the app.
+        if (!isChangingConfigurations) {
+            com.mehdiacho.yap.data.SettingsStore.noteBackgrounded()
+            leftForeground = true
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -210,6 +230,11 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     companion object {
         const val EXTRA_START_RECORDING = "start_recording"
+
+        // App-lock gate. Process-level (not per-activity) so recreation — rotation, theme
+        // change — doesn't re-lock; onStart + the persisted background timestamp decide.
+        private val unlocked = mutableStateOf(false)
+        private var leftForeground = true
     }
 }
 
@@ -285,6 +310,26 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
             navController = navController,
             startDestination = if (com.mehdiacho.yap.ui.screens.Onboarding.isDone(navContext))
                 Routes.CAPTURE else Routes.ONBOARDING,
+            // Navigation-compose's default is a 700ms cross-fade, which reads as sluggish.
+            // 220ms fade + a light slide keeps switches feeling instant.
+            enterTransition = {
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) +
+                    androidx.compose.animation.slideInHorizontally(
+                        androidx.compose.animation.core.tween(220)) { it / 16 }
+            },
+            exitTransition = {
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))
+            },
+            popEnterTransition = {
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) +
+                    androidx.compose.animation.slideInHorizontally(
+                        androidx.compose.animation.core.tween(220)) { -it / 16 }
+            },
+            popExitTransition = {
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180)) +
+                    androidx.compose.animation.slideOutHorizontally(
+                        androidx.compose.animation.core.tween(220)) { it / 16 }
+            },
             // contentWindowInsets is zeroed above so screens draw edge-to-edge (behind the status
             // bar). Each screen applies its own status-bar inset — inside its scroll container
             // where scrolling-behind-the-bar is wanted. Bottom: the nav bar handles its own

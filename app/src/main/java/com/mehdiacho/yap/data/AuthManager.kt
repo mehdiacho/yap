@@ -28,6 +28,10 @@ import kotlin.coroutines.resumeWithException
 object AuthManager {
     private val auth get() = FirebaseAuth.getInstance()
 
+    /** [existingAccount] is true when the credential belonged to an already-registered account
+     *  (a returning user), false when this sign-in created/linked a brand-new account. */
+    data class SignInResult(val user: FirebaseUser, val existingAccount: Boolean)
+
     val currentUser: FirebaseUser? get() = auth.currentUser
     val isAnonymous: Boolean get() = auth.currentUser?.isAnonymous != false
 
@@ -38,7 +42,7 @@ object AuthManager {
     }
 
     /** Google sign-in via Credential Manager. Call with an Activity context. */
-    suspend fun signInWithGoogle(activityContext: Context): FirebaseUser {
+    suspend fun signInWithGoogle(activityContext: Context): SignInResult {
         val cm = CredentialManager.create(activityContext)
         val option = GetGoogleIdOption.Builder()
             .setServerClientId(activityContext.getString(R.string.default_web_client_id))
@@ -51,7 +55,7 @@ object AuthManager {
     }
 
     /** Email/password — same call handles create-on-anonymous (link) and existing accounts. */
-    suspend fun signInWithEmail(email: String, password: String): FirebaseUser =
+    suspend fun signInWithEmail(email: String, password: String): SignInResult =
         linkOrSignIn(EmailAuthProvider.getCredential(email, password))
 
     fun signOut() = auth.signOut() // next ensureSignedIn() creates a fresh guest
@@ -61,17 +65,19 @@ object AuthManager {
         awaitTask(auth.sendPasswordResetEmail(email))
     }
 
-    private suspend fun linkOrSignIn(credential: AuthCredential): FirebaseUser {
+    private suspend fun linkOrSignIn(credential: AuthCredential): SignInResult {
         val user = auth.currentUser
         return try {
             if (user != null && user.isAnonymous) {
-                awaitTask(user.linkWithCredential(credential)).user!!
+                // Linking upgrades the guest in place — by definition a brand-new account.
+                SignInResult(awaitTask(user.linkWithCredential(credential)).user!!, existingAccount = false)
             } else {
-                awaitTask(auth.signInWithCredential(credential)).user!!
+                val result = awaitTask(auth.signInWithCredential(credential))
+                SignInResult(result.user!!, existingAccount = result.additionalUserInfo?.isNewUser == false)
             }
         } catch (e: FirebaseAuthUserCollisionException) {
             // Credential already has an account — sign into it (guest data stays on the old uid).
-            awaitTask(auth.signInWithCredential(credential)).user!!
+            SignInResult(awaitTask(auth.signInWithCredential(credential)).user!!, existingAccount = true)
         }
     }
 

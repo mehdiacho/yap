@@ -233,8 +233,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         if (isOwnRecording) {
             // Final draft segments flush a moment after the stream closes — pick them up.
+            // Generation-tagged: if a new recording starts during the wait, consume returns ""
+            // and we keep the draft snapshot instead of stealing the new session's text.
+            val draftGen = com.mehdiacho.yap.audio.LiveDraftEngine.generation
             kotlinx.coroutines.delay(2500)
-            val finalDraft = com.mehdiacho.yap.audio.LiveDraftEngine.consumeDraft()
+            val finalDraft = com.mehdiacho.yap.audio.LiveDraftEngine.consumeDraft(draftGen)
             if (finalDraft.length > session.draftText.length) {
                 session = session.copy(draftText = finalDraft)
                 runCatching { repository.upsert(session) }
@@ -277,9 +280,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Append-to-note: transcribe the new clip, merge it into the existing note (server-side
-     * integration prompt), and — when the original audio is on this device — splice the new
-     * audio onto the original WAV so the note keeps one continuous recording.
+     * Append-to-note: transcribe the new clip and merge it into the existing note (server-side
+     * integration prompt). The audio is NOT spliced — the clip stays its own recording, and the
+     * detail player pages through primary + appended clips with swipe dots.
      */
     private suspend fun appendRecording(
         target: Session,
@@ -294,27 +297,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 clip, clipDurationMs, target.title, target.draftText, target.formattedText ?: ""
             )
 
-            // Audio splice — only when the original is a local Yap WAV (typical same-device flow).
-            var audioPath = target.audioPath
-            var storagePath = target.storagePath
-            var durationMs = target.durationMs
-            var bookmarks = target.bookmarks
-            val original = target.audioPath?.let { File(it) }
-            if (original != null && com.mehdiacho.yap.audio.WavUtils.isYapWav(original) &&
-                com.mehdiacho.yap.audio.WavUtils.isYapWav(clip)
-            ) {
-                runCatching {
-                    com.mehdiacho.yap.audio.WavUtils.append(original, clip)
-                    durationMs = target.durationMs + clipDurationMs
-                    bookmarks = target.bookmarks + clipBookmarks.map { it + target.durationMs }
-                    // Replace the cloud copy in place and drop any stale cached download.
-                    storagePath = TranscriptionClient.uploadAudioTo(original, target.storagePath)
-                    target.storagePath?.let { sp ->
-                        runCatching { com.mehdiacho.yap.data.AudioCache.fileFor(getApplication(), sp).delete() }
-                    }
-                    clip.delete()
-                }.onFailure { Log.w("Yap", "audio splice failed (text still merged): ${it.message}") }
-            }
+            // Cloud copy is best-effort — the clip stays playable locally either way.
+            val clipStoragePath = runCatching { TranscriptionClient.uploadAudioTo(clip, null) }
+                .onFailure { Log.w("Yap", "clip upload failed (kept local-only): ${it.message}") }
+                .getOrNull()
+            val extra = com.mehdiacho.yap.data.ExtraRecording(
+                audioPath = clip.absolutePath,
+                storagePath = clipStoragePath,
+                durationMs = clipDurationMs,
+                bookmarks = clipBookmarks,
+            )
 
             val title = r.name.ifBlank { target.title }
             repository.upsert(
@@ -323,10 +315,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     draftText = if (r.rawText.isBlank()) target.draftText
                         else target.draftText + "\n\n" + r.rawText,
                     formattedText = r.formattedText.ifBlank { target.formattedText },
-                    audioPath = audioPath,
-                    storagePath = storagePath,
-                    durationMs = durationMs,
-                    bookmarks = bookmarks,
+                    extraRecordings = target.extraRecordings + extra,
                     status = "DONE",
                 )
             )
@@ -387,8 +376,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Log.e("Yap", "delete doc failed: ${e.message}", e)
                 return@launch
             }
-            session.audioPath?.let { runCatching { File(it).delete() } }
-            session.storagePath?.let { path ->
+            val locals = listOfNotNull(session.audioPath) + session.extraRecordings.mapNotNull { it.audioPath }
+            val remotes = listOfNotNull(session.storagePath) + session.extraRecordings.mapNotNull { it.storagePath }
+            locals.forEach { runCatching { File(it).delete() } }
+            remotes.forEach { path ->
                 runCatching { com.mehdiacho.yap.data.AudioCache.fileFor(getApplication(), path).delete() }
                 runCatching {
                     com.google.firebase.storage.FirebaseStorage.getInstance().reference.child(path).delete()

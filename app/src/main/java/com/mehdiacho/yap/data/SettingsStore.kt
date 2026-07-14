@@ -24,11 +24,13 @@ object SettingsStore {
     private val _sounds = MutableStateFlow(false)
     // Privacy
     private val _appLock = MutableStateFlow(false)
+    private val _lockTimeoutMins = MutableStateFlow(0) // 0 = immediately, else minutes in background
     private val _retention = MutableStateFlow("keep") // keep | discard | auto30
     private val _onDeviceOnly = MutableStateFlow(false)
     // Appearance
     private val _themeMode = MutableStateFlow("system") // system | light | dark
     private val _dynamicColor = MutableStateFlow(false)
+    private val _amoledDark = MutableStateFlow(false) // pure-black dark surfaces
     // Transcription
     private val _vttExport = MutableStateFlow(false)
     // Advanced (About, 7-tap unlock)
@@ -41,10 +43,12 @@ object SettingsStore {
     val haptics: StateFlow<Boolean> = _haptics.asStateFlow()
     val sounds: StateFlow<Boolean> = _sounds.asStateFlow()
     val appLock: StateFlow<Boolean> = _appLock.asStateFlow()
+    val lockTimeoutMins: StateFlow<Int> = _lockTimeoutMins.asStateFlow()
     val retention: StateFlow<String> = _retention.asStateFlow()
     val onDeviceOnly: StateFlow<Boolean> = _onDeviceOnly.asStateFlow()
     val themeMode: StateFlow<String> = _themeMode.asStateFlow()
     val dynamicColor: StateFlow<Boolean> = _dynamicColor.asStateFlow()
+    val amoledDark: StateFlow<Boolean> = _amoledDark.asStateFlow()
     val vttExport: StateFlow<Boolean> = _vttExport.asStateFlow()
     val advancedUnlocked: StateFlow<Boolean> = _advancedUnlocked.asStateFlow()
     val experimentalModel: StateFlow<Boolean> = _experimentalModel.asStateFlow()
@@ -58,10 +62,12 @@ object SettingsStore {
         _haptics.value = prefs.getBoolean("haptics", true)
         _sounds.value = prefs.getBoolean("sounds", false)
         _appLock.value = prefs.getBoolean("app_lock", false)
+        _lockTimeoutMins.value = prefs.getInt("lock_timeout_mins", 0)
         _retention.value = prefs.getString("retention", "keep") ?: "keep"
         _onDeviceOnly.value = prefs.getBoolean("on_device_only", false)
         _themeMode.value = prefs.getString("theme_mode", "system") ?: "system"
         _dynamicColor.value = prefs.getBoolean("dynamic_color", false)
+        _amoledDark.value = prefs.getBoolean("amoled_dark", false)
         _vttExport.value = prefs.getBoolean("vtt_export", false)
         _advancedUnlocked.value = prefs.getBoolean("advanced_unlocked", false)
         _experimentalModel.value = prefs.getBoolean("experimental_model", false)
@@ -70,6 +76,7 @@ object SettingsStore {
 
     private fun putBool(key: String, v: Boolean) = prefs.edit().putBoolean(key, v).apply()
     private fun putInt(key: String, v: Int) = prefs.edit().putInt(key, v).apply()
+    private fun putLong(key: String, v: Long) = prefs.edit().putLong(key, v).apply()
     private fun putString(key: String, v: String) = prefs.edit().putString(key, v).apply()
 
     fun setAutoStopEnabled(v: Boolean) { _autoStopEnabled.value = v; putBool("auto_stop_enabled", v) }
@@ -77,10 +84,26 @@ object SettingsStore {
     fun setHaptics(v: Boolean) { _haptics.value = v; putBool("haptics", v) }
     fun setSounds(v: Boolean) { _sounds.value = v; putBool("sounds", v) }
     fun setAppLock(v: Boolean) { _appLock.value = v; putBool("app_lock", v) }
+    fun setLockTimeoutMins(v: Int) { _lockTimeoutMins.value = v; putInt("lock_timeout_mins", v) }
+
+    // --- App-lock re-lock bookkeeping (state, not a user setting) -------------------------
+    // Written when the app leaves the foreground; consulted on return to decide whether the
+    // configured timeout has elapsed. Persisted so process death doesn't grant a free unlock.
+
+    fun noteBackgrounded() { putLong("last_backgrounded_at", System.currentTimeMillis()) }
+
+    /** True when the app-lock gate should re-engage on returning to the foreground. */
+    fun shouldRelock(): Boolean {
+        if (!_appLock.value) return false
+        val last = prefs.getLong("last_backgrounded_at", 0L)
+        if (last == 0L) return true // never backgrounded = cold first launch
+        return System.currentTimeMillis() - last > _lockTimeoutMins.value * 60_000L
+    }
     fun setRetention(v: String) { _retention.value = v; putString("retention", v) }
     fun setOnDeviceOnly(v: Boolean) { _onDeviceOnly.value = v; putBool("on_device_only", v) }
     fun setThemeMode(v: String) { _themeMode.value = v; putString("theme_mode", v) }
     fun setDynamicColor(v: Boolean) { _dynamicColor.value = v; putBool("dynamic_color", v) }
+    fun setAmoledDark(v: Boolean) { _amoledDark.value = v; putBool("amoled_dark", v) }
     fun setVttExport(v: Boolean) { _vttExport.value = v; putBool("vtt_export", v) }
     fun setAdvancedUnlocked(v: Boolean) { _advancedUnlocked.value = v; putBool("advanced_unlocked", v) }
     fun setExperimentalModel(v: Boolean) { _experimentalModel.value = v; putBool("experimental_model", v) }

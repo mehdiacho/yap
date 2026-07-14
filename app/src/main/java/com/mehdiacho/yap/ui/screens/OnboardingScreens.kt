@@ -126,7 +126,11 @@ fun OnboardingFlow(viewModel: MainViewModel, onFinish: () -> Unit) {
         )
         step == 1 -> OnbAbout(onContinue = { step = 2 }, onBack = ::goBack)
         step == 2 -> OnbAccount(login = accountLogin, onToggleLogin = { accountLogin = it },
-            onDone = { step = if (hasMicPermission(context)) 4 else 3 }, onBack = ::goBack)
+            onDone = { existingAccount ->
+                // Returning users have already been onboarded — don't walk them through it again.
+                if (existingAccount) { Onboarding.markDone(context); onFinish() }
+                else step = if (hasMicPermission(context)) 4 else 3
+            }, onBack = ::goBack)
         step == 3 -> OnbPermission(
             onGranted = { step = 4 },
             onSkip = { step = 4 },
@@ -256,7 +260,7 @@ private fun OnbAbout(onContinue: () -> Unit, onBack: () -> Unit) {
 
 /** 2 · Account — create (default) or log in, Google, guest escape. */
 @Composable
-private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone: () -> Unit, onBack: () -> Unit) {
+private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone: (Boolean) -> Unit, onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -265,10 +269,10 @@ private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone:
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    fun run(block: suspend () -> Unit) {
+    fun run(block: suspend () -> AuthManager.SignInResult) {
         scope.launch {
             busy = true; error = null
-            try { block(); onDone() } catch (e: Exception) {
+            try { onDone(block().existingAccount) } catch (e: Exception) {
                 error = e.message ?: "That email or password didn't match."
             } finally { busy = false }
         }
@@ -382,7 +386,7 @@ private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone:
         }
         Spacer(Modifier.weight(1f))
         Spacer(Modifier.height(20.dp))
-        TextButton(onClick = onDone, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+        TextButton(onClick = { onDone(false) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text("Continue as guest", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.primary)
         }
         Spacer(Modifier.height(20.dp))

@@ -1,6 +1,7 @@
 package com.mehdiacho.yap.ui.screens
 
 import android.media.MediaPlayer
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -9,6 +10,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -31,9 +33,11 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -409,7 +413,8 @@ fun SessionDetailScreen(
                 }
                 Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
-        } else if (currentSession.audioPath == null && currentSession.storagePath == null) {
+        } else if (currentSession.audioPath == null && currentSession.storagePath == null &&
+            currentSession.extraRecordings.isEmpty()) {
             // Detail · no-audio — muted row replaces the player.
             Column {
                 HorizontalDivider(thickness = 1.dp, color = cs.outlineVariant)
@@ -424,14 +429,10 @@ fun SessionDetailScreen(
                 }
             }
         } else {
-            // 5 · Audio player bar (§2.11), docked bottom with hairline.
+            // 5 · Audio player bar (§2.11), docked bottom with hairline. Appended clips are
+            // separate recordings — dots + horizontal swipe (within the player only) switch.
             HorizontalDivider(thickness = 1.dp, color = cs.outlineVariant)
-            AudioPlayerBar(
-                audioPath = currentSession.audioPath,
-                storagePath = currentSession.storagePath,
-                fallbackDurationMs = currentSession.durationMs,
-                bookmarks = currentSession.bookmarks,
-            )
+            MultiRecordingPlayer(currentSession)
         }
     }
 }
@@ -690,6 +691,82 @@ private fun DetailSkeleton(onBack: () -> Unit) {
 }
 
 // ---------- Audio player ----------
+
+/**
+ * Pages through the note's recordings (primary + appended clips). One recording renders the
+ * plain player bar; more get pager dots and horizontal swipe confined to the player area —
+ * the note content above never moves. Each switch recreates the bar (fresh MediaPlayer).
+ */
+@Composable
+private fun MultiRecordingPlayer(session: com.mehdiacho.yap.data.Session) {
+    val cs = MaterialTheme.colorScheme
+    val recordings = remember(session) {
+        buildList {
+            if (session.audioPath != null || session.storagePath != null) {
+                add(com.mehdiacho.yap.data.ExtraRecording(
+                    session.audioPath, session.storagePath, session.durationMs, session.bookmarks))
+            }
+            addAll(session.extraRecordings)
+        }
+    }
+    if (recordings.size == 1) {
+        val r = recordings[0]
+        AudioPlayerBar(r.audioPath, r.storagePath, r.durationMs, r.bookmarks)
+        return
+    }
+
+    var current by rememberSaveable(session.id) { mutableIntStateOf(0) }
+    if (current > recordings.lastIndex) current = recordings.lastIndex
+    Column(
+        Modifier.fillMaxWidth().background(cs.surfaceContainer)
+            .pointerInput(recordings.size) {
+                var acc = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { acc = 0f },
+                    onDragEnd = {
+                        val threshold = 56.dp.toPx()
+                        if (acc <= -threshold && current < recordings.lastIndex) current++
+                        else if (acc >= threshold && current > 0) current--
+                    },
+                ) { _, dragAmount -> acc += dragAmount }
+            },
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            recordings.forEachIndexed { i, _ ->
+                Box(
+                    Modifier.padding(horizontal = 3.dp)
+                        .size(width = if (i == current) 18.dp else 7.dp, height = 7.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (i == current) cs.primary else cs.surfaceVariant)
+                        .clickable { current = i },
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                if (current == 0) "Original" else "Addition $current",
+                fontSize = 11.sp, color = cs.onSurfaceVariant,
+            )
+        }
+        androidx.compose.animation.AnimatedContent(
+            targetState = current,
+            transitionSpec = {
+                val dir = if (targetState > initialState) 1 else -1
+                (androidx.compose.animation.slideInHorizontally(tween(200)) { dir * it / 3 } +
+                    androidx.compose.animation.fadeIn(tween(200))) togetherWith
+                    (androidx.compose.animation.slideOutHorizontally(tween(200)) { -dir * it / 3 } +
+                        androidx.compose.animation.fadeOut(tween(150)))
+            },
+            label = "recPager",
+        ) { idx ->
+            val r = recordings[idx]
+            AudioPlayerBar(r.audioPath, r.storagePath, r.durationMs, r.bookmarks)
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

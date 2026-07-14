@@ -78,3 +78,57 @@ Not bugs — conscious "later" decisions so they don't get lost.
 ## Design
 - Dedicated design-fidelity pass to match the design kit pixel-for-pixel (deferred by choice;
   doing cheap high-visibility fixes inline in the meantime).
+
+---
+
+## Added 2026-07-14 (post-launch-prep grooming)
+
+### Share a social-media video link → transcribed note (premium)
+Share a Facebook/Instagram/TikTok/YouTube link into Yap; backend resolves the link to media,
+extracts the audio, transcribes, and formats a "what this video says" note.
+- Resolution options: (a) the link→media tool Mehdi is building as a separate project,
+  (b) yt-dlp in a Cloud Run container (won't fit Cloud Functions well), (c) a paid API
+  (e.g. Apify scrapers). No good free hosted API exists; platforms actively fight scraping.
+- Gate behind Pro (heavy backend cost). Server fetches the media, then reuses the existing
+  transcription path — link payloads are tiny, so the callable interface stays as-is.
+- Legal note: scraping ToS risk differs per platform; YouTube captions API is the safe case.
+
+### Ecosystem share sheet (shelved by design — revisit when app #2 exists)
+Family of apps (Yap, budgeting, shopping) with a first-party share flow: custom share sheet
+listing sibling apps first, "More apps" falls through to the Android sheet. The receiving app
+gets Yap's transcription and reformats it with its own AI into its domain object (e.g. a
+shopping list), pre-logged before first open. Mechanism candidates: explicit intents with a
+shared signature permission, or a shared Firebase project + deep links.
+
+### Connectors / smart actions (consideration only — think, don't build)
+Recordings mentioning actionable things ("meeting with Thabo on Friday at 3") become action
+blocks that execute via connectors: calendar (create event + invite), contacts (resolve name →
+email), later more. Requires entity extraction in the formalize pass, a per-connector
+consent UX, and an execution layer. Claude-style connectors scoped to voice-note triggers;
+availability differs per platform (phone/desktop/web).
+
+### AMOLED dark theme — proper palette (Claude Design)
+"Pure black dark" toggle shipped (Appearance settings) with a placeholder palette: #000
+background/surface, containers #0A0A0E → #1C1C24. Needs a real design pass: accent luminance
+on true black, hairline treatment, elevation strategy. **Reminder for Mehdi: take this to
+Claude Design.**
+
+### Library page rework (Claude Design)
+Current list design is "fine for now" but not liked — full rework wanted.
+
+### Note detail — 3-dot menu decomposition + styling (Claude Design)
+The top-right menu is overloaded; several items duplicate on-surface affordances ("Edit
+title" vs the pencil icon). Move high-frequency actions onto the interface as buttons,
+restyle the remaining menu to the app theme (currently the stock Material dropdown).
+
+### Play deprecation warning — Material library remainder
+Play flags `setStatusBarColor`/`setNavigationBarColor`. Our own uses are now API-gated
+(< 35) in MainActivity; the remaining hits are inside com.google.android.material
+(BottomSheetDialog / EdgeToEdgeUtils / SheetDialog) and clear when a fixed Material version
+ships. Informational only, no deadline.
+
+### CI/CD (shipped, needs secrets)
+`.github/workflows/release.yml` builds a signed AAB on push to main → Play internal track.
+GitHub secrets required: UPLOAD_KEYSTORE_BASE64, KEYSTORE_STORE_PASSWORD, KEYSTORE_KEY_ALIAS,
+KEYSTORE_KEY_PASSWORD, GOOGLE_SERVICES_JSON, PLAY_SERVICE_ACCOUNT_JSON (service account
+invited in Play Console with "Release to testing tracks"). CI versionCode = git commit count.

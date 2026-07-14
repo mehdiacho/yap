@@ -1,20 +1,25 @@
 package com.mehdiacho.yap.ui.screens
 
 import android.widget.Toast
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -147,36 +152,100 @@ fun SubscriptionScreen(onBack: () -> Unit) {
         }
     }
 
-    // Purchase-in-progress bottom sheet — hands off to the Play billing flow. Until the
-    // products exist in Play Console the query fails and we fall back to a toast.
+    // Purchase bottom sheet — drives from BillingManager.purchasePhase:
+    // Initiating (Play sheet up) → Verifying (server check) → tick "Purchase confirmed",
+    // or ✕ "Purchase failed" with Try again. User cancel in the Play sheet auto-dismisses.
     val purchase = purchasing
     if (purchase != null) {
         val (productId, label) = purchase
+        val billing = com.mehdiacho.yap.data.BillingManager
+        val phase by billing.purchasePhase.collectAsState()
+        fun close() { purchasing = null; billing.resetPurchasePhase() }
+
         ModalBottomSheet(
-            onDismissRequest = { purchasing = null },
+            onDismissRequest = { close() },
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
             containerColor = cs.surface,
         ) {
-            LaunchedEffect(productId) {
-                delay(600) // let the sheet settle before the Play sheet appears over it
-                val activity = context as? android.app.Activity
-                if (activity == null) { purchasing = null; return@LaunchedEffect }
-                com.mehdiacho.yap.data.BillingManager.launchPurchase(activity, productId) { msg ->
+            fun start() {
+                val activity = context as? android.app.Activity ?: return close()
+                billing.launchPurchase(activity, productId) { msg ->
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                    purchasing = null
+                    close()
                 }
             }
+            LaunchedEffect(productId) {
+                delay(600) // let the sheet settle before the Play sheet appears over it
+                start()
+            }
+            // Backing out of the Play sheet quietly closes ours; success lingers then closes.
+            LaunchedEffect(phase) {
+                when (phase) {
+                    is com.mehdiacho.yap.data.BillingManager.PurchasePhase.Cancelled -> close()
+                    is com.mehdiacho.yap.data.BillingManager.PurchasePhase.Confirmed -> { delay(1800); close() }
+                    else -> {}
+                }
+            }
+
+            val failed = phase as? com.mehdiacho.yap.data.BillingManager.PurchasePhase.Failed
+            val confirmed = phase is com.mehdiacho.yap.data.BillingManager.PurchasePhase.Confirmed
+            val verifying = phase is com.mehdiacho.yap.data.BillingManager.PurchasePhase.Verifying
             Column(
                 Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 44.dp, top = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                CircularProgressIndicator(Modifier.size(64.dp), strokeWidth = 4.dp)
+                // Spinner morphs into a tick (success) or ✕ (failure).
+                val okGreen = Color(0xFF34A853)
+                androidx.compose.animation.AnimatedContent(
+                    targetState = when { confirmed -> 1; failed != null -> 2; else -> 0 },
+                    transitionSpec = {
+                        (androidx.compose.animation.scaleIn(
+                            animationSpec = androidx.compose.animation.core.spring(
+                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy),
+                            initialScale = 0.4f,
+                        ) + androidx.compose.animation.fadeIn()) togetherWith
+                            androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))
+                    },
+                    label = "purchaseIcon",
+                ) { state ->
+                    when (state) {
+                        1 -> Box(
+                            Modifier.size(64.dp).clip(CircleShape).background(okGreen.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Default.Check, null, tint = okGreen, modifier = Modifier.size(36.dp)) }
+                        2 -> Box(
+                            Modifier.size(64.dp).clip(CircleShape).background(cs.errorContainer),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Default.Close, null, tint = cs.error, modifier = Modifier.size(34.dp)) }
+                        else -> CircularProgressIndicator(Modifier.size(64.dp), strokeWidth = 4.dp)
+                    }
+                }
                 Spacer(Modifier.height(20.dp))
-                Text("Confirming purchase…", fontFamily = Outfit, fontWeight = FontWeight.Bold,
-                    fontSize = 19.sp, color = cs.onSurface)
+                Text(
+                    when {
+                        confirmed -> "Purchase confirmed"
+                        failed != null -> "Purchase failed"
+                        verifying -> "Confirming purchase…"
+                        else -> "Initiating purchase…"
+                    },
+                    fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 19.sp, color = cs.onSurface,
+                )
                 Spacer(Modifier.height(6.dp))
-                Text("$label · via Google Play", fontSize = 13.sp, color = cs.onSurfaceVariant,
-                    textAlign = TextAlign.Center)
+                Text(
+                    failed?.message ?: "$label · via Google Play",
+                    fontSize = 13.sp, color = cs.onSurfaceVariant, textAlign = TextAlign.Center,
+                )
+                if (failed != null) {
+                    Spacer(Modifier.height(20.dp))
+                    Button(
+                        onClick = { start() },
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                    ) { Text("Try again", fontWeight = FontWeight.SemiBold) }
+                    TextButton(onClick = { close() }, modifier = Modifier.padding(top = 4.dp)) {
+                        Text("Close", fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
         }
     }

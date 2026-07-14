@@ -18,8 +18,9 @@ android {
     applicationId = "app.greenforrest.yap"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // CI (GitHub Actions) passes a monotonically increasing code; local builds use the literal.
+    versionCode = System.getenv("YAP_VERSION_CODE")?.toIntOrNull() ?: 1
+    versionName = System.getenv("YAP_VERSION_NAME") ?: "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

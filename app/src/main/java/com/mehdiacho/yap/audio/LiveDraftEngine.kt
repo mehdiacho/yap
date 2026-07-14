@@ -46,6 +46,12 @@ object LiveDraftEngine {
     @Volatile private var partial = ""
     @Volatile private var running = false
 
+    // Session generation. Back-to-back recordings overlap the previous session's delayed
+    // teardown (destroy at +4s, draft consume at +2.5s) with the new session — every delayed
+    // or callback-driven mutation checks it still belongs to the current generation.
+    @Volatile var generation = 0
+        private set
+
     // Names the recognizer tends to fumble; user-defined vocabulary joins this later.
     private val biasing = arrayListOf("Yap", "Firebase", "Kotlin", "Gaborone", "Botswana")
 
@@ -59,6 +65,11 @@ object LiveDraftEngine {
                 Log.i(TAG, "no recognition service available; draft disabled"); return
             }
             running = true
+            generation++
+            // A recognizer from the previous session may still be lingering in its 4s
+            // flush window — tear it down now so it can't interfere with this session.
+            recognizer?.let { runCatching { it.destroy() } }
+            recognizer = null
             segments = mutableListOf(); partial = ""
             _draftText.value = ""
 
@@ -83,7 +94,7 @@ object LiveDraftEngine {
 
             val r = SpeechRecognizer.createSpeechRecognizer(context)
             recognizer = r
-            r.setRecognitionListener(listener)
+            r.setRecognitionListener(makeListener(generation))
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
@@ -120,11 +131,17 @@ object LiveDraftEngine {
         running = false
         queue?.offer(ByteArray(0)) // poison pill -> writer closes pipe -> recognizer flushes
         queue = null
-        // Give the recognizer a moment to deliver final segments, then destroy.
+        // Give the recognizer a moment to deliver final segments, then destroy. Destroy the
+        // instance captured NOW — if a new session started meanwhile, `recognizer` points to
+        // its recognizer and must not be touched (that was the empty-draft bug).
+        val r = recognizer
+        val myGen = generation
         mainHandler.postDelayed({
-            recognizer?.let { runCatching { it.destroy() } }
-            recognizer = null
-            _active.value = false
+            r?.let { runCatching { it.destroy() } }
+            if (generation == myGen) {
+                recognizer = null
+                _active.value = false
+            }
         }, 4000)
     }
 
@@ -132,8 +149,11 @@ object LiveDraftEngine {
     fun currentDraft(): String =
         (segments + listOfNotNull(partial.takeIf { it.isNotBlank() })).joinToString(" ").trim()
 
-    /** Consume the draft for attaching to the finished session. */
-    fun consumeDraft(): String {
+    /** Consume the draft for attaching to the finished session. Pass the [generation] observed
+     *  when that recording finished — if a new recording has started since, this returns ""
+     *  and leaves the new session's draft untouched. */
+    fun consumeDraft(expectedGeneration: Int = generation): String {
+        if (expectedGeneration != generation) return ""
         val d = currentDraft()
         segments = mutableListOf(); partial = ""
         return d
@@ -152,7 +172,10 @@ object LiveDraftEngine {
         _active.value = false
     }
 
-    private val listener = object : RecognitionListener {
+    /** Listener bound to one session: results arriving after a newer session started are
+     *  dropped instead of appended into the new session's draft. */
+    private fun makeListener(myGen: Int) = object : RecognitionListener {
+        private val stale get() = myGen != generation
         override fun onReadyForSpeech(params: Bundle?) {}
         override fun onBeginningOfSpeech() {}
         override fun onRmsChanged(rmsdB: Float) {}
@@ -163,20 +186,23 @@ object LiveDraftEngine {
             // Keep whatever draft we have; don't disturb the recording.
         }
         override fun onResults(results: Bundle?) {
+            if (stale) return
             results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
                 ?.takeIf { it.isNotBlank() }?.let { segments.add(it.trim()); partial = ""; publish() }
         }
         override fun onPartialResults(partialResults: Bundle?) {
+            if (stale) return
             partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
                 ?.let { partial = it; publish() }
         }
         override fun onSegmentResults(segmentResults: Bundle) {
+            if (stale) return
             segmentResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
                 ?.takeIf { it.isNotBlank() }?.let { segments.add(it.trim()); partial = ""; publish() }
         }
         override fun onEndOfSegmentedSession() {
             Log.i(TAG, "segmented session ended; draft='${currentDraft().take(80)}…'")
-            publish()
+            if (!stale) publish()
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
