@@ -5,7 +5,6 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.widget.Toast
-import com.mehdiacho.yap.BuildConfig
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -164,30 +163,22 @@ fun CaptureScreen(
 
     val sessions by viewModel.allSessions.collectAsState()
 
-    // UI-level states not tracked by the recorder (IDLE/RECORDING/PAUSED). Real triggers wire
-    // permission-denied and offline; `devState` is a debug-only previewer for the rest so every
-    // design in the kit is viewable without faking production conditions.
-    val (realOffline, recheckOnline) = rememberOfflineState()
-    var devState by remember { mutableStateOf<String?>(null) }
-    val offline = realOffline || devState == "offline"
+    // UI-level states not tracked by the recorder (IDLE/RECORDING/PAUSED): permission-denied
+    // and offline are wired to their real triggers.
+    val (offline, recheckOnline) = rememberOfflineState()
     val recorderIdle = state.status == RecorderStatus.IDLE
 
     // Immersive capture states hide the bottom nav (design: no navbar on these frames).
-    val immersive = !recorderIdle || permDenied ||
-        devState == "processing" || devState == "error" || devState == "permission" || devState == "quota"
+    val immersive = !recorderIdle || permDenied
     LaunchedEffect(immersive) { CaptureChrome.immersive.value = immersive }
     DisposableEffect(Unit) { onDispose { CaptureChrome.immersive.value = false } }
 
     Box(Modifier.fillMaxSize()) {
         when {
-            recorderIdle && devState == "processing" -> ProcessingContent { devState = null }
-            recorderIdle && devState == "error" ->
-                ErrorContent(recovered = "1:02", onResume = { devState = null }, onSave = { devState = null })
-            recorderIdle && (permDenied || devState == "permission") ->
+            recorderIdle && permDenied ->
                 PermissionDeniedContent(
                     settingsRoute = permDeniedForever,
                     onGrant = {
-                        devState = null
                         if (permDeniedForever) {
                             context.startActivity(
                                 android.content.Intent(
@@ -198,12 +189,12 @@ fun CaptureScreen(
                             permDenied = false // re-checked when they come back and tap the mic
                         } else requestAndStart()
                     },
-                    onDismiss = { permDenied = false; devState = null },
+                    onDismiss = { permDenied = false },
                 )
             recorderIdle -> IdleContent(
                 lastSession = sessions.firstOrNull(),
                 offline = offline,
-                onRecheckOnline = { recheckOnline(); if (devState == "offline") devState = null },
+                onRecheckOnline = { recheckOnline() },
                 onRecord = ::requestAndStart,
                 onImport = { importLauncher.launch(arrayOf("audio/*", "video/*")) },
                 onOpenSession = onOpenSession,
@@ -235,26 +226,6 @@ fun CaptureScreen(
             )
         }
 
-        // Quota-hit is a bottom sheet over the (dimmed) idle screen — dismiss via scrim/swipe.
-        if (recorderIdle && devState == "quota") {
-            QuotaSheet(
-                onUpgrade = { devState = null },
-                onOwnKey = { devState = null },
-                onDismiss = { devState = null },
-            )
-        }
-
-        // Debug-only previewer — cycles through the capture states in the design kit so each is
-        // viewable without faking production conditions. Compiled out of release builds.
-        if (BuildConfig.DEBUG && state.status == RecorderStatus.IDLE) {
-            val states = listOf<String?>(null, "processing", "quota", "error", "permission", "offline")
-            TextButton(
-                onClick = { devState = states[(states.indexOf(devState) + 1) % states.size] },
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 6.dp, bottom = 2.dp),
-            ) {
-                Text("preview: ${devState ?: "live"}", fontSize = 10.sp, color = YapTheme.extended.subdued)
-            }
-        }
     }
 }
 
@@ -440,73 +411,6 @@ private fun relativeTime(ts: Long): String {
         mins < 60 -> "${mins}m ago"
         mins < 60 * 24 -> "${mins / 60}h ago"
         else -> "${mins / (60 * 24)}d ago"
-    }
-}
-
-/** §Capture · processing — auto_awesome disc + spinner ring, two status lines, "Keep capturing". */
-@Composable
-private fun ProcessingContent(onKeepCapturing: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally) {
-        Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center) {
-            Box(Modifier.size(108.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(108.dp).clip(CircleShape).background(cs.primaryContainer))
-                Icon(Icons.Filled.AutoAwesome, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(50.dp))
-                CircularProgressIndicator(Modifier.size(108.dp), color = cs.primary, strokeWidth = 3.dp)
-            }
-            Spacer(Modifier.height(28.dp))
-            Text("Polishing…", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = cs.onSurface)
-            Spacer(Modifier.height(8.dp))
-            Text("Transcribed on device ✓\nNow refining in the cloud.", fontSize = 15.sp, lineHeight = 22.sp,
-                color = cs.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Spacer(Modifier.height(22.dp))
-            Row(Modifier.clip(RoundedCornerShape(14.dp)).background(cs.surfaceContainer)
-                .padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Info, null, tint = cs.primary, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(10.dp))
-                Text("You can leave — this finishes in the background.", fontSize = 12.sp, color = cs.onSurfaceVariant)
-            }
-        }
-        OutlinedButton(onClick = onKeepCapturing, shape = RoundedCornerShape(50),
-            modifier = Modifier.fillMaxWidth().height(54.dp)) { Text("Keep capturing", fontWeight = FontWeight.SemiBold) }
-        Spacer(Modifier.height(38.dp))
-    }
-}
-
-/** §Capture · quota-hit — bottom sheet, hourglass, "Cloud polish paused". */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun QuotaSheet(onUpgrade: () -> Unit, onOwnKey: () -> Unit, onDismiss: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    val ext = YapTheme.extended
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(),
-        containerColor = cs.surface,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        scrimColor = Color(0x7314121E),
-    ) {
-        Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 34.dp)) {
-            Box(Modifier.size(54.dp).clip(RoundedCornerShape(16.dp)).background(ext.offlineContainer),
-                contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.HourglassEmpty, null, tint = ext.onOfflineContainer, modifier = Modifier.size(30.dp))
-            }
-            Spacer(Modifier.height(14.dp))
-            Text("Cloud polish paused", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 21.sp, color = cs.onSurface)
-            Spacer(Modifier.height(8.dp))
-            Text("You're out of cloud minutes this month. Recording and on-device drafts still work — refinement resumes when you upgrade or add your own key.",
-                fontSize = 14.sp, lineHeight = 21.sp, color = cs.onSurfaceVariant)
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = onUpgrade, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text("Upgrade to Pro", fontWeight = FontWeight.SemiBold)
-            }
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(onClick = onOwnKey, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text("Use my own key", fontWeight = FontWeight.SemiBold)
-            }
-        }
     }
 }
 

@@ -1,8 +1,10 @@
 package com.mehdiacho.yap.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -25,6 +27,8 @@ fun AuthScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val cs = MaterialTheme.colorScheme
+    // login = returning user (no policy, no checklist); !login = new account (policy + checklist).
+    var login by remember { mutableStateOf(true) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
@@ -42,43 +46,50 @@ fun AuthScreen(onBack: () -> Unit) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val edge = (maxWidth.value * 0.061f).dp.coerceIn(20.dp, 28.dp)
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = edge)) {
+        Column(
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
+                .verticalScroll(rememberScrollState()).padding(horizontal = edge),
+        ) {
             Spacer(Modifier.height(6.dp))
             Row(Modifier.height(56.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = cs.onSurface) }
             }
 
             Spacer(Modifier.height(6.dp))
-            Text("Sign in", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 24.sp,
-                letterSpacing = (-0.4).sp, color = cs.onSurface)
+            Text(if (login) "Sign in" else "Create account", fontFamily = Outfit, fontWeight = FontWeight.Bold,
+                fontSize = 24.sp, letterSpacing = (-0.4).sp, color = cs.onSurface)
             Spacer(Modifier.height(8.dp))
-            Text("Your notes and recordings back up to your account and sync across devices. " +
-                "Everything you've captured as a guest carries over.",
+            Text(
+                if (login) "Your notes and recordings back up to your account and sync across devices. " +
+                    "Everything you've captured as a guest carries over."
+                else "Set up an account so your notes sync across devices. Your guest notes carry over.",
                 fontSize = 14.sp, color = cs.onSurfaceVariant, lineHeight = 20.sp)
 
             Spacer(Modifier.height(24.dp))
             OutlinedTextField(
-                value = email, onValueChange = { email = it }, label = { Text("Email") }, singleLine = true,
-                shape = RoundedCornerShape(14.dp),
+                value = email, onValueChange = { email = it; error = null }, label = { Text("Email") }, singleLine = true,
+                isError = error != null, shape = RoundedCornerShape(14.dp),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
-                value = password, onValueChange = { password = it }, label = { Text("Password") }, singleLine = true,
-                shape = RoundedCornerShape(14.dp),
+                value = password, onValueChange = { password = it; error = null }, label = { Text("Password") },
+                singleLine = true, isError = error != null, shape = RoundedCornerShape(14.dp),
                 visualTransformation = if (showPassword) androidx.compose.ui.text.input.VisualTransformation.None
                     else PasswordVisualTransformation(),
                 trailingIcon = { PeekabooToggle(showPassword) { showPassword = !showPassword } },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
             )
+            // Requirements shown from the first keystroke, in create-account mode only.
+            if (!login) PasswordChecklist(password)
             Spacer(Modifier.height(16.dp))
             Button(
                 onClick = {
                     run {
                         val r = AuthManager.signInWithEmail(email.trim(), password)
-                        if (!r.existingAccount) {
+                        if (!login && !r.existingAccount) {
                             runCatching { AuthManager.sendEmailVerification() }
                             android.widget.Toast.makeText(context,
                                 "Verification email sent to ${email.trim()}",
@@ -86,27 +97,37 @@ fun AuthScreen(onBack: () -> Unit) {
                         }
                     }
                 },
-                enabled = !busy && email.isNotBlank() && password.length >= 6,
+                enabled = !busy && email.isNotBlank() &&
+                    (if (login) password.length >= 6 else passwordMeetsPolicy(password)),
                 shape = RoundedCornerShape(50),
                 modifier = Modifier.fillMaxWidth().height(54.dp),
-            ) { Text("Continue with email", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-            Text("New emails create an account automatically.", fontSize = 12.sp,
-                color = YapTheme.extended.subdued, modifier = Modifier.padding(top = 6.dp))
-            TextButton(
-                enabled = email.isNotBlank() && !busy,
-                onClick = {
-                    scope.launch {
-                        try {
-                            AuthManager.sendPasswordReset(email.trim())
-                            error = null
-                            android.widget.Toast.makeText(context,
-                                "Reset link sent to ${email.trim()}", android.widget.Toast.LENGTH_LONG).show()
-                        } catch (e: Exception) {
-                            error = e.message ?: "Couldn't send the reset email."
+            ) { Text(if (login) "Sign in" else "Create account", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+
+            // Mode switch — turns the same page into sign-in or sign-up so the checklist and
+            // button label always match intent (fixes the grayed-out-with-no-hint confusion).
+            TextButton(onClick = { login = !login; error = null },
+                modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text(if (login) "New here? Create an account" else "Already have an account? Sign in",
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+            if (login) {
+                TextButton(
+                    enabled = email.isNotBlank() && !busy,
+                    onClick = {
+                        scope.launch {
+                            try {
+                                AuthManager.sendPasswordReset(email.trim())
+                                error = null
+                                android.widget.Toast.makeText(context,
+                                    "Reset link sent to ${email.trim()}", android.widget.Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                error = e.message ?: "Couldn't send the reset email."
+                            }
                         }
-                    }
-                },
-            ) { Text("Forgot password?", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                    },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) { Text("Forgot password?", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+            }
 
             if (busy) {
                 Spacer(Modifier.height(20.dp))
@@ -119,6 +140,7 @@ fun AuthScreen(onBack: () -> Unit) {
 
             // Docked-bottom: Google (animated gradient) above the guest link (§3.10).
             Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(20.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 HorizontalDivider(Modifier.weight(1f), color = cs.outlineVariant)
                 Text("  or  ", color = YapTheme.extended.subdued, fontSize = 13.sp)

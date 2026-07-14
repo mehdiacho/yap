@@ -124,18 +124,27 @@ fun GoogleGradientButton(
     onClick: () -> Unit,
 ) {
     val t = rememberInfiniteTransition(label = "gg")
+    // River flow: the gradient tile drifts steadily leftward by exactly one period, then loops.
+    // TileMode.Repeated tiles the palette infinitely so colors keep entering from the right and
+    // exiting left; first == last color makes the wrap seamless (no bounce, no solid-color edge).
     val shift by t.animateFloat(
-        0f, 1f, infiniteRepeatable(tween(3600, easing = LinearEasing)), label = "ggShift")
-    // Drift the gradient anchor diagonally back and forth; mirrored color list = seamless loop.
+        0f, 1f, infiniteRepeatable(tween(7200, easing = LinearEasing)), label = "ggShift")
     val colors = listOf(GoogleBlue, GoogleRed, GoogleYellow, GoogleGreen, GoogleBlue)
-    val span = 1400f
-    val off = span * (if (shift < 0.5f) shift * 2 else (1f - shift) * 2)
+    val span = 900f
+    val off = -shift * span
     Box(
         modifier
             .fillMaxWidth()
             .height(56.dp)
             .clip(RoundedCornerShape(50))
-            .background(Brush.linearGradient(colors, start = Offset(off, 0f), end = Offset(off + span, span / 2)))
+            .background(
+                Brush.linearGradient(
+                    colors,
+                    start = Offset(off, 0f),
+                    end = Offset(off + span, 0f),
+                    tileMode = androidx.compose.ui.graphics.TileMode.Repeated,
+                )
+            )
             .clickable(enabled = !busy) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
