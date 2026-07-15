@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<!--
+  PRIVACY POLICY TEMPLATE. Instantiate:
+    1. Replace every {{PLACEHOLDER}}.
+    2. Keep only the "Data we collect" / "How processing works" / "Your controls" bullets that
+       apply to THIS app. The ones below are a superset from a voice-notes app — delete what you
+       don't do (audio, on-device mode, BYOK, etc.) and add anything this app does.
+    3. Host it (Firebase Hosting: put in the hosting `public` dir), then use its URL in Play
+       Console → Privacy policy AND Data safety.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{APP_NAME}} — Privacy Policy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { max-width: 720px; margin: 0 auto; padding: 40px 20px 80px;
+         font: 16px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif; color: #1B1B21; background: #FCFBFF; }
+  @media (prefers-color-scheme: dark) { body { color: #E5E1E9; background: #131318; } }
+  h1 { font-size: 28px; letter-spacing: -0.02em; }
+  h2 { font-size: 19px; margin-top: 36px; }
+  .muted { opacity: 0.7; font-size: 14px; }
+  a { color: #5B5BD6; } @media (prefers-color-scheme: dark) { a { color: #C5C0FF; } }
+  ul { padding-left: 22px; }
+</style>
+</head>
+<body>
+<h1>{{APP_NAME}} — Privacy Policy</h1>
+<p class="muted">Effective: {{EFFECTIVE_DATE}} · Applies to the {{APP_NAME}} Android app (package <code>{{PACKAGE}}</code>)</p>
+
+<p>{{APP_NAME}} is <!-- one-line description of what the app does -->. This policy explains what
+data the app handles, why, and the control you have over it. The short version: <b>your data is
+yours</b> — we process it only to provide the features you use, we don't sell data, and we don't
+show ads.</p>
+
+<h2>Data we collect and why</h2>
+<ul>
+  <!-- KEEP ONLY WHAT APPLIES -->
+  <li><b>Account information.</b> If you sign in: your email address, name, and profile photo from
+  your Google account, or the email address you register with. Guest use is supported — a random
+  anonymous ID is used instead.</li>
+  <li><b>Your content.</b> The data you create in the app (<!-- notes / entries / lists / etc. -->),
+  stored in your private cloud database area and on your device.</li>
+  <li><b>Voice recordings (microphone).</b> Created only when you start a recording. <!-- delete if
+  no audio --></li>
+  <li><b>Usage metering.</b> Counters kept to enforce plan quotas.</li>
+  <li><b>Purchase state.</b> If you buy a subscription or unlock, Google Play processes the payment;
+  we receive and store only a purchase token and the entitlement it grants — never your payment
+  details.</li>
+</ul>
+
+<h2>How processing works</h2>
+<ul>
+  <li><b>Storage and sync.</b> Data lives in Google Firebase (Firestore and Cloud Storage) in a
+  per-user area only your signed-in account can access, in the <code>{{REGION}}</code> region.
+  Data is encrypted in transit.</li>
+  <li><b>Cloud processing.</b> <!-- If you call an AI/3rd-party API via your backend, say so: -->
+  Certain features send data to our backend (Google Cloud Functions), which calls
+  <!-- e.g. Google's Gemini API --> as a service provider to process it; it is not used to identify
+  you.</li>
+  <!-- <li><b>Bring-your-own-key.</b> If you use your own AI provider key, it is stored only on your
+  device and sent per-request; we never store it on our servers.</li> -->
+</ul>
+
+<h2>What we don't do</h2>
+<ul>
+  <li>No selling of personal data. No advertising, and no third-party advertising SDKs.</li>
+  <li>No access to your contacts, location, photos, or messages. <!-- adjust to reality --></li>
+</ul>
+
+<h2>Your controls</h2>
+<ul>
+  <li><b>Export.</b> <!-- where, if supported --></li>
+  <li><b>Delete your data / account.</b> You can permanently remove your content and account from
+  our servers in-app; see <a href="/delete-account.html">the deletion page</a>.</li>
+</ul>
+
+<h2>Retention</h2>
+<p>Your content is retained until you delete it or delete your account. <!-- add any purge windows,
+e.g. trashed items purged after 30 days --></p>
+
+<h2>Children</h2>
+<p>{{APP_NAME}} is not directed at children under 13, and we do not knowingly collect data from them.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes materially, the app will point to the updated version at this URL, with
+the effective date above revised.</p>
+
+<h2>Contact</h2>
+<p>Questions or requests: <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a></p>
+</body>
+</html>

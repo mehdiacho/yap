@@ -1,0 +1,95 @@
+# Build a signed AAB and upload it to a Google Play track. The track is chosen
+# by the branch that was pushed:
+#
+#   main             -> production   (status: draft — promote by hand in console)
+#   open-testing     -> beta         (open testing)
+#   closed-testing   -> alpha        (closed testing)
+#   internal-testing -> internal     (internal testing)
+#
+# INSTANTIATE: replace {{PACKAGE}} below. Set the 6 secrets (see this folder's CLAUDE.md).
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   UPLOAD_KEYSTORE_BASE64     base64 of upload-keystore.jks
+#   KEYSTORE_STORE_PASSWORD    keystore password
+#   KEYSTORE_KEY_ALIAS         "upload"
+#   KEYSTORE_KEY_PASSWORD      key password
+#   GOOGLE_SERVICES_JSON       contents of app/google-services.json (it's git-ignored)
+#   PLAY_SERVICE_ACCOUNT_JSON  JSON key of a GCP service account invited in
+#                              Play Console -> Users & permissions with the
+#                              relevant release permission. NOTE: the Google Play
+#                              Android Developer API (androidpublisher.googleapis.com)
+#                              must be enabled in that account's GCP project.
+name: Release to Play
+
+on:
+  push:
+    branches: [main, open-testing, closed-testing, internal-testing]
+  workflow_dispatch: {}
+
+# One track at a time per branch; different tracks never block each other.
+concurrency:
+  group: play-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 gives full history so `git rev-list --count HEAD`
+      # produces a real, monotonic versionCode (a shallow clone returns 1).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Map the pushed branch to a Play track + rollout status.
+      - name: Select Play track
+        id: play
+        run: |
+          case "$GITHUB_REF_NAME" in
+            main)             track=production; status=draft ;;
+            open-testing)     track=beta;       status=completed ;;
+            closed-testing)   track=alpha;      status=completed ;;
+            internal-testing) track=internal;   status=completed ;;
+            *) echo "::error::No Play track mapping for branch '$GITHUB_REF_NAME'"; exit 1 ;;
+          esac
+          echo "track=$track"   >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "Deploying '$GITHUB_REF_NAME' -> Play '$track' track (status=$status)"
+
+      - name: Restore keystore + Firebase config
+        run: |
+          echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > upload-keystore.jks
+          echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+
+      # versionCode must be unique and increasing per upload — derive it from
+      # the commit count (requires the full history fetched above). The Gradle
+      # signing snippet reads APP_VERSION_CODE from the environment.
+      - name: Compute versionCode
+        run: echo "APP_VERSION_CODE=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+
+      - name: Build AAB
+        run: ./gradlew bundleRelease
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/upload-keystore.jks
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+
+      - name: Upload to Play (${{ steps.play.outputs.track }})
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: {{PACKAGE}}
+          releaseFiles: app/build/outputs/bundle/release/app-release.aab
+          track: ${{ steps.play.outputs.track }}
+          status: ${{ steps.play.outputs.status }}

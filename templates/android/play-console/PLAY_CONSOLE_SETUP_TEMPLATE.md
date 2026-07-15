@@ -55,9 +55,9 @@ time); **product IDs are immutable and must be lowercase** letters/numbers/under
 ## 1 · Privacy policy
 **Where:** Policy → App content → Privacy policy.
 **Reusable:** host a static page (Firebase Hosting works: `https://<project>.web.app/privacy.html`).
-A template privacy page + delete-account page are in this repo under `admin/` — copy, swap the
-app name/package/region, redeploy. Must state: what's collected & why, that Google Play handles
-payments (you store only a purchase token), retention, deletion, contact email.
+Template pages sit next to this file — `privacy.template.html` and `delete-account.template.html`:
+copy, replace the `{{PLACEHOLDERS}}`, redeploy. Must state: what's collected & why, that Google
+Play handles payments (you store only a purchase token), retention, deletion, contact email.
 **PER APP:** `privacy URL = ________`
 
 ## 2 · App access (sign-in details)
