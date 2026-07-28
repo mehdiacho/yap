@@ -15,6 +15,7 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.WorkspacePremium
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,6 +44,7 @@ fun SettingsScreen(
     onOpenAppearance: () -> Unit = {},
     onOpenTranscription: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
+    onOpenRescue: () -> Unit = {},
 ) {
     val user by AuthManager.authState().collectAsState(initial = AuthManager.currentUser)
     val signedIn = user != null && user?.isAnonymous == false
@@ -94,6 +96,7 @@ fun SettingsScreen(
             MainRow(Icons.Outlined.GraphicEq, "Transcription", onClick = onOpenTranscription)
             MainRow(Icons.Outlined.Key, "API key (BYOK)", locked = true, onClick = onOpenByok)
             MainRow(Icons.Outlined.Mic, "Capture", onClick = onOpenCapture)
+            MainRow(Icons.Outlined.Restore, "Recover recordings", onClick = onOpenRescue)
 
             // PRIVACY
             MainEyebrow("PRIVACY")

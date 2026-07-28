@@ -56,7 +56,7 @@ import kotlinx.coroutines.launch
 
 /** Shared scaffold: §2.8 app bar (back + Outfit 21sp title) over a scrolling body. */
 @Composable
-private fun SettingsSubScaffold(
+internal fun SettingsSubScaffold(
     title: String,
     onBack: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
