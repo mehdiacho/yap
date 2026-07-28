@@ -18,6 +18,32 @@ const INLINE_MAX_BYTES = 12 * 1024 * 1024;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Gemini accepts a fixed set of audio MIME types. Pickers and content resolvers hand us
+ * common aliases instead — Android's SAF reported `audio/x-wav` for a plain WAV — and an
+ * unrecognised type is rejected outright. Normalising here fixes every caller at once,
+ * which matters because the alternative is a store release per client.
+ */
+const MIME_ALIASES: Record<string, string> = {
+  "audio/x-wav": "audio/wav",
+  "audio/wave": "audio/wav",
+  "audio/vnd.wave": "audio/wav",
+  "audio/x-pn-wav": "audio/wav",
+  "audio/x-aiff": "audio/aiff",
+  "audio/x-flac": "audio/flac",
+  "audio/mpeg3": "audio/mp3",
+  "audio/x-mpeg-3": "audio/mp3",
+  "audio/mpeg": "audio/mp3",
+  "audio/x-m4a": "audio/mp4",
+  "audio/m4a": "audio/mp4",
+  "audio/opus": "audio/ogg",
+};
+
+export function normalizeAudioMime(mimeType: string): string {
+  const base = (mimeType || "").split(";")[0].trim().toLowerCase();
+  return MIME_ALIASES[base] ?? base ?? "audio/wav";
+}
+
+/**
  * Build the audio part for a request: inline for small clips, Files API for the rest.
  *
  * Returns the part plus an optional cleanup handle. Uploaded files expire on their own
@@ -28,6 +54,7 @@ async function audioPart(
   audio: Buffer,
   mimeType: string
 ): Promise<{ part: Part; cleanup: () => Promise<void> }> {
+  mimeType = normalizeAudioMime(mimeType);
   if (audio.length <= INLINE_MAX_BYTES) {
     return {
       part: { inlineData: { mimeType, data: audio.toString("base64") } },

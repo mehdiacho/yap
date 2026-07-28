@@ -302,7 +302,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         try {
-            val r = TranscriptionClient.transcribe(File(audioPath), mimeType, durationMs)
+            val r = TranscriptionClient.transcribe(
+                File(audioPath), mimeType, durationMs, sessionId = session.id
+            )
             val title = r.name.ifBlank { "Recording" }
             repository.upsert(
                 session.copy(
@@ -319,6 +321,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
         } catch (e: Exception) {
             Log.e("Yap", "transcription failed for $audioPath ($mimeType): ${e.message}", e)
+            if (isClientGaveUp(e)) {
+                // Leave it TRANSCRIBING: the server finishes and writes the note itself,
+                // and the Firestore listener will surface it.
+                _notice.value = "Still transcribing — this one's long. It'll appear shortly."
+                return
+            }
             val quotaHit = (e as? com.google.firebase.functions.FirebaseFunctionsException)?.code ==
                 com.google.firebase.functions.FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED
             repository.upsert(
@@ -399,6 +407,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * True when the call merely stopped waiting — the function keeps running server-side
+     * and writes the transcript onto the note itself (see the sessionId path in
+     * transcribeSession). Marking the note FAILED here is what previously discarded a
+     * finished 31-minute transcription.
+     */
+    private fun isClientGaveUp(e: Exception): Boolean {
+        val code = (e as? com.google.firebase.functions.FirebaseFunctionsException)?.code
+        return code == com.google.firebase.functions.FirebaseFunctionsException.Code.DEADLINE_EXCEEDED ||
+            code == com.google.firebase.functions.FirebaseFunctionsException.Code.CANCELLED
+    }
+
+    /**
      * "Try again" on a note whose transcription failed.
      *
      * A FAILED note used to be a dead end: the audio was intact but there was no way to
@@ -419,10 +439,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val r = if (session.storagePath != null) {
                     TranscriptionClient.transcribeExisting(
-                        session.storagePath, "audio/wav", session.durationMs
+                        session.storagePath, "audio/wav", session.durationMs, session.id
                     )
                 } else {
-                    TranscriptionClient.transcribe(localFile!!, "audio/wav", session.durationMs)
+                    TranscriptionClient.transcribe(
+                        localFile!!, "audio/wav", session.durationMs, sessionId = session.id
+                    )
                 }
                 val title = r.name.ifBlank { session.title.ifBlank { "Recording" } }
                 repository.upsert(
@@ -439,6 +461,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
             } catch (e: Exception) {
                 Log.e("Yap", "retry failed for ${session.id}: ${e.message}", e)
+                if (isClientGaveUp(e)) {
+                    _notice.value = "Still transcribing — this one's long. It'll appear shortly."
+                    return@launch
+                }
                 val quotaHit = (e as? com.google.firebase.functions.FirebaseFunctionsException)?.code ==
                     com.google.firebase.functions.FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED
                 // Restore the failed state rather than leaving it spinning forever.
