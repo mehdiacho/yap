@@ -108,19 +108,80 @@ export const transcribeSession = onCall(
         ? wavExactSec
         : Math.max(claimedSec, audio.length / 32000);
     const quotaSec = Math.ceil(Math.max(1, Math.min(seconds, 3 * 3600)));
-    const entitlement = await getEntitlement(request.auth.uid);
-    await checkAndRecordUsage(request.auth.uid, quotaSec, capForPlan(entitlement.plan));
 
-    console.log(`transcribeSession: mimeType=${mimeType} bytes=${audio.length} sec=${quotaSec}`);
+    // Optional: when the client tells us which note this is for, Firestore becomes the
+    // authoritative result channel (docs/API_CONTRACT.md). The callable response is then
+    // only a convenience — if the caller has already hung up (the client SDK gives up
+    // after 70s by default, and long audio blows straight past that), the work still
+    // lands. Without a sessionId we keep the old response-only behaviour so clients
+    // already in the field are unaffected.
+    //
+    // Resolved BEFORE the quota check so a quota rejection can be recorded on the note
+    // too — otherwise it would sit on TRANSCRIBING forever.
+    const sessionId: string | null =
+      typeof data.sessionId === "string" && data.sessionId ? data.sessionId : null;
+    const sessionRef = sessionId
+      ? admin.firestore().collection("users").doc(request.auth.uid)
+          .collection("sessions").doc(sessionId)
+      : null;
+
+    const entitlement = await getEntitlement(request.auth.uid);
     try {
-      return await transcribeAndFormalize(audio, mimeType, GEMINI_API_KEY.value());
+      await checkAndRecordUsage(request.auth.uid, quotaSec, capForPlan(entitlement.plan));
+    } catch (e) {
+      if (sessionRef) {
+        await sessionRef
+          .set({ status: "QUOTA", title: "Monthly limit reached" }, { merge: true })
+          .catch((writeErr) =>
+            console.error("could not mark session QUOTA", { sessionId, writeErr })
+          );
+      }
+      throw e;
+    }
+
+    console.log(
+      `transcribeSession: mimeType=${mimeType} bytes=${audio.length} sec=${quotaSec}` +
+        (sessionId ? ` session=${sessionId}` : " (no session; response-only)")
+    );
+
+    try {
+      const result = await transcribeAndFormalize(audio, mimeType, GEMINI_API_KEY.value());
+
+      if (sessionRef) {
+        // merge:true so we never clobber fields the client owns (pinned, trashedAt,
+        // bookmarks, extraRecordings) if it edited the note while we were working.
+        await sessionRef.set(
+          {
+            title: result.name || "Recording",
+            draftText: result.rawText,
+            formattedText: result.formattedText,
+            category: result.category || "Memo",
+            topicCluster: result.topicCluster || "General",
+            storagePath: data.storagePath ?? null,
+            status: "DONE",
+          },
+          { merge: true }
+        );
+        console.log(`transcribeSession: wrote result to session ${sessionId}`);
+      }
+      return result;
     } catch (e: any) {
       console.error("transcribeSession failed", {
         mimeType,
         bytes: audio.length,
+        sessionId,
         message: e?.message,
         stack: e?.stack,
       });
+      // Record the failure on the note too, so a disconnected client doesn't leave it
+      // spinning on TRANSCRIBING forever.
+      if (sessionRef) {
+        await sessionRef
+          .set({ status: "FAILED" }, { merge: true })
+          .catch((writeErr) =>
+            console.error("could not mark session FAILED", { sessionId, writeErr })
+          );
+      }
       throw new HttpsError("internal", `Transcription failed: ${e?.message ?? "unknown"}`);
     }
   }

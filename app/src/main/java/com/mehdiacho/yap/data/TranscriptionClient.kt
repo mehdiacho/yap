@@ -9,6 +9,7 @@ import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -56,10 +57,28 @@ object TranscriptionClient {
         return path
     }
 
+    /**
+     * The callable SDK gives up after 70s by default. Long audio blows straight past
+     * that: a 31-minute recording had the client disconnect at 66s and mark the note
+     * FAILED while the server was still transcribing, discarding the result.
+     *
+     * Raised to match the function's own 540s budget. Belt-and-braces with the Firestore
+     * result channel: when a sessionId is supplied the server writes the transcript onto
+     * the note itself, so even a disconnect no longer loses the work.
+     */
+    private const val CALL_TIMEOUT_SEC = 540L
+
+    /** Ceiling on the inline-base64 fallback; see the guard in [transcribe]. */
+    private const val MAX_INLINE_BYTES = 8L * 1024 * 1024
+
+    private fun callable(name: String) =
+        functions.getHttpsCallable(name).withTimeout(CALL_TIMEOUT_SEC, TimeUnit.SECONDS)
+
     suspend fun transcribe(
         file: File,
         mimeType: String = "audio/wav",
         durationMs: Long = 0L,
+        sessionId: String? = null,
     ): TranscriptionResult {
         ensureSignedIn()
         // Preferred: upload to Cloud Storage, pass the path (no inline size ceiling).
@@ -69,11 +88,19 @@ object TranscriptionClient {
             uploadedPath = uploadAudio(file)
             hashMapOf("storagePath" to uploadedPath, "mimeType" to mimeType, "durationMs" to durationMs)
         } catch (e: Exception) {
+            // Inline is a fallback for SMALL clips only. Base64-ing a large file here means
+            // the byte array AND a ~4/3 string on the app heap — a 60 MB recording would
+            // OOM the app trying to report that an upload failed.
+            require(file.length() <= MAX_INLINE_BYTES) {
+                "Couldn't upload that recording, and it's too large to send directly. " +
+                    "Check your connection and try again."
+            }
             Log.w("Yap", "storage upload failed, falling back to inline: ${e.message}")
             val b64 = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
             hashMapOf("audioBase64" to b64, "mimeType" to mimeType, "durationMs" to durationMs)
         }
-        val result = awaitTask(functions.getHttpsCallable("transcribeSession").call(payload))
+        sessionId?.let { payload["sessionId"] = it }
+        val result = awaitTask(callable("transcribeSession").call(payload))
         return parseTranscription(result.getData(), uploadedPath)
     }
 
@@ -87,11 +114,13 @@ object TranscriptionClient {
         storagePath: String,
         mimeType: String = "audio/wav",
         durationMs: Long = 0L,
+        sessionId: String? = null,
     ): TranscriptionResult {
         ensureSignedIn()
         val payload: HashMap<String, Any> =
             hashMapOf("storagePath" to storagePath, "mimeType" to mimeType, "durationMs" to durationMs)
-        val result = awaitTask(functions.getHttpsCallable("transcribeSession").call(payload))
+        sessionId?.let { payload["sessionId"] = it }
+        val result = awaitTask(callable("transcribeSession").call(payload))
         return parseTranscription(result.getData(), storagePath)
     }
 
