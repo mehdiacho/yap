@@ -1,7 +1,69 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { createPartFromUri, FileState, GoogleGenAI, Part, Type } from "@google/genai";
 
 // Swap here if you prefer a different tier (e.g. gemini-2.5-pro for accuracy).
 const MODEL = "gemini-2.5-flash";
+
+/**
+ * Above this, audio goes through the Files API instead of being inlined.
+ *
+ * Inline data is base64, which inflates by 4/3, and the Gemini API caps TOTAL request
+ * size at ~20 MB. 12 MB of audio -> ~16 MB base64, which leaves headroom for the prompt.
+ * Past that the request is rejected outright, no matter how much memory the function has.
+ *
+ * At our canonical 16 kHz mono 16-bit WAV (32 KB/s) this is ~6 minutes. Short clips —
+ * the common case — stay inline and skip the upload + processing round-trip.
+ */
+const INLINE_MAX_BYTES = 12 * 1024 * 1024;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Build the audio part for a request: inline for small clips, Files API for the rest.
+ *
+ * Returns the part plus an optional cleanup handle. Uploaded files expire on their own
+ * after 48h, but deleting them keeps the project tidy and avoids quota creep.
+ */
+async function audioPart(
+  ai: GoogleGenAI,
+  audio: Buffer,
+  mimeType: string
+): Promise<{ part: Part; cleanup: () => Promise<void> }> {
+  if (audio.length <= INLINE_MAX_BYTES) {
+    return {
+      part: { inlineData: { mimeType, data: audio.toString("base64") } },
+      cleanup: async () => {},
+    };
+  }
+
+  // Uint8Array view avoids a second full copy of the payload when wrapping in a Blob.
+  const blob = new Blob([new Uint8Array(audio)], { type: mimeType });
+  let file = await ai.files.upload({ file: blob, config: { mimeType } });
+
+  // Audio is processed server-side before it can be referenced; poll until it's ACTIVE.
+  const deadline = Date.now() + 120_000;
+  while (file.state === FileState.PROCESSING) {
+    if (Date.now() > deadline) {
+      throw new Error(`Gemini file processing timed out after 120s (${file.name})`);
+    }
+    await sleep(2000);
+    file = await ai.files.get({ name: file.name! });
+  }
+  if (file.state === FileState.FAILED || !file.uri) {
+    throw new Error(`Gemini file processing failed (${file.name}): ${file.state}`);
+  }
+
+  const name = file.name!;
+  return {
+    part: createPartFromUri(file.uri, file.mimeType || mimeType),
+    cleanup: async () => {
+      try {
+        await ai.files.delete({ name });
+      } catch {
+        // Non-fatal: the file expires by itself in 48h.
+      }
+    },
+  };
+}
 
 export interface TranscriptionResult {
   rawText: string;
@@ -25,23 +87,28 @@ export async function transcribeAndFormalize(
   apiKey: string
 ): Promise<TranscriptionResult> {
   const ai = new GoogleGenAI({ apiKey });
-  const base64 = audio.toString("base64");
+  const { part, cleanup } = await audioPart(ai, audio, mimeType);
 
   // 1) Transcription
-  const transcription = await ai.models.generateContent({
-    model: MODEL,
-    contents: {
-      parts: [
-        { inlineData: { mimeType, data: base64 } },
-        {
-          text:
-            "Precisely transcribe this audio. Return only the transcription text. " +
-            "No metadata, no speaker labels, just the words spoken.",
-        },
-      ],
-    },
-  });
-  const rawText = (transcription.text || "").trim();
+  let rawText: string;
+  try {
+    const transcription = await ai.models.generateContent({
+      model: MODEL,
+      contents: {
+        parts: [
+          part,
+          {
+            text:
+              "Precisely transcribe this audio. Return only the transcription text. " +
+              "No metadata, no speaker labels, just the words spoken.",
+          },
+        ],
+      },
+    });
+    rawText = (transcription.text || "").trim();
+  } finally {
+    await cleanup();
+  }
   if (!rawText) {
     return {
       rawText: "",
@@ -72,22 +139,27 @@ export async function transcribeAndAppend(
   apiKey: string
 ): Promise<{ rawText: string; formattedText: string; name: string }> {
   const ai = new GoogleGenAI({ apiKey });
-  const base64 = audio.toString("base64");
+  const { part, cleanup } = await audioPart(ai, audio, mimeType);
 
-  const transcription = await ai.models.generateContent({
-    model: MODEL,
-    contents: {
-      parts: [
-        { inlineData: { mimeType, data: base64 } },
-        {
-          text:
-            "Precisely transcribe this audio. Return only the transcription text. " +
-            "No metadata, no speaker labels, just the words spoken.",
-        },
-      ],
-    },
-  });
-  const rawText = (transcription.text || "").trim();
+  let rawText: string;
+  try {
+    const transcription = await ai.models.generateContent({
+      model: MODEL,
+      contents: {
+        parts: [
+          part,
+          {
+            text:
+              "Precisely transcribe this audio. Return only the transcription text. " +
+              "No metadata, no speaker labels, just the words spoken.",
+          },
+        ],
+      },
+    });
+    rawText = (transcription.text || "").trim();
+  } finally {
+    await cleanup();
+  }
   if (!rawText) {
     return { rawText: "", formattedText: existingFormatted, name: existingTitle };
   }

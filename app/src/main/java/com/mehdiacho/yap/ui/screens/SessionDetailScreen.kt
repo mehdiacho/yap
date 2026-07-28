@@ -349,6 +349,29 @@ fun SessionDetailScreen(
                         }
                     }
                 }
+                // A failed transcription used to render as a flat "No transcription
+                // available." with no way forward — the audio was fine, but the note was
+                // permanently empty. Offer the retry instead.
+                currentSession.status == "FAILED" -> {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                            .background(cs.errorContainer).padding(16.dp)
+                    ) {
+                        Text("Transcription didn't finish", fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp, color = cs.onErrorContainer)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Your recording is safe — only the transcription failed. " +
+                                "This is usually temporary.",
+                            fontSize = 13.sp, lineHeight = 18.sp, color = cs.onErrorContainer,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = { viewModel.retryTranscription(currentSession) },
+                            shape = RoundedCornerShape(50),
+                        ) { Text("Try again") }
+                    }
+                }
                 content.isBlank() -> Text("No transcription available.", fontSize = 15.sp, color = cs.onSurfaceVariant)
                 reviewBlocks != null && reviewFlags.isNotEmpty() -> {
                     // Smart Review results — flagged blocks get the amber card with Keep/Fix.

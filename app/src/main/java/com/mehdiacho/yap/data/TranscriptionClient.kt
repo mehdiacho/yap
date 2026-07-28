@@ -74,9 +74,30 @@ object TranscriptionClient {
             hashMapOf("audioBase64" to b64, "mimeType" to mimeType, "durationMs" to durationMs)
         }
         val result = awaitTask(functions.getHttpsCallable("transcribeSession").call(payload))
+        return parseTranscription(result.getData(), uploadedPath)
+    }
 
+    /**
+     * Re-run transcription on audio already in Cloud Storage — used by "Try again" on a
+     * failed note. Skips the upload entirely: the bytes are already there, and a failure
+     * is usually server-side (an OOM on a long recording, a transient model error), so
+     * re-sending tens of megabytes to retry would be pure waste.
+     */
+    suspend fun transcribeExisting(
+        storagePath: String,
+        mimeType: String = "audio/wav",
+        durationMs: Long = 0L,
+    ): TranscriptionResult {
+        ensureSignedIn()
+        val payload: HashMap<String, Any> =
+            hashMapOf("storagePath" to storagePath, "mimeType" to mimeType, "durationMs" to durationMs)
+        val result = awaitTask(functions.getHttpsCallable("transcribeSession").call(payload))
+        return parseTranscription(result.getData(), storagePath)
+    }
+
+    private fun parseTranscription(data: Any?, storagePath: String?): TranscriptionResult {
         @Suppress("UNCHECKED_CAST")
-        val map = result.getData() as? Map<String, Any?> ?: emptyMap()
+        val map = data as? Map<String, Any?> ?: emptyMap()
         return TranscriptionResult(
             rawText = map["rawText"] as? String ?: "",
             name = map["name"] as? String ?: "Recording",
@@ -85,7 +106,7 @@ object TranscriptionClient {
             category = map["category"] as? String ?: "Memo",
             topicCluster = map["topicCluster"] as? String ?: "General",
             formattedText = map["formattedText"] as? String ?: "",
-            storagePath = uploadedPath,
+            storagePath = storagePath,
         )
     }
 

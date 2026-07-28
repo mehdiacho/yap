@@ -64,7 +64,16 @@ async function checkAndRecordUsage(uid: string, seconds: number, capSeconds: num
  * attestation + per-user quota enforcement are layered in later.
  */
 export const transcribeSession = onCall(
-  { region: "africa-south1", secrets: [GEMINI_API_KEY], timeoutSeconds: 300, memory: "512MiB" },
+  {
+    region: "africa-south1",
+    secrets: [GEMINI_API_KEY],
+    timeoutSeconds: 540,
+    // 512MiB OOM'd on a 31-min recording: the downloaded Buffer plus its base64
+    // copy hit 627MiB before transcription even started. Audio is no longer
+    // base64'd for large files (see gemini.ts audioPart), but the whole clip is
+    // still held in memory, so give it real headroom.
+    memory: "1GiB",
+  },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Sign-in required.");
@@ -126,7 +135,16 @@ export const transcribeSession = onCall(
  * Response: { rawText, formattedText, name }
  */
 export const appendToSession = onCall(
-  { region: "africa-south1", secrets: [GEMINI_API_KEY], timeoutSeconds: 300, memory: "512MiB" },
+  {
+    region: "africa-south1",
+    secrets: [GEMINI_API_KEY],
+    timeoutSeconds: 540,
+    // 512MiB OOM'd on a 31-min recording: the downloaded Buffer plus its base64
+    // copy hit 627MiB before transcription even started. Audio is no longer
+    // base64'd for large files (see gemini.ts audioPart), but the whole clip is
+    // still held in memory, so give it real headroom.
+    memory: "1GiB",
+  },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
     const data = request.data ?? {};

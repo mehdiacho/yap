@@ -398,6 +398,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * "Try again" on a note whose transcription failed.
+     *
+     * A FAILED note used to be a dead end: the audio was intact but there was no way to
+     * re-run it, so a server-side hiccup permanently cost you the note's text. Prefers the
+     * cloud copy (no re-upload) and falls back to the local file.
+     */
+    fun retryTranscription(session: Session) {
+        viewModelScope.launch {
+            val localFile = session.audioPath?.let { File(it) }?.takeIf { it.exists() }
+            if (session.storagePath == null && localFile == null) {
+                _notice.value = "That recording's audio isn't available on this device."
+                return@launch
+            }
+
+            runCatching {
+                repository.upsert(session.copy(status = "TRANSCRIBING", title = "Transcribing…"))
+            }
+            try {
+                val r = if (session.storagePath != null) {
+                    TranscriptionClient.transcribeExisting(
+                        session.storagePath, "audio/wav", session.durationMs
+                    )
+                } else {
+                    TranscriptionClient.transcribe(localFile!!, "audio/wav", session.durationMs)
+                }
+                val title = r.name.ifBlank { session.title.ifBlank { "Recording" } }
+                repository.upsert(
+                    session.copy(
+                        title = title,
+                        draftText = r.rawText,
+                        formattedText = r.formattedText,
+                        category = r.category.ifBlank { session.category },
+                        topicCluster = r.topicCluster.ifBlank { session.topicCluster },
+                        storagePath = r.storagePath ?: session.storagePath,
+                        status = "DONE",
+                    )
+                )
+                com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
+            } catch (e: Exception) {
+                Log.e("Yap", "retry failed for ${session.id}: ${e.message}", e)
+                val quotaHit = (e as? com.google.firebase.functions.FirebaseFunctionsException)?.code ==
+                    com.google.firebase.functions.FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED
+                // Restore the failed state rather than leaving it spinning forever.
+                repository.upsert(
+                    session.copy(status = if (quotaHit) "QUOTA" else "FAILED")
+                )
+                _notice.value = if (quotaHit) "Monthly limit reached."
+                else "Still couldn't transcribe that: ${e.message ?: "unknown error"}"
+            }
+        }
+    }
+
     /** "Polish now" — cloud-formalize a draft-only note's existing text (no audio round-trip). */
     fun polishSession(session: Session) {
         viewModelScope.launch {
