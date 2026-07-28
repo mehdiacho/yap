@@ -38,10 +38,20 @@ export default function Capture({
   const runImport = useCallback(
     async (file: File) => {
       setError(null);
+      let moved = false;
       try {
-        await importAudioFile(user.uid, file, setProgress);
+        await importAudioFile(user.uid, file, (p) => {
+          setProgress(p);
+          // Once the upload lands, the note exists and the server owns the rest — it
+          // writes the transcript straight to Firestore. Move to the Library so the
+          // live status is visible instead of pinning the user to a spinner that may
+          // have minutes left to run.
+          if (p.stage === "transcribing" && !moved) {
+            moved = true;
+            onGoLibrary();
+          }
+        });
         setProgress(null);
-        onGoLibrary();
       } catch (e) {
         setError((e as Error).message);
         setProgress(null);

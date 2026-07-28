@@ -1,4 +1,4 @@
-import { doc, setDoc, updateDoc } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { ref, uploadBytesResumable } from "firebase/storage";
 import { db, functions, storage } from "../lib/firebase";
@@ -133,41 +133,42 @@ export async function importAudioFile(
 
     onProgress({ stage: "transcribing" });
     /*
-     * The callable client defaults to a 70-SECOND timeout, which is nowhere near enough
-     * for long audio — a 31-minute recording had the phone hang up at 66s and mark the
-     * note FAILED while the server was still working, throwing the result away. Match the
-     * function's own 540s budget so the client outlives the work it asked for.
+     * Firestore is the authoritative result channel: we pass sessionId, and the function
+     * writes the transcript onto the note itself. The callable response is a convenience.
+     *
+     * The timeout is raised from the SDK's 70s default to match the function's 540s
+     * budget, but the important part is that a timeout is no longer fatal — the server
+     * keeps working and the note updates through the live listener. Previously the client
+     * gave up at 70s and marked a note FAILED while the server was still transcribing.
      */
     const call = httpsCallable<
-      { storagePath: string; mimeType: string; durationMs: number },
+      { sessionId: string; storagePath: string; mimeType: string; durationMs: number },
       TranscribeResponse
     >(functions, "transcribeSession", { timeout: 540_000 });
-    const { data } = await call({ storagePath, mimeType, durationMs });
 
-    await updateDoc(sessionRef, {
-      title: data?.name?.trim() || file.name.replace(/\.[^.]+$/, "") || "Recording",
-      draftText: data?.rawText ?? "",
-      formattedText: data?.formattedText ?? null,
-      category: data?.category?.trim() || "Memo",
-      topicCluster: data?.topicCluster?.trim() || "General",
-      status: "DONE",
-    });
+    await call({ sessionId, storagePath, mimeType, durationMs });
 
+    // The function already wrote the result to the note; the Library listener has it.
     onProgress({ stage: "done" });
     return sessionId;
   } catch (err) {
-    // Quota is a distinct, non-error outcome the phone surfaces as its own status.
     const code = (err as { code?: string })?.code ?? "";
-    const quota = code.includes("resource-exhausted");
-    await updateDoc(sessionRef, {
-      title: quota ? "Monthly limit reached" : file.name.replace(/\.[^.]+$/, "") || "Recording",
-      status: quota ? "QUOTA" : "FAILED",
-    }).catch(() => {
-      /* the note already exists with TRANSCRIBING; leave it rather than masking the error */
-    });
 
+    /*
+     * A timeout/cancel means WE stopped waiting, not that the work failed. The function
+     * runs to completion server-side and writes the note itself, so leave the status
+     * alone — overwriting it with FAILED here is exactly the bug that lost a 31-minute
+     * transcription.
+     */
+    if (code.includes("deadline-exceeded") || code.includes("cancelled")) {
+      onProgress({ stage: "done" });
+      return sessionId;
+    }
+
+    // Quota is a distinct outcome; the server already recorded it on the note.
+    const quota = code.includes("resource-exhausted");
     const message = quota
-      ? "You've hit this month's cloud limit — the file is saved and can be polished later."
+      ? "You've hit this month's cloud limit — the audio is saved and can be transcribed later."
       : (err as Error)?.message || "Transcription failed.";
     onProgress({ stage: "error", message });
     throw new Error(message);
