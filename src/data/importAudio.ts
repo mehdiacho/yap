@@ -132,10 +132,16 @@ export async function importAudioFile(
     });
 
     onProgress({ stage: "transcribing" });
+    /*
+     * The callable client defaults to a 70-SECOND timeout, which is nowhere near enough
+     * for long audio — a 31-minute recording had the phone hang up at 66s and mark the
+     * note FAILED while the server was still working, throwing the result away. Match the
+     * function's own 540s budget so the client outlives the work it asked for.
+     */
     const call = httpsCallable<
       { storagePath: string; mimeType: string; durationMs: number },
       TranscribeResponse
-    >(functions, "transcribeSession");
+    >(functions, "transcribeSession", { timeout: 540_000 });
     const { data } = await call({ storagePath, mimeType, durationMs });
 
     await updateDoc(sessionRef, {
