@@ -64,6 +64,8 @@ uploaded yet, which the player states plainly rather than failing.
 ## What works
 
 - Google + email/password sign-in, password reset
+- **Import an audio file** — pick or drag-drop; uploads to Storage, calls `transcribeSession`,
+  and becomes a note exactly as a phone recording does
 - Live library: search, filters (All / Pinned / Drafts / Trash), date sections, pinned hoisting
 - Note detail: Markdown with GFM tables, Formatted/Raw toggle, "not refined yet" banner
 - Audio playback from Storage with clickable bookmark markers; appended recordings
@@ -76,6 +78,7 @@ Shortcuts: `Ctrl+K` search · `↑`/`↓` move through list · `Ctrl+P` pin · `
 ## Not built yet
 
 - **Recording** — the Capture surface renders but its button is deliberately inert
+  (importing a file is the working path in the meantime)
 - **Tauri shell** — see below; window controls and tray are no-ops in the browser
 - Smart Review, Polish now, group/formalize, multi-select, subscriptions
 
