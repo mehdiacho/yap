@@ -1,0 +1,119 @@
+/*
+ * Design tokens — lifted verbatim from the Yap design kit so desktop and phone
+ * stay one product. Source of truth:
+ *   designs/Yap - Android Ratio Spec.dc.html   (§1 colors, type, spacing, radii)
+ *   designs/Yap - Desktop Designs.dc.html      (§09 desktop layout spec)
+ * Do not invent colors or type styles here — add them to the kit first.
+ */
+
+:root {
+  /* ---- Brand ---- */
+  --primary: #5b5bd6;
+  --primary-bright: #6d5bea;
+  --primary-deep: #4f46c8;
+  --on-primary: #ffffff;
+  --primary-container: #e4e0ff;
+  --on-primary-container: #2b2a60;
+  --primary-pressed: #3a37a0;
+
+  /* ---- Surfaces (light) ---- */
+  --surface: #fcfbff;
+  --surface-container: #f2eff7;
+  --surface-container-high: #eeecf3;
+  --surface-inverse: #2a2931;
+
+  /* ---- Text (light) ---- */
+  --on-surface: #1b1b21;
+  --on-surface-variant: #47464f;
+  --on-surface-muted: #8b8896;
+  --on-surface-faint: #a5a2ad;
+
+  /* ---- Lines ---- */
+  --outline: #d6d2e2;
+  --outline-variant: #e5e1ec;
+
+  /* ---- Status ---- */
+  --recording: #ff6b6b;
+  --recording-soft: #ff8a8a;
+  --warn-fg: #7a4e00;
+  --warn-bg: #ffe0b2;
+  --ok-fg: #1c6b47;
+  --ok-bg: #cdeeda;
+
+  /* ---- Radii (§1.5) ---- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+  --radius-rail-pill: 14px;
+
+  /* ---- Spacing (§1.4) ---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* ---- Desktop layout (§09) ---- */
+  --titlebar-h: 44px;
+  --rail-w: 78px;
+  --rail-pill-w: 64px;
+  --list-w-default: 400px;
+  --list-w-min: 320px;
+  --list-w-max: 520px;
+  --reading-measure: 640px;
+  --row-h: 76px;
+  --control-h: 44px;
+
+  /* ---- Type ---- */
+  --font-display: "Outfit", system-ui, sans-serif;
+  --font-body: "Roboto Flex", system-ui, sans-serif;
+
+  /* ---- Elevation ---- */
+  --shadow-card: 0 1px 2px rgba(40, 30, 90, 0.06);
+  --shadow-pop: 0 12px 32px rgba(40, 30, 90, 0.18);
+  --scrim: rgba(20, 18, 30, 0.45);
+
+  /* ---- Interaction (§09 hover/focus) ---- */
+  --hover-overlay: rgba(27, 27, 33, 0.04);
+  --focus-ring: var(--primary);
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --primary: #c5c0ff;
+  --primary-bright: #c5c0ff;
+  --primary-deep: #4341a8;
+  --on-primary: #2b2a60;
+  --primary-container: #4341a8;
+  --on-primary-container: #e4e0ff;
+  --primary-pressed: #c5c0ff;
+
+  --surface: #131318;
+  --surface-container: #1f1e25;
+  --surface-container-high: #2a2931;
+  --surface-inverse: #e5e1e9;
+
+  --on-surface: #e5e1e9;
+  --on-surface-variant: #c6c4dd;
+  --on-surface-muted: #a5a2ad;
+  --on-surface-faint: #918f9a;
+
+  --outline: #48464f;
+  --outline-variant: #33323a;
+
+  --warn-fg: #f5be6b;
+  --warn-bg: #4a3510;
+  --ok-fg: #9cd5b3;
+  --ok-bg: #163a29;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --hover-overlay: rgba(229, 225, 233, 0.06);
+
+  color-scheme: dark;
+}
