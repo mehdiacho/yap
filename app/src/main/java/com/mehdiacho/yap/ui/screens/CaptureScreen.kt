@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.CloudOff
@@ -540,6 +541,35 @@ private fun RecordingContent(
                     Spacer(Modifier.width(6.dp))
                     Text("Adding to \"${appendTitle.take(28)}${if (appendTitle.length > 28) "…" else ""}\"",
                         fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer)
+                }
+
+                // Additions travel inline in the callable payload, so they cap out around
+                // MAX_APPEND_MINUTES. Warn from a minute out: going over is no longer
+                // destructive (it becomes its own note), but a warned user keeps the note
+                // they actually intended.
+                val limitMs = com.mehdiacho.yap.data.TranscriptionClient.MAX_APPEND_MINUTES * 60_000L
+                if (elapsedMs > limitMs - 60_000L) {
+                    val over = elapsedMs >= limitMs
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        Modifier.clip(RoundedCornerShape(50))
+                            .background(if (over) cs.errorContainer else YapTheme.extended.offlineContainer)
+                            .padding(horizontal = 12.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.Warning, null,
+                            tint = if (over) cs.onErrorContainer else YapTheme.extended.onOfflineContainer,
+                            modifier = Modifier.size(13.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (over) "Too long to add — will save as its own note"
+                            else "Nearing the addition limit (~${com.mehdiacho.yap.data.TranscriptionClient.MAX_APPEND_MINUTES} min)",
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                            color = if (over) cs.onErrorContainer else YapTheme.extended.onOfflineContainer,
+                        )
+                    }
                 }
             }
 

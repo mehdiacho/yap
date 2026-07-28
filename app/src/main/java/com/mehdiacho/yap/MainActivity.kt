@@ -47,6 +47,7 @@ import com.mehdiacho.yap.ui.screens.CaptureScreen
 import com.mehdiacho.yap.ui.screens.CaptureSettingsScreen
 import com.mehdiacho.yap.ui.screens.UnlockByokScreen
 import com.mehdiacho.yap.ui.screens.PrivacySettingsScreen
+import com.mehdiacho.yap.ui.screens.RescueRecordingsScreen
 import com.mehdiacho.yap.ui.screens.TranscriptionSettingsScreen
 import com.mehdiacho.yap.ui.screens.LibraryScreen
 import com.mehdiacho.yap.ui.screens.SessionDetailScreen
@@ -253,6 +254,17 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
         pendingOpen?.let { viewModel.consumePendingOpen() }
     }
 
+    // One-shot notices (e.g. "that addition was too long, saved as its own note"). These
+    // used to be log-only, which meant a failed append looked exactly like success.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val notice by viewModel.notice.collectAsState()
+    LaunchedEffect(notice) {
+        notice?.let {
+            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
+            viewModel.consumeNotice()
+        }
+    }
+
     // Quick Settings tile / external entry: jump to Capture so it can auto-start recording.
     LaunchedEffect(autoStart.value) {
         if (autoStart.value) {
@@ -376,6 +388,7 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                     onOpenAppearance = { navController.navigate(Routes.SETTINGS_APPEARANCE) },
                     onOpenTranscription = { navController.navigate(Routes.SETTINGS_TRANSCRIPTION) },
                     onOpenAbout = { navController.navigate(Routes.SETTINGS_ABOUT) },
+                    onOpenRescue = { navController.navigate(Routes.SETTINGS_RESCUE) },
                 )
             }
             composable(Routes.BYOK_KEY) {
@@ -390,6 +403,12 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
             composable(Routes.SETTINGS_APPEARANCE) { AppearanceSettingsScreen(onBack = { navController.popBackStack() }) }
             composable(Routes.SETTINGS_TRANSCRIPTION) { TranscriptionSettingsScreen(onBack = { navController.popBackStack() }) }
             composable(Routes.SETTINGS_ABOUT) { AboutSettingsScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.SETTINGS_RESCUE) {
+                RescueRecordingsScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() },
+                )
+            }
             composable(Routes.AUTH) {
                 AuthScreen(onBack = { navController.popBackStack() })
             }

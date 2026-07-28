@@ -30,6 +30,14 @@
           }
         },
         {
+          "client_id": "179392577570-vs4bmotdeprldbqg370bj7ae5gasq3rg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "app.greenforrest.yap",
+            "certificate_hash": "14d49e1e0aab82514078ec3f3d8e46826ce46be3"
+          }
+        },
+        {
           "client_id": "179392577570-06vml3add35mtve74jcekgrrqtj39qjr.apps.googleusercontent.com",
           "client_type": 3
         }

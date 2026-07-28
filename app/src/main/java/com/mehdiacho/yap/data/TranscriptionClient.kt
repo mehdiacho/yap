@@ -29,6 +29,16 @@ data class TranscriptionResult(
  * Uses anonymous auth so the function's auth check passes (seed of the real auth system).
  */
 object TranscriptionClient {
+
+    /**
+     * Ceiling on an append clip. Append audio is sent inline as base64 in the callable
+     * payload, so this is a transport limit, not a product choice — at our 16 kHz mono
+     * 16-bit format it works out to roughly [MAX_APPEND_MINUTES] of speech. The capture UI
+     * warns as a recording approaches it; going over is no longer destructive (the clip is
+     * saved as its own note), but a warned user keeps the note they intended.
+     */
+    const val MAX_APPEND_BYTES = 15L * 1024 * 1024
+    const val MAX_APPEND_MINUTES = 7 // MAX_APPEND_BYTES / (16000 * 2) / 60, rounded down
     // Region must match the deployed function (africa-south1, close to home).
     private val functions by lazy { FirebaseFunctions.getInstance("africa-south1") }
     private val auth by lazy { FirebaseAuth.getInstance() }
@@ -103,8 +113,8 @@ object TranscriptionClient {
         existingFormatted: String,
     ): AppendResult {
         ensureSignedIn()
-        require(clip.length() < 15L * 1024 * 1024) {
-            "That addition is too long to append — record it as its own note."
+        require(clip.length() < MAX_APPEND_BYTES) {
+            "Additions can be up to about $MAX_APPEND_MINUTES minutes; that one is longer."
         }
         val b64 = Base64.encodeToString(clip.readBytes(), Base64.NO_WRAP)
         val result = awaitTask(

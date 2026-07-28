@@ -69,10 +69,14 @@ jobs:
           UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
-      # versionCode must be unique and increasing per upload — derive it from
-      # the commit count (requires the full history fetched above).
+      # versionCode must be globally unique across the whole app (all tracks share one
+      # namespace) AND higher than any prior upload. Commit count breaks when the SAME commit
+      # is pushed to several track branches: identical count -> duplicate code -> Play rejects
+      # with "version code N has already been used". github.run_number is unique + monotonic
+      # per workflow run; the 10000 base clears every commit-count code already uploaded (max
+      # used was 67).
       - name: Compute versionCode
-        run: echo "YAP_VERSION_CODE=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+        run: echo "YAP_VERSION_CODE=$(( 10000 + ${{ github.run_number }} ))" >> "$GITHUB_ENV"
 
       - name: Build AAB
         run: ./gradlew bundleRelease

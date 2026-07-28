@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.mehdiacho.yap.audio.RecorderEvent
 import com.mehdiacho.yap.audio.RecordingBus
 import com.mehdiacho.yap.data.FirestoreSessionRepository
+import com.mehdiacho.yap.data.OrphanRecordings
 import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.data.TranscriptionClient
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +58,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _appendTarget = MutableStateFlow<Session?>(null)
     val appendTarget: StateFlow<Session?> = _appendTarget.asStateFlow()
     fun setAppendTarget(session: Session?) { _appendTarget.value = session }
+
+    // One-shot, user-visible message (shown as a toast). Used for outcomes the user would
+    // otherwise never learn about — notably an append that had to be saved separately.
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+    fun consumeNotice() { _notice.value = null }
+
+    // Recordings on disk that no note references. Populated on demand by the recovery
+    // screen rather than continuously — it's a rare-path tool, not library state.
+    private val _orphans = MutableStateFlow<List<OrphanRecordings.Orphan>>(emptyList())
+    val orphans: StateFlow<List<OrphanRecordings.Orphan>> = _orphans.asStateFlow()
+    private val _orphansScanning = MutableStateFlow(false)
+    val orphansScanning: StateFlow<Boolean> = _orphansScanning.asStateFlow()
+
+    /**
+     * Rescan private storage for stranded recordings. Compares against active AND trashed
+     * notes, so audio attached to a trashed note is never offered as "lost".
+     */
+    fun refreshOrphans() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _orphansScanning.value = true
+            try {
+                val active = runCatching { repository.allSessions().first() }.getOrDefault(emptyList())
+                val trashed = runCatching { repository.trashedSessions().first() }.getOrDefault(emptyList())
+                _orphans.value = OrphanRecordings.find(getApplication(), active + trashed)
+            } catch (e: Exception) {
+                Log.e("Yap", "orphan scan failed: ${e.message}", e)
+                _orphans.value = emptyList()
+            } finally {
+                _orphansScanning.value = false
+            }
+        }
+    }
+
+    /** Turn a stranded recording into a real note (transcribe + save), then reopen the list. */
+    fun recoverOrphan(orphan: OrphanRecordings.Orphan) {
+        viewModelScope.launch {
+            _notice.value = "Recovering “${orphan.file.name}” — transcribing now."
+            try {
+                startTranscription(orphan.path, orphan.durationMs, "audio/wav")
+            } catch (e: Exception) {
+                Log.e("Yap", "orphan recovery failed: ${e.message}", e)
+                _notice.value = "Couldn't recover that recording: ${e.message}"
+            }
+            refreshOrphans()
+        }
+    }
+
+    /** Discard a stranded recording for good. Only reachable behind a confirm dialog. */
+    fun discardOrphan(orphan: OrphanRecordings.Orphan) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { orphan.file.delete() }
+                .onFailure { Log.w("Yap", "orphan delete failed: ${it.message}") }
+            refreshOrphans()
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -322,7 +379,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), target.id, title)
         } catch (e: Exception) {
             Log.e("Yap", "append failed: ${e.message}", e)
-            runCatching { repository.upsert(target) } // restore prior state
+            runCatching { repository.upsert(target) } // restore the note to its prior state
+            // NEVER drop the audio. An append can fail for reasons the user can't predict
+            // (clip over the inline-payload ceiling, network, quota); silently restoring the
+            // note used to strand a complete recording on disk with nothing pointing at it.
+            // Saving it as its own note keeps the work and is trivially merged by hand.
+            _notice.value = e.message?.takeIf { it.isNotBlank() }
+                ?.let { "$it Saved as a separate note instead." }
+                ?: "Couldn't add to “${target.title}”. Saved as a separate note instead."
+            runCatching {
+                startTranscription(clipPath, clipDurationMs, "audio/wav", clipBookmarks)
+            }.onFailure { fallback ->
+                Log.e("Yap", "append fallback also failed: ${fallback.message}", fallback)
+                _notice.value =
+                    "That recording couldn't be saved to a note. " +
+                        "Find it in Settings → Recover recordings."
+            }
         }
     }
 
