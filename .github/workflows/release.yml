@@ -24,9 +24,12 @@ on:
     branches: [main, open-testing, closed-testing, internal-testing]
   workflow_dispatch: {}
 
-# One track at a time per branch; different tracks never block each other.
+# App-wide, NOT per-branch. A Play "Edit" is exclusive per application: two runs that
+# open one concurrently race, and the loser dies with "This edit has expired, please
+# create a new Edit" — which is exactly what happened when main and closed-testing were
+# pushed together. Serializing every upload costs a little wall-clock and removes the race.
 concurrency:
-  group: play-release-${{ github.ref_name }}
+  group: play-release
   cancel-in-progress: false
 
 jobs:
