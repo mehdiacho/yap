@@ -31,6 +31,17 @@ different shell, or ship as the web companion, without touching feature code.
 Adding a native capability = extend the `Shell` interface, implement per shell, give the web
 build an honest fallback.
 
+## Deployed
+
+- **https://yap.mehdiacho.tech** — custom domain (A record → `199.36.158.100`)
+- **https://yap-desktop.web.app** — Firebase Hosting default URL
+
+Deploy with `npm run deploy`. It targets the `yap-desktop` Hosting site, which is separate
+from the project's default site (that one serves the admin app — don't deploy over it).
+
+The Cloudflare record for `yap.mehdiacho.tech` **must be DNS-only (grey cloud)**. Proxying it
+puts Cloudflare's certificate in front of Firebase's, which breaks domain validation.
+
 ## Running it
 
 ```bash
