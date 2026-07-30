@@ -33,7 +33,7 @@ build an honest fallback.
 
 ## Deployed
 
-- **https://yap.mehdiacho.tech** — custom domain (A record → `199.36.158.100`)
+- **https://yap.mehdiacho.tech** — custom domain (CNAME → `yap-desktop.web.app`)
 - **https://yap-desktop.web.app** — Firebase Hosting default URL
 
 Deploy with `npm run deploy`. It targets the `yap-desktop` Hosting site, which is separate
@@ -77,6 +77,9 @@ uploaded yet, which the player states plainly rather than failing.
 - Google + email/password sign-in, password reset
 - **Import an audio file** — pick or drag-drop; uploads to Storage, calls `transcribeSession`,
   and becomes a note exactly as a phone recording does
+- **BYOK** — add your own Gemini key in Settings (validated server-side against the real API
+  before it's stored, then encrypted; no client ever reads it back). Transcription runs on it
+  with no monthly cap, since you're billed by Google directly.
 - Live library: search, filters (All / Pinned / Drafts / Trash), date sections, pinned hoisting
 - Note detail: Markdown with GFM tables, Formatted/Raw toggle, "not refined yet" banner
 - Audio playback from Storage with clickable bookmark markers; appended recordings
