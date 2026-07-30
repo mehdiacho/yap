@@ -4,7 +4,7 @@ import * as admin from "firebase-admin";
 import * as crypto from "crypto";
 import { GoogleGenAI } from "@google/genai";
 import { getEntitlement, Entitlement } from "./accounts";
-import { classifyProviderError } from "./providerErrors";
+import { classifyProviderError, providerDetail } from "./providerErrors";
 
 const REGION = "africa-south1";
 
@@ -143,14 +143,18 @@ export const setByokKey = onCall(
       });
     } catch (e: any) {
       const failure = classifyProviderError(e, true);
-      console.warn("byok: key validation failed", { uid, reason: failure.reason });
-      // Distinguish "wrong key" from "right key, empty account" — the fixes are unrelated,
-      // and a user who just pasted a correct key deserves to be told it *is* correct.
+      // Log what Google actually said, not just our verdict. Logging the verdict alone made
+      // a rejected-key report undiagnosable without asking the user to reproduce it.
+      console.warn("byok: key validation failed", {
+        uid,
+        reason: failure.reason,
+        providerMessage: providerDetail(e),
+      });
+      // Every branch already carries advice specific to the cause (bad key vs API not
+      // enabled vs restricted key vs unfunded project); don't flatten them back into one.
       throw new HttpsError(
         failure.reason === "PROVIDER_AUTH" ? "invalid-argument" : "failed-precondition",
-        failure.reason === "PROVIDER_AUTH"
-          ? "That key was rejected by Google. Check you copied all of it."
-          : failure.message
+        failure.message
       );
     }
 

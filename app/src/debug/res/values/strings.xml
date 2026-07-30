@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only overrides. AGP merges this source set over src/main, so the dev build gets a
+  distinct launcher name while release is untouched.
+
+  The dev build sits next to the Play build on the same device (see applicationIdSuffix in
+  app/build.gradle.kts) — without a different name the two icons are indistinguishable, and
+  it is far too easy to record something important into the throwaway one.
+-->
+<resources>
+    <string name="app_name">Yap Dev</string>
+</resources>

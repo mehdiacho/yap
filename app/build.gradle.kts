@@ -50,6 +50,20 @@ android {
     }
     debug {
       // Uses AGP's default auto-generated debug keystore (~/.android/debug.keystore).
+      //
+      // Separate applicationId so a locally-built copy installs ALONGSIDE the Play build
+      // instead of replacing it. This is not cosmetic: a debug-signed APK cannot overwrite
+      // a Play-signed one (signature mismatch), so sharing the id would force an uninstall
+      // first — and uninstalling wipes app-private storage, which is where recordings live
+      // until they upload. That is exactly how a 31-minute recording was nearly lost.
+      //
+      // Same Firebase project either way: `app.greenforrest.yap.debug` is registered as a
+      // second Android app in yap-mehdiacho, so it reads the same Firestore, the same
+      // Storage bucket, the same Functions and the same user accounts. Only the package
+      // and the signing certificate differ. See docs/LOCAL_BUILDS.md.
+      applicationIdSuffix = ".debug"
+      versionNameSuffix = "-dev"
+      isDebuggable = true
     }
   }
   compileOptions {
