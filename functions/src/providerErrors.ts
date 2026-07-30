@@ -15,6 +15,8 @@ export type ProviderFailure =
   | "PROVIDER_CREDIT" // billing balance exhausted — retry works only after a top-up
   | "PROVIDER_RATE_LIMIT" // throttled — the same request will succeed shortly
   | "PROVIDER_AUTH" // key invalid, revoked, or lacking access to the model
+  | "PROVIDER_API_DISABLED" // key is fine; its project hasn't enabled the API
+  | "PROVIDER_KEY_RESTRICTED" // key is fine; its restrictions forbid server-side calls
   | "PROVIDER_UNAVAILABLE" // 5xx / overloaded — transient, not the caller's doing
   | "AUDIO_REJECTED" // the provider refused this specific audio (format, length, safety)
   | "UNKNOWN";
@@ -54,6 +56,31 @@ function extract(e: any): { code: number; status: string; text: string } {
 }
 
 /**
+ * Google's own one-line explanation, cleaned up for display.
+ *
+ * When we can't map a failure to specific advice, the provider's wording beats anything we
+ * could invent — the user owns that Cloud project and can act on what Google tells them.
+ * Falls back to the raw text, trimmed, so this never renders as "undefined".
+ */
+export function providerDetail(e: any): string {
+  const raw = String(e?.message ?? e ?? "").trim();
+  try {
+    const start = raw.indexOf("{");
+    if (start >= 0) {
+      const parsed = JSON.parse(raw.slice(start));
+      const msg = parsed?.error?.message ?? parsed?.message;
+      if (typeof msg === "string" && msg.trim()) return truncate(msg.trim());
+    }
+  } catch {
+    // Not JSON; fall through to the raw text.
+  }
+  return truncate(raw) || "no reason given";
+}
+
+const truncate = (s: string, max = 300): string =>
+  s.length > max ? `${s.slice(0, max - 1)}…` : s;
+
+/**
  * @param byok true when the request ran on the user's OWN provider key. The remedy for a
  *   billing failure is then theirs to action directly, so say so plainly instead of the
  *   vaguer "the service is unavailable" that fits a shared key.
@@ -79,13 +106,64 @@ export function classifyProviderError(e: any, byok = false): ClassifiedFailure {
     text.includes("api key not valid") ||
     text.includes("api_key_invalid") ||
     text.includes("invalid api key") ||
-    text.includes("api key expired") ||
-    text.includes("permission denied");
-  if (saysBadKey) {
+    text.includes("api key expired");
+
+  // A brand-new Google Cloud / AI Studio project does not have the Generative Language API
+  // turned on, and a key from it fails with 403 SERVICE_DISABLED. This is the single most
+  // likely reason a key the user believes is fine gets refused, and it has nothing to do
+  // with the key being mistyped — lumping it under "bad key" sent people to re-copy a
+  // string that was already correct.
+  const saysApiDisabled =
+    text.includes("has not been used in project") ||
+    text.includes("is disabled") ||
+    text.includes("service_disabled") ||
+    text.includes("enable it by visiting");
+  if (saysApiDisabled) {
+    return {
+      reason: "PROVIDER_API_DISABLED",
+      message: byok
+        ? "That key is valid, but the Generative Language API isn't enabled on its Google " +
+          "Cloud project. Enable it (or create the key from Google AI Studio, which enables " +
+          "it for you), then try again."
+        : "Transcription is misconfigured on our side. We've been notified.",
+      retryable: false,
+      httpsCode: "failed-precondition",
+    };
+  }
+
+  // Application restrictions (HTTP referrer / Android / iOS / IP allowlist) or an API
+  // allowlist that omits generativelanguage. The key is real; it just won't accept a call
+  // from a server. Distinct advice again — nothing to re-copy.
+  const saysRestricted =
+    text.includes("referer") ||
+    text.includes("referrer") ||
+    text.includes("blocked") ||
+    text.includes("not authorized to use") ||
+    text.includes("api_key_service_blocked") ||
+    text.includes("api_key_http_referrer_blocked") ||
+    text.includes("api_key_ip_address_blocked") ||
+    text.includes("api_key_android_app_blocked");
+  if (saysRestricted) {
+    return {
+      reason: "PROVIDER_KEY_RESTRICTED",
+      message: byok
+        ? "That key has restrictions that block server-side use. In Google Cloud, set its " +
+          "Application restriction to None and allow the Generative Language API, then try again."
+        : "Transcription is misconfigured on our side. We've been notified.",
+      retryable: false,
+      httpsCode: "failed-precondition",
+    };
+  }
+
+  if (saysBadKey || text.includes("permission denied") || status === "PERMISSION_DENIED") {
     return {
       reason: "PROVIDER_AUTH",
       message: byok
-        ? "That key was rejected by Google. Check you copied all of it."
+        ? saysBadKey
+          ? "That key was rejected by Google. Check you copied all of it."
+          : // Not a malformed key — Google refused it for a reason only its project owner
+            // can see, so hand over what Google actually said rather than guessing.
+            `Google refused that key: ${providerDetail(e)}`
         : "Transcription is misconfigured on our side. We've been notified.",
       retryable: false,
       httpsCode: "failed-precondition",
