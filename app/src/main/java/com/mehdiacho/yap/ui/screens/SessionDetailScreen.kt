@@ -64,6 +64,7 @@ fun SessionDetailScreen(
     viewModel: MainViewModel,
     sessionId: String,
     onOpenSubscription: () -> Unit = {},
+    onOpenApiKey: () -> Unit = {},
     onAppendRecording: (com.mehdiacho.yap.data.Session) -> Unit = {},
     onBack: () -> Unit,
 ) {
@@ -360,16 +361,31 @@ fun SessionDetailScreen(
                         Text("Transcription didn't finish", fontWeight = FontWeight.Bold,
                             fontSize = 15.sp, color = cs.onErrorContainer)
                         Spacer(Modifier.height(4.dp))
+                        // Prefer the server's explanation. A generic "usually temporary" is
+                        // actively misleading when the real cause is an empty AI billing
+                        // account — no amount of retrying fixes that on its own.
                         Text(
-                            "Your recording is safe — only the transcription failed. " +
+                            currentSession.statusMessage?.takeIf { it.isNotBlank() }
+                                ?: "Your recording is safe — only the transcription failed. " +
                                 "This is usually temporary.",
                             fontSize = 13.sp, lineHeight = 18.sp, color = cs.onErrorContainer,
                         )
                         Spacer(Modifier.height(12.dp))
-                        Button(
-                            onClick = { viewModel.retryTranscription(currentSession) },
-                            shape = RoundedCornerShape(50),
-                        ) { Text("Try again") }
+                        // Retrying an invalid key or rejected audio just reproduces the same
+                        // failure, so don't invite it — those need a change first.
+                        val worthRetrying = currentSession.statusReason !in
+                            listOf("PROVIDER_AUTH", "AUDIO_REJECTED")
+                        if (worthRetrying) {
+                            Button(
+                                onClick = { viewModel.retryTranscription(currentSession) },
+                                shape = RoundedCornerShape(50),
+                            ) { Text("Try again") }
+                        }
+                        if (currentSession.statusReason == "PROVIDER_AUTH") {
+                            Button(onClick = onOpenApiKey, shape = RoundedCornerShape(50)) {
+                                Text("Check API key")
+                            }
+                        }
                     }
                 }
                 content.isBlank() -> Text("No transcription available.", fontSize = 15.sp, color = cs.onSurfaceVariant)

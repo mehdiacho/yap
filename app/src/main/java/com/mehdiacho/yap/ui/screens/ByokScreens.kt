@@ -35,7 +35,6 @@ import com.mehdiacho.yap.data.AuthManager
 // (referral info + deleteAccount both go through AccountClient)
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // =====================================================================================
@@ -187,10 +186,12 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
     val scope = rememberCoroutineScope()
-    var unlocked by remember { mutableStateOf<Boolean?>(null) }
+    var status by remember { mutableStateOf<com.mehdiacho.yap.data.ByokStatus?>(null) }
     LaunchedEffect(Unit) {
-        unlocked = runCatching { AccountClient.status().byokUnlocked }.getOrDefault(false)
+        status = runCatching { AccountClient.byokStatus() }
+            .getOrDefault(com.mehdiacho.yap.data.ByokStatus(false, false, null, null, null))
     }
+    val unlocked = status?.unlocked
 
     when (unlocked) {
         null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -240,7 +241,13 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
         true -> {
             // BYOK · unlocked + key validation
             var key by remember { mutableStateOf("") }
-            var state by remember { mutableStateOf("empty") } // empty | validating | valid | invalid
+            // empty | saving | saved | invalid.
+            // Validation is an explicit action, not a per-keystroke debounce: proving a key
+            // works means making a real request against it, and firing that on every
+            // character would hammer the provider (and the user's own bill) while they type.
+            var state by remember { mutableStateOf(if (status?.active == true) "saved" else "empty") }
+            var savedHint by remember { mutableStateOf(status?.keyHint) }
+            var error by remember { mutableStateOf<String?>(null) }
             val context = androidx.compose.ui.platform.LocalContext.current
 
             Column(Modifier.fillMaxSize().background(cs.background).statusBarsPadding()) {
@@ -284,12 +291,15 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                     }
                     Spacer(Modifier.height(16.dp))
 
-                    Text("Paste your Gemini key", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                    Text(
+                        if (state == "saved") "Replace your Gemini key" else "Paste your Gemini key",
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface,
+                    )
                     Spacer(Modifier.height(8.dp))
                     val borderColor = when (state) {
-                        "valid" -> cs.tertiary
+                        "saved" -> cs.tertiary
                         "invalid" -> cs.error
-                        "validating" -> cs.primary
+                        "saving" -> cs.primary
                         else -> cs.outlineVariant
                     }
                     Row(
@@ -298,18 +308,18 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(Modifier.weight(1f)) {
-                            if (key.isEmpty()) Text("AIza…", fontSize = 14.sp, color = ext.subdued)
+                            if (key.isEmpty()) Text(
+                                if (state == "saved") "AIza••••${savedHint ?: ""}" else "AIza…",
+                                fontSize = 14.sp, color = ext.subdued,
+                            )
                             BasicTextField(
                                 value = key,
                                 onValueChange = {
                                     key = it
-                                    state = if (it.isBlank()) "empty" else "validating"
-                                    if (it.isNotBlank()) scope.launch {
-                                        // Stub validation — real check calls the provider (functionality list).
-                                        delay(900)
-                                        if (key == it) state = if (it.startsWith("AIza") && it.length >= 12) "valid" else "invalid"
-                                    }
+                                    error = null
+                                    if (state == "invalid") state = "empty"
                                 },
+                                enabled = state != "saving",
                                 singleLine = true,
                                 textStyle = androidx.compose.ui.text.TextStyle(
                                     fontSize = 14.sp, color = cs.onSurface, letterSpacing = 0.3.sp),
@@ -319,28 +329,62 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                         }
                         Spacer(Modifier.width(10.dp))
                         when (state) {
-                            "valid" -> Icon(Icons.Default.CheckCircle, null, tint = cs.tertiary, modifier = Modifier.size(22.dp))
+                            "saved" -> Icon(Icons.Default.CheckCircle, null, tint = cs.tertiary, modifier = Modifier.size(22.dp))
                             "invalid" -> Icon(Icons.Default.Error, null, tint = cs.error, modifier = Modifier.size(22.dp))
-                            "validating" -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            "saving" -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                         }
                     }
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            val candidate = key.trim()
+                            if (candidate.isBlank()) return@Button
+                            state = "saving"
+                            error = null
+                            scope.launch {
+                                runCatching { AccountClient.setByokKey(candidate) }
+                                    .onSuccess { hint ->
+                                        savedHint = hint
+                                        key = ""
+                                        state = "saved"
+                                    }
+                                    .onFailure { e ->
+                                        state = "invalid"
+                                        // The server distinguishes "wrong key" from "right key,
+                                        // empty account"; surface whichever it decided.
+                                        error = e.message?.takeIf { it.isNotBlank() }
+                                            ?: "Couldn't verify that key. Check it and try again."
+                                    }
+                            }
+                        },
+                        enabled = key.isNotBlank() && state != "saving",
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                    ) {
+                        Text(
+                            if (state == "saving") "Verifying…" else "Verify & save",
+                            fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
+                        )
+                    }
+
                     // Inline validation caption
                     Spacer(Modifier.height(8.dp))
                     when (state) {
-                        "valid" -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        "saved" -> Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Check, null, tint = cs.tertiary, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Valid key · connected to Gemini", fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold, color = cs.tertiary)
                         }
-                        "invalid" -> Text("That key doesn't look right — check it and try again.",
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = cs.error)
-                        "validating" -> Text("Validating…", fontSize = 12.sp,
+                        "invalid" -> Text(error ?: "That key doesn't look right — check it and try again.",
+                            fontSize = 12.sp, lineHeight = 17.sp,
+                            fontWeight = FontWeight.SemiBold, color = cs.error)
+                        "saving" -> Text("Checking it against Gemini…", fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold, color = cs.primary)
                     }
 
                     // Success confirmation panel
-                    if (state == "valid") {
+                    if (state == "saved") {
                         Spacer(Modifier.height(14.dp))
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(ext.successSoft).padding(14.dp),
@@ -360,16 +404,33 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                 }
                 // Docked destructive link
                 HorizontalDivider(thickness = 1.dp, color = cs.outlineVariant)
+                val canRemove = state == "saved" || savedHint != null
                 Box(
                     Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 12.dp)
-                        .clickable(enabled = key.isNotBlank()) {
-                            key = ""; state = "empty"
-                            android.widget.Toast.makeText(context, "Key removed", android.widget.Toast.LENGTH_SHORT).show()
+                        .clickable(enabled = canRemove && state != "saving") {
+                            scope.launch {
+                                runCatching { AccountClient.clearByokKey() }
+                                    .onSuccess {
+                                        key = ""; savedHint = null; state = "empty"; error = null
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Key removed — back to the built-in allowance",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                    .onFailure { e ->
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            e.message ?: "Couldn't remove the key.",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                            }
                         },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("Remove key", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                        color = if (key.isNotBlank()) cs.error else ext.subdued)
+                        color = if (canRemove) cs.error else ext.subdued)
                 }
             }
         }

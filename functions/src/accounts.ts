@@ -53,13 +53,22 @@ function currentCycle(): string {
 
 export const getAccountStatus = onCall({ region: REGION }, async (request) => {
   const uid = requireAuth(request);
+  const db = admin.firestore();
+  const [entSnap, usageSnap] = await Promise.all([
+    db.collection("entitlements").doc(uid).get(),
+    db.collection("usage").doc(uid).get(),
+  ]);
   const ent = await getEntitlement(uid);
-  const usageSnap = await admin.firestore().collection("usage").doc(uid).get();
   const cycle = currentCycle();
   const sameCycle = usageSnap.exists && usageSnap.get("cycle") === cycle;
+  // byokActive: a key is actually stored and in use, as opposed to merely being entitled
+  // to add one. While it's active the plan cap doesn't apply — the user pays the provider.
+  const byokActive = ent.byokUnlocked && entSnap.get("byokActive") === true;
   return {
     plan: ent.plan,
     byokUnlocked: ent.byokUnlocked,
+    byokActive,
+    byokKeyHint: byokActive ? entSnap.get("byokKeyHint") ?? null : null,
     expiresAt: ent.expiresAt ?? null,
     cycle,
     secondsUsed: sameCycle ? usageSnap.get("secondsUsed") ?? 0 : 0,

@@ -314,7 +314,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     category = r.category.ifBlank { "Memo" },
                     topicCluster = r.topicCluster.ifBlank { "General" },
                     storagePath = r.storagePath,
-                    status = "DONE"
+                    status = "DONE",
+                    statusReason = null,
+                    statusMessage = null,
                 )
             )
             // Heads-up "Your note is polished ✨" — skipped while the app is on screen.
@@ -331,7 +333,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 com.google.firebase.functions.FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED
             repository.upsert(
                 if (quotaHit) session.copy(title = "Monthly limit reached", status = "QUOTA")
-                else session.copy(title = "Recording", status = "FAILED")
+                else session.copy(
+                    title = "Recording",
+                    status = "FAILED",
+                    // The server's message explains WHY (out of provider credit, bad audio,
+                    // service down). Falling back to the raw exception is still better than
+                    // the old bare "failed" with nothing to act on.
+                    statusMessage = e.message?.takeIf { it.isNotBlank() },
+                )
             )
         }
     }
@@ -382,6 +391,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     formattedText = r.formattedText.ifBlank { target.formattedText },
                     extraRecordings = target.extraRecordings + extra,
                     status = "DONE",
+                    statusReason = null,
+                    statusMessage = null,
                 )
             )
             com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), target.id, title)
@@ -456,6 +467,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         topicCluster = r.topicCluster.ifBlank { session.topicCluster },
                         storagePath = r.storagePath ?: session.storagePath,
                         status = "DONE",
+                        statusReason = null,
+                        statusMessage = null,
                     )
                 )
                 com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
@@ -469,10 +482,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     com.google.firebase.functions.FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED
                 // Restore the failed state rather than leaving it spinning forever.
                 repository.upsert(
-                    session.copy(status = if (quotaHit) "QUOTA" else "FAILED")
+                    session.copy(
+                        status = if (quotaHit) "QUOTA" else "FAILED",
+                        statusMessage = if (quotaHit) null else e.message?.takeIf { it.isNotBlank() },
+                    )
                 )
                 _notice.value = if (quotaHit) "Monthly limit reached."
-                else "Still couldn't transcribe that: ${e.message ?: "unknown error"}"
+                else e.message?.takeIf { it.isNotBlank() } ?: "Still couldn't transcribe that."
             }
         }
     }
@@ -491,6 +507,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         category = r.category.ifBlank { session.category },
                         topicCluster = r.topicCluster.ifBlank { session.topicCluster },
                         status = "DONE",
+                        statusReason = null,
+                        statusMessage = null,
                     )
                 )
                 com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)

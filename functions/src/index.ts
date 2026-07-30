@@ -26,19 +26,33 @@ export {
   onSessionCreatedReferral,
 } from "./lifecycle";
 export { verifyPlayPurchase } from "./billing";
+export { setByokKey, clearByokKey, getByokStatus } from "./byok";
 import { getEntitlement, capForPlan } from "./accounts";
+import { BYOK_ENC_KEY, resolveGeminiKey } from "./byok";
+import { classifyProviderError } from "./providerErrors";
 
 // Set with: firebase functions:secrets:set GEMINI_API_KEY
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 
+function currentCycle(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 /**
  * Atomically checks and records usage in usage/{uid} (clients can read theirs but never
  * write it). The cap comes from the caller's entitlement (plan tier).
+ *
+ * Returns the cycle the seconds were booked against, so a later failure can refund them
+ * without clawing back from the wrong month.
  */
-async function checkAndRecordUsage(uid: string, seconds: number, capSeconds: number): Promise<void> {
+async function checkAndRecordUsage(
+  uid: string,
+  seconds: number,
+  capSeconds: number
+): Promise<string> {
   const ref = admin.firestore().collection("usage").doc(uid);
-  const now = new Date();
-  const cycle = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const cycle = currentCycle();
   await admin.firestore().runTransaction(async (t) => {
     const snap = await t.get(ref);
     const sameCycle = snap.exists && snap.get("cycle") === cycle;
@@ -51,6 +65,38 @@ async function checkAndRecordUsage(uid: string, seconds: number, capSeconds: num
     }
     t.set(ref, { cycle, secondsUsed: used + seconds, updatedAt: Date.now() });
   });
+  return cycle;
+}
+
+/**
+ * Give the seconds back when the transcription they paid for never happened.
+ *
+ * Usage has to be booked BEFORE the model call (otherwise a user could run unlimited
+ * concurrent jobs and only ever be charged for the ones that finish), which means every
+ * server-side failure was silently costing the user quota. A depleted provider balance
+ * burned ~17 minutes of a 30-minute monthly cap across seven doomed retries, so the person
+ * with the least ability to fix the problem paid for it.
+ *
+ * Best-effort and never throws: a failed refund must not mask the original error.
+ * Skipped when the cycle has rolled over — those seconds are already forgiven.
+ */
+async function refundUsage(uid: string, seconds: number, bookedCycle: string): Promise<void> {
+  if (seconds <= 0) return;
+  try {
+    const ref = admin.firestore().collection("usage").doc(uid);
+    await admin.firestore().runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists || snap.get("cycle") !== bookedCycle) return;
+      const used = snap.get("secondsUsed") ?? 0;
+      t.set(
+        ref,
+        { cycle: bookedCycle, secondsUsed: Math.max(0, used - seconds), updatedAt: Date.now() },
+        { merge: true }
+      );
+    });
+  } catch (e: any) {
+    console.error("usage refund failed", { uid, seconds, message: e?.message });
+  }
 }
 
 /**
@@ -66,7 +112,7 @@ async function checkAndRecordUsage(uid: string, seconds: number, capSeconds: num
 export const transcribeSession = onCall(
   {
     region: "africa-south1",
-    secrets: [GEMINI_API_KEY],
+    secrets: [GEMINI_API_KEY, BYOK_ENC_KEY],
     timeoutSeconds: 540,
     // 512MiB OOM'd on a 31-min recording: the downloaded Buffer plus its base64
     // copy hit 627MiB before transcription even started. Audio is no longer
@@ -126,26 +172,42 @@ export const transcribeSession = onCall(
       : null;
 
     const entitlement = await getEntitlement(request.auth.uid);
-    try {
-      await checkAndRecordUsage(request.auth.uid, quotaSec, capForPlan(entitlement.plan));
-    } catch (e) {
-      if (sessionRef) {
-        await sessionRef
-          .set({ status: "QUOTA", title: "Monthly limit reached" }, { merge: true })
-          .catch((writeErr) =>
-            console.error("could not mark session QUOTA", { sessionId, writeErr })
-          );
+    // On the user's own key they pay the provider directly, so the plan cap doesn't apply
+    // and nothing is booked against it.
+    const { apiKey, byok } = await resolveGeminiKey(
+      request.auth.uid,
+      entitlement,
+      GEMINI_API_KEY.value()
+    );
+
+    let bookedCycle: string | null = null;
+    if (!byok) {
+      try {
+        bookedCycle = await checkAndRecordUsage(
+          request.auth.uid,
+          quotaSec,
+          capForPlan(entitlement.plan)
+        );
+      } catch (e) {
+        if (sessionRef) {
+          await sessionRef
+            .set({ status: "QUOTA", title: "Monthly limit reached" }, { merge: true })
+            .catch((writeErr) =>
+              console.error("could not mark session QUOTA", { sessionId, writeErr })
+            );
+        }
+        throw e;
       }
-      throw e;
     }
 
     console.log(
       `transcribeSession: mimeType=${mimeType} bytes=${audio.length} sec=${quotaSec}` +
+        (byok ? " byok" : "") +
         (sessionId ? ` session=${sessionId}` : " (no session; response-only)")
     );
 
     try {
-      const result = await transcribeAndFormalize(audio, mimeType, GEMINI_API_KEY.value());
+      const result = await transcribeAndFormalize(audio, mimeType, apiKey);
 
       if (sessionRef) {
         // merge:true so we never clobber fields the client owns (pinned, trashedAt,
@@ -159,6 +221,8 @@ export const transcribeSession = onCall(
             topicCluster: result.topicCluster || "General",
             storagePath: data.storagePath ?? null,
             status: "DONE",
+            statusReason: admin.firestore.FieldValue.delete(),
+            statusMessage: admin.firestore.FieldValue.delete(),
           },
           { merge: true }
         );
@@ -166,23 +230,34 @@ export const transcribeSession = onCall(
       }
       return result;
     } catch (e: any) {
+      const failure = classifyProviderError(e, byok);
       console.error("transcribeSession failed", {
         mimeType,
         bytes: audio.length,
         sessionId,
+        byok,
+        reason: failure.reason,
         message: e?.message,
         stack: e?.stack,
       });
+
+      // The transcription never happened — don't charge for it.
+      if (bookedCycle) await refundUsage(request.auth.uid, quotaSec, bookedCycle);
+
       // Record the failure on the note too, so a disconnected client doesn't leave it
-      // spinning on TRANSCRIBING forever.
+      // spinning on TRANSCRIBING forever. `statusReason`/`statusMessage` are additive:
+      // the status stays FAILED so clients already in the field still offer "Try again".
       if (sessionRef) {
         await sessionRef
-          .set({ status: "FAILED" }, { merge: true })
+          .set(
+            { status: "FAILED", statusReason: failure.reason, statusMessage: failure.message },
+            { merge: true }
+          )
           .catch((writeErr) =>
             console.error("could not mark session FAILED", { sessionId, writeErr })
           );
       }
-      throw new HttpsError("internal", `Transcription failed: ${e?.message ?? "unknown"}`);
+      throw new HttpsError(failure.httpsCode, failure.message);
     }
   }
 );
@@ -198,7 +273,7 @@ export const transcribeSession = onCall(
 export const appendToSession = onCall(
   {
     region: "africa-south1",
-    secrets: [GEMINI_API_KEY],
+    secrets: [GEMINI_API_KEY, BYOK_ENC_KEY],
     timeoutSeconds: 540,
     // 512MiB OOM'd on a 31-min recording: the downloaded Buffer plus its base64
     // copy hit 627MiB before transcription even started. Audio is no longer
@@ -231,7 +306,14 @@ export const appendToSession = onCall(
     const seconds = mimeType === "audio/wav" ? wavExactSec : Math.max(claimedSec, wavExactSec);
     const quotaSec = Math.ceil(Math.max(1, Math.min(seconds, 3 * 3600)));
     const entitlement = await getEntitlement(request.auth.uid);
-    await checkAndRecordUsage(request.auth.uid, quotaSec, capForPlan(entitlement.plan));
+    const { apiKey, byok } = await resolveGeminiKey(
+      request.auth.uid,
+      entitlement,
+      GEMINI_API_KEY.value()
+    );
+    const bookedCycle = byok
+      ? null
+      : await checkAndRecordUsage(request.auth.uid, quotaSec, capForPlan(entitlement.plan));
 
     try {
       return await transcribeAndAppend(
@@ -240,11 +322,13 @@ export const appendToSession = onCall(
         String(data.title ?? "Untitled"),
         String(data.existingFormatted ?? ""),
         String(data.existingDraft ?? ""),
-        GEMINI_API_KEY.value()
+        apiKey
       );
     } catch (e: any) {
-      console.error("appendToSession failed", { message: e?.message });
-      throw new HttpsError("internal", `Append failed: ${e?.message ?? "unknown"}`);
+      const failure = classifyProviderError(e, byok);
+      console.error("appendToSession failed", { byok, reason: failure.reason, message: e?.message });
+      if (bookedCycle) await refundUsage(request.auth.uid, quotaSec, bookedCycle);
+      throw new HttpsError(failure.httpsCode, failure.message);
     }
   }
 );
@@ -258,17 +342,24 @@ export const appendToSession = onCall(
  * Response: { name, description, tags, category, topicCluster, formattedText }
  */
 export const refineText = onCall(
-  { region: "africa-south1", secrets: [GEMINI_API_KEY], timeoutSeconds: 120 },
+  { region: "africa-south1", secrets: [GEMINI_API_KEY, BYOK_ENC_KEY], timeoutSeconds: 120 },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
     const draftText = String(request.data?.draftText ?? "").trim();
     if (!draftText) throw new HttpsError("invalid-argument", "draftText required");
     if (draftText.length > 100_000) throw new HttpsError("invalid-argument", "draft too long");
+    const entitlement = await getEntitlement(request.auth.uid);
+    const { apiKey, byok } = await resolveGeminiKey(
+      request.auth.uid,
+      entitlement,
+      GEMINI_API_KEY.value()
+    );
     try {
-      return await formalizeText(draftText, GEMINI_API_KEY.value());
+      return await formalizeText(draftText, apiKey);
     } catch (e: any) {
-      console.error("refineText failed", { message: e?.message });
-      throw new HttpsError("internal", `Refine failed: ${e?.message ?? "unknown"}`);
+      const failure = classifyProviderError(e, byok);
+      console.error("refineText failed", { byok, reason: failure.reason, message: e?.message });
+      throw new HttpsError(failure.httpsCode, failure.message);
     }
   }
 );
@@ -279,7 +370,7 @@ export const refineText = onCall(
  * Response: { updatedBlocks: [{blockIndex, newText, flagged, reason?}] }
  */
 export const smartReview = onCall(
-  { region: "africa-south1", secrets: [GEMINI_API_KEY], timeoutSeconds: 120 },
+  { region: "africa-south1", secrets: [GEMINI_API_KEY, BYOK_ENC_KEY], timeoutSeconds: 120 },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
     const blocks = request.data?.blocks as ReviewBlock[] | undefined;
@@ -287,12 +378,19 @@ export const smartReview = onCall(
       throw new HttpsError("invalid-argument", "blocks required");
     }
     if (blocks.length > 500) throw new HttpsError("invalid-argument", "too many blocks");
+    const entitlement = await getEntitlement(request.auth.uid);
+    const { apiKey, byok } = await resolveGeminiKey(
+      request.auth.uid,
+      entitlement,
+      GEMINI_API_KEY.value()
+    );
     try {
-      const updatedBlocks = await reviewAndPropagate(blocks, GEMINI_API_KEY.value());
+      const updatedBlocks = await reviewAndPropagate(blocks, apiKey);
       return { updatedBlocks };
     } catch (e: any) {
-      console.error("smartReview failed", { message: e?.message });
-      throw new HttpsError("internal", `Smart review failed: ${e?.message ?? "unknown"}`);
+      const failure = classifyProviderError(e, byok);
+      console.error("smartReview failed", { byok, reason: failure.reason, message: e?.message });
+      throw new HttpsError(failure.httpsCode, failure.message);
     }
   }
 );
