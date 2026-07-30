@@ -6,6 +6,7 @@ import {
   transcribeAndAppend,
   formalizeText,
   reviewAndPropagate,
+  judgeCorrectionOccurrences,
   ReviewBlock,
 } from "./gemini";
 
@@ -391,6 +392,50 @@ export const smartReview = onCall(
       const failure = classifyProviderError(e, byok);
       console.error("smartReview failed", { byok, reason: failure.reason, message: e?.message });
       throw new HttpsError(failure.httpsCode, failure.message);
+    }
+  }
+);
+
+/**
+ * reviewCorrections — advisory pass over "you fixed one, here are the others".
+ *
+ * The client finds occurrences itself with a literal offline scan and shows them
+ * immediately; this only annotates the ones that look deliberate ("cloud storage" when the
+ * correction was cloud→Claude). Never on the critical path — the client applies a 12s
+ * budget and drops the result if it isn't back, because correcting a typo must not depend
+ * on the network.
+ *
+ * Cheap and text-only, so it doesn't touch the transcription quota.
+ *
+ * Request:  { from, to, snippets: string[] }
+ * Response: { verdicts: [{ index, intentional, reason }] }
+ */
+export const reviewCorrections = onCall(
+  { region: "africa-south1", secrets: [GEMINI_API_KEY, BYOK_ENC_KEY], timeoutSeconds: 60 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    const from = String(request.data?.from ?? "").trim();
+    const to = String(request.data?.to ?? "").trim();
+    const snippets = request.data?.snippets;
+    if (!from || !to) throw new HttpsError("invalid-argument", "from and to required");
+    if (!Array.isArray(snippets) || snippets.length === 0) return { verdicts: [] };
+    // Bounded so a pathological note can't turn one edit into a huge prompt.
+    const capped = snippets.slice(0, 60).map((s: unknown) => String(s ?? "").slice(0, 300));
+
+    const entitlement = await getEntitlement(request.auth.uid);
+    const { apiKey, byok } = await resolveGeminiKey(
+      request.auth.uid,
+      entitlement,
+      GEMINI_API_KEY.value()
+    );
+    try {
+      const verdicts = await judgeCorrectionOccurrences(from, to, capped, apiKey);
+      return { verdicts };
+    } catch (e: any) {
+      const failure = classifyProviderError(e, byok);
+      console.warn("reviewCorrections failed", { reason: failure.reason, message: e?.message });
+      // Advisory only — degrade to "no advice" rather than failing the user's edit.
+      return { verdicts: [] };
     }
   }
 );

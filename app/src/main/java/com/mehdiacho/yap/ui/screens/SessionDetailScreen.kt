@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -22,10 +23,13 @@ import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicOff
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.ChevronLeft
@@ -57,7 +61,6 @@ import java.io.File
 private val ReviewAmber = Color(0xFFE0A52E)
 private val ReviewAmberBg = Color(0xFFFFF8EC)
 private val ReviewAmberHighlight = Color(0xFFFFE0A8)
-private val ReviewBannerBg = Color(0xFFEEF0FF)
 
 @Composable
 fun SessionDetailScreen(
@@ -91,12 +94,21 @@ fun SessionDetailScreen(
     var titleDraft by remember { mutableStateOf("") }
     var editingBody by remember { mutableStateOf(false) }
     var bodyDraft by remember { mutableStateOf("") }
-    // Smart Review — real run against the deployed smartReview function.
+    // The text as it stood when editing began. Kept so a hand correction can be diffed
+    // against the result — without it there is no "before", and nothing to propagate.
+    var bodyOriginal by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
-    var reviewRunning by remember { mutableStateOf(false) }
-    var reviewBlocks by remember { mutableStateOf<List<String>?>(null) }
-    var reviewFlags by remember { mutableStateOf<Map<Int, com.mehdiacho.yap.data.TranscriptionClient.ReviewedBlock>>(emptyMap()) }
-    val reviewActive = reviewRunning || reviewBlocks != null
+
+    // Propagate-a-correction state: one detected substitution plus everywhere it still applies.
+    var pendingCorrection by remember {
+        mutableStateOf<com.mehdiacho.yap.data.TextCorrections.Correction?>(null)
+    }
+    var pendingOccurrences by remember {
+        mutableStateOf<List<com.mehdiacho.yap.data.TextCorrections.Occurrence>>(emptyList())
+    }
+    var correctionCautions by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
+    var correctionChecking by remember { mutableStateOf(false) }
+
     fun currentText(): String =
         if (viewMode == "Formatted") currentSession.formattedText ?: currentSession.draftText
         else currentSession.draftText
@@ -113,11 +125,46 @@ fun SessionDetailScreen(
             onDraftChange = { bodyDraft = it },
             onClose = { editingBody = false },
             onDone = {
+                val saved = bodyDraft
                 val updated = if (viewMode == "Formatted" && hasFormatted)
-                    currentSession.copy(formattedText = bodyDraft)
-                else currentSession.copy(draftText = bodyDraft)
+                    currentSession.copy(formattedText = saved)
+                else currentSession.copy(draftText = saved)
                 viewModel.updateSession(updated)
                 editingBody = false
+
+                // Transcription mishears a word the same way every time, so a single fix is
+                // rarely the whole fix. Offer the rest — never apply them unasked.
+                val corrections = com.mehdiacho.yap.data.TextCorrections
+                    .detectCorrections(bodyOriginal, saved)
+                val firstWithHits = corrections.firstNotNullOfOrNull { c ->
+                    val hits = com.mehdiacho.yap.data.TextCorrections.findOccurrences(saved, c)
+                    if (hits.isEmpty()) null else c to hits
+                }
+                if (firstWithHits != null) {
+                    val (correction, hits) = firstWithHits
+                    pendingCorrection = correction
+                    pendingOccurrences = hits
+                    correctionCautions = emptyMap()
+                    correctionChecking = true
+                    scope.launch {
+                        // Advisory only, and time-boxed: the list is already on screen and
+                        // usable. If the model is slow or the account is out of credit, the
+                        // user simply gets no annotations rather than a blocked edit.
+                        val advice = runCatching {
+                            kotlinx.coroutines.withTimeout(12_000) {
+                                com.mehdiacho.yap.data.TranscriptionClient.reviewCorrections(
+                                    correction.from,
+                                    correction.to,
+                                    hits.map { "${it.contextBefore}${it.matched}${it.contextAfter}" },
+                                )
+                            }
+                        }.getOrNull()
+                        correctionCautions = advice.orEmpty()
+                            .filter { it.intentional && it.index in hits.indices }
+                            .associate { it.index to it.reason.ifBlank { "May be intentional here" } }
+                        correctionChecking = false
+                    }
+                }
             },
         )
         return
@@ -134,23 +181,16 @@ fun SessionDetailScreen(
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back",
                 modifier = Modifier.clickable { onBack() }, tint = cs.onSurface)
-            if (reviewRunning) ReviewingChip() else StatusChip(currentSession.status)
+            StatusChip(currentSession.status)
+            // Common actions moved to the docked pill bar above the player — one tap each,
+            // always visible, instead of two taps through an overflow. Only genuinely rare
+            // and destructive items stay behind the three dots.
             Box {
                 Icon(Icons.Default.MoreVert, "More", tint = cs.onSurface,
                     modifier = Modifier.clickable { menuOpen = true })
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(text = { Text("Add a recording") },
                         onClick = { menuOpen = false; onAppendRecording(currentSession) })
-                    DropdownMenuItem(text = { Text("Edit title") },
-                        onClick = { menuOpen = false; titleDraft = currentSession.title; showEditTitle = true })
-                    DropdownMenuItem(text = { Text("Edit text") },
-                        onClick = { menuOpen = false; bodyDraft = currentText(); editingBody = true })
-                    DropdownMenuItem(text = { Text("Copy text") },
-                        onClick = {
-                            menuOpen = false
-                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(currentText()))
-                            android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
-                        })
                     DropdownMenuItem(text = { Text("Share") },
                         onClick = {
                             menuOpen = false
@@ -161,40 +201,6 @@ fun SessionDetailScreen(
                             }
                             context.startActivity(android.content.Intent.createChooser(send, "Share note"))
                         })
-                    if (hasFormatted) {
-                        DropdownMenuItem(
-                            text = { Text(if (reviewActive) "Dismiss Smart Review" else "Run Smart Review") },
-                            onClick = {
-                                menuOpen = false
-                                if (reviewActive) {
-                                    reviewBlocks = null; reviewFlags = emptyMap(); reviewRunning = false
-                                } else {
-                                    val blocks = (currentSession.formattedText ?: "")
-                                        .split("\n\n").map { it.trim() }.filter { it.isNotBlank() }
-                                    if (blocks.isEmpty()) return@DropdownMenuItem
-                                    reviewBlocks = blocks
-                                    reviewRunning = true
-                                    scope.launch {
-                                        try {
-                                            val results = com.mehdiacho.yap.data.TranscriptionClient.smartReview(blocks)
-                                            val flagged = results.filter { it.flagged }
-                                            if (flagged.isEmpty()) {
-                                                android.widget.Toast.makeText(context,
-                                                    "Smart Review found no issues", android.widget.Toast.LENGTH_SHORT).show()
-                                                reviewBlocks = null
-                                            } else {
-                                                reviewFlags = flagged.associateBy { it.blockIndex }
-                                            }
-                                        } catch (e: Exception) {
-                                            android.widget.Toast.makeText(context,
-                                                e.message ?: "Smart Review failed", android.widget.Toast.LENGTH_LONG).show()
-                                            reviewBlocks = null
-                                        } finally { reviewRunning = false }
-                                    }
-                                }
-                            },
-                        )
-                    }
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text("Delete", color = cs.error) },
                         onClick = { menuOpen = false; showDeleteConfirm = true })
@@ -234,6 +240,34 @@ fun SessionDetailScreen(
             )
         }
 
+        // "You fixed one — here are the others." Raised after an edit that changed a single
+        // word, never applied without an explicit choice.
+        pendingCorrection?.let { correction ->
+            CorrectionReviewSheet(
+                correction = correction,
+                occurrences = pendingOccurrences,
+                cautions = correctionCautions,
+                checking = correctionChecking,
+                onApply = { accepted ->
+                    val base = currentText()
+                    val fixed = com.mehdiacho.yap.data.TextCorrections.apply(base, accepted)
+                    if (fixed != base) {
+                        viewModel.updateSession(
+                            if (viewMode == "Formatted" && hasFormatted)
+                                currentSession.copy(formattedText = fixed)
+                            else currentSession.copy(draftText = fixed)
+                        )
+                    }
+                    pendingCorrection = null
+                    pendingOccurrences = emptyList()
+                },
+                onDismiss = {
+                    pendingCorrection = null
+                    pendingOccurrences = emptyList()
+                },
+            )
+        }
+
         // 2 · Title block + chip row
         Column(Modifier.padding(horizontal = 22.dp)) {
             Spacer(Modifier.height(14.dp))
@@ -251,21 +285,6 @@ fun SessionDetailScreen(
                 MetaChip(currentSession.category.ifBlank { "Memo" }, cs.primaryContainer, cs.onPrimaryContainer, bold = true)
                 if (currentSession.topicCluster.isNotBlank() && currentSession.topicCluster != "General")
                     MetaChip(currentSession.topicCluster, cs.surfaceContainerHigh, cs.onSurfaceVariant)
-            }
-        }
-
-        // Smart Review banner while checking
-        if (reviewRunning) {
-            Row(
-                Modifier.padding(horizontal = 22.dp).padding(top = 14.dp).fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp)).background(ReviewBannerBg)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Default.Verified, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(10.dp))
-                Text("Smart Review — checking ${reviewBlocks?.size ?: 0} blocks…", fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer)
             }
         }
 
@@ -389,40 +408,6 @@ fun SessionDetailScreen(
                     }
                 }
                 content.isBlank() -> Text("No transcription available.", fontSize = 15.sp, color = cs.onSurfaceVariant)
-                reviewBlocks != null && reviewFlags.isNotEmpty() -> {
-                    // Smart Review results — flagged blocks get the amber card with Keep/Fix.
-                    val blocks = reviewBlocks!!
-                    Column {
-                        blocks.forEachIndexed { i, block ->
-                            val flag = reviewFlags[i]
-                            if (flag != null) {
-                                SmartReviewFlaggedBlock(
-                                    text = block,
-                                    highlight = null,
-                                    warningTitle = "Possible issue",
-                                    warningBody = flag.reason ?: "Smart Review suggests a correction. Fix applies it.",
-                                    fixLabel = "Fix",
-                                    onKeep = {
-                                        val left = reviewFlags - i
-                                        reviewFlags = left
-                                        if (left.isEmpty()) reviewBlocks = null
-                                    },
-                                    onFix = {
-                                        val newBlocks = blocks.toMutableList().also { it[i] = flag.newText }
-                                        viewModel.updateSession(
-                                            currentSession.copy(formattedText = newBlocks.joinToString("\n\n")))
-                                        val left = reviewFlags - i
-                                        reviewFlags = left
-                                        reviewBlocks = if (left.isEmpty()) null else newBlocks
-                                    },
-                                )
-                            } else {
-                                com.mikepenz.markdown.m3.Markdown(content = block)
-                            }
-                            Spacer(Modifier.height(14.dp))
-                        }
-                    }
-                }
                 viewMode == "Formatted" && hasFormatted -> {
                     // Dialogue renderer when the note reads as speaker-labelled lines; markdown otherwise.
                     val dialogue = remember(content) { parseDialogue(content) }
@@ -434,25 +419,37 @@ fun SessionDetailScreen(
             Spacer(Modifier.height(16.dp))
         }
 
-        // Smart Review summary bar — real issue count while results are on screen.
-        if (reviewBlocks != null && reviewFlags.isNotEmpty()) {
-            Column {
-                HorizontalDivider(thickness = 1.dp, color = cs.outlineVariant)
-                Box(
-                    Modifier.padding(horizontal = 22.dp, vertical = 12.dp).fillMaxWidth().height(46.dp)
-                        .clip(RoundedCornerShape(23.dp)).background(cs.primaryContainer),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Verified, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(19.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Smart Review · ${reviewFlags.size} issue${if (reviewFlags.size == 1) "" else "s"} found",
-                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer)
-                    }
-                }
-                Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+        // Action pills — docked above the player so the two most-used things (Edit, Copy)
+        // are a single tap from anywhere in the note.
+        HorizontalDivider(thickness = 1.dp, color = cs.outlineVariant)
+        Row(
+            Modifier.fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ActionPill(Icons.Outlined.Edit, "Edit") {
+                bodyOriginal = currentText()
+                bodyDraft = bodyOriginal
+                editingBody = true
             }
-        } else if (currentSession.audioPath == null && currentSession.storagePath == null &&
+            ActionPill(Icons.Default.ContentCopy, "Copy") {
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(currentText()))
+                android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            ActionPill(Icons.Default.Mic, "Add recording") { onAppendRecording(currentSession) }
+            ActionPill(Icons.Default.Share, "Share") {
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, currentSession.title)
+                    putExtra(android.content.Intent.EXTRA_TEXT, currentText())
+                }
+                context.startActivity(android.content.Intent.createChooser(send, "Share note"))
+            }
+        }
+
+        if (currentSession.audioPath == null && currentSession.storagePath == null &&
             currentSession.extraRecordings.isEmpty()) {
             // Detail · no-audio — muted row replaces the player.
             Column {
@@ -476,21 +473,27 @@ fun SessionDetailScreen(
     }
 }
 
-/** Reviewing chip — Primary-Container pill with a spinning autorenew glyph (§2.5 Polishing style). */
+/**
+ * One docked action. Labelled, not icon-only: an unlabelled glyph row is a guessing game,
+ * and these are the actions people reach for constantly.
+ */
 @Composable
-private fun ReviewingChip() {
+private fun ActionPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
     val cs = MaterialTheme.colorScheme
-    val t = rememberInfiniteTransition(label = "rev")
-    val angle by t.animateFloat(0f, 360f, infiniteRepeatable(tween(1550, easing = androidx.compose.animation.core.LinearEasing)), label = "ra")
     Row(
-        Modifier.clip(RoundedCornerShape(50)).background(cs.primaryContainer)
-            .padding(horizontal = 12.dp, vertical = 5.dp),
+        Modifier.clip(RoundedCornerShape(50))
+            .background(cs.surfaceContainerHigh)
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Default.Autorenew, null, tint = cs.onPrimaryContainer,
-            modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = angle })
-        Spacer(Modifier.width(6.dp))
-        Text("Reviewing", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer)
+        Icon(icon, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(17.dp))
+        Spacer(Modifier.width(7.dp))
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
     }
 }
 
@@ -559,68 +562,6 @@ private fun DialogueBody(items: List<DialogueItem>) {
                         modifier = Modifier.align(Alignment.CenterVertically))
                 }
             }
-        }
-    }
-}
-
-// ---------- Smart Review flagged block ----------
-
-/**
- * Droppable Smart Review component — a flagged block with amber border, highlighted span,
- * warning sub-panel, and Keep/Fix actions. The AI review pipeline will feed these later.
- */
-@Composable
-fun SmartReviewFlaggedBlock(
-    text: String,
-    highlight: String?,
-    warningTitle: String,
-    warningBody: String,
-    fixLabel: String,
-    onKeep: () -> Unit,
-    onFix: () -> Unit,
-) {
-    val cs = MaterialTheme.colorScheme
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(ReviewAmberBg)
-            .border(2.dp, ReviewAmber, RoundedCornerShape(14.dp)).padding(14.dp)
-    ) {
-        val annotated = androidx.compose.ui.text.buildAnnotatedString {
-            val idx = if (highlight != null) text.indexOf(highlight) else -1
-            if (idx >= 0 && highlight != null) {
-                append(text.substring(0, idx))
-                pushStyle(androidx.compose.ui.text.SpanStyle(background = ReviewAmberHighlight))
-                append(highlight)
-                pop()
-                append(text.substring(idx + highlight.length))
-            } else append(text)
-        }
-        Text(annotated, fontSize = 14.sp, lineHeight = 21.sp, color = cs.onSurface)
-        Spacer(Modifier.height(12.dp))
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(YapTheme.extended.offlineContainer)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-        ) {
-            Icon(Icons.Default.Warning, null, tint = YapTheme.extended.onOfflineContainer, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(9.dp))
-            Column {
-                Text(warningTitle, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = YapTheme.extended.onOfflineContainer)
-                Text(warningBody, fontSize = 11.sp, lineHeight = 15.sp,
-                    color = YapTheme.extended.onOfflineContainer.copy(alpha = 0.85f))
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
-                    .border(1.dp, ReviewAmber, RoundedCornerShape(10.dp))
-                    .clickable { onKeep() }.padding(vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) { Text("Keep", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = YapTheme.extended.onOfflineContainer) }
-            Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(ReviewAmber)
-                    .clickable { onFix() }.padding(vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) { Text(fixLabel, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF3A2600)) }
         }
     }
 }
