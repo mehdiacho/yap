@@ -39,6 +39,10 @@
   --warn-bg: #ffe0b2;
   --ok-fg: #1c6b47;
   --ok-bg: #cdeeda;
+  /* Failure, distinct from warning: a note whose transcription didn't land. Keyed off the
+     kit's coral rather than a new hue, so it reads as the same family as --recording. */
+  --err-fg: #8c2f2f;
+  --err-bg: #ffdcdc;
 
   /* ---- Radii (§1.5) ---- */
   --radius-sm: 8px;
@@ -110,6 +114,8 @@
   --warn-bg: #4a3510;
   --ok-fg: #9cd5b3;
   --ok-bg: #163a29;
+  --err-fg: #ffb4b4;
+  --err-bg: #4a1c1c;
 
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.5);

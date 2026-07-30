@@ -26,8 +26,16 @@ export interface Session {
   formattedText: string | null;
   audioPath: string | null;
   storagePath: string | null;
-  /** DRAFT | TRANSCRIBING | DONE | FAILED */
+  /** DRAFT | TRANSCRIBING | DONE | FAILED | QUOTA | POLISHING */
   status: string;
+  /**
+   * Why a FAILED note failed, written by the backend (functions/src/providerErrors.ts).
+   * PROVIDER_CREDIT | PROVIDER_RATE_LIMIT | PROVIDER_AUTH | PROVIDER_UNAVAILABLE |
+   * AUDIO_REJECTED | UNKNOWN. Null on every other status.
+   */
+  statusReason: string | null;
+  /** Human-readable explanation for the same, shown verbatim. */
+  statusMessage: string | null;
   createdAt: number;
   durationMs: number;
   category: string;
@@ -62,6 +70,8 @@ export function toSession(snap: DocumentSnapshot): Session | null {
     audioPath: strOrNull(d.audioPath),
     storagePath: strOrNull(d.storagePath),
     status: str(d.status, "DONE"),
+    statusReason: strOrNull(d.statusReason),
+    statusMessage: strOrNull(d.statusMessage),
     createdAt: num(d.createdAt),
     durationMs: num(d.durationMs),
     category: str(d.category, "Memo"),

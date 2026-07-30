@@ -3,6 +3,7 @@ import type { User } from "firebase/auth";
 import Icon from "../../components/Icon";
 import { getShell, type Shell } from "../../lib/shell";
 import type { ThemeChoice } from "../../lib/theme";
+import { clearByokKey, getByokStatus, setByokKey, type ByokStatus } from "../../data/byok";
 
 const THEMES: { id: ThemeChoice; label: string; icon: string }[] = [
   { id: "system", label: "System", icon: "contrast" },
@@ -97,6 +98,9 @@ export default function Settings({
           </div>
         </div>
 
+        <h2 className="eyebrow">AI key</h2>
+        <ByokSection />
+
         <h2 className="eyebrow">About</h2>
         <div className="group">
           <div className="row">
@@ -112,6 +116,140 @@ export default function Settings({
         <p className="settings__foot">
           Signed in as {user.email ?? user.uid} · project yap-mehdiacho
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Bring-your-own-key. Saving is an explicit button, never a debounce on typing: verifying a
+ * key means spending a real request against it, and firing that per keystroke would bill
+ * the user for their own typing.
+ */
+function ByokSection() {
+  const [status, setStatus] = useState<ByokStatus | null>(null);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    getByokStatus()
+      .then((s) => alive && setStatus(s))
+      .catch(
+        () =>
+          alive &&
+          setStatus({ unlocked: false, active: false, provider: null, keyHint: null, updatedAt: null }),
+      );
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (!status) {
+    return (
+      <div className="group">
+        <div className="row">
+          <Icon name="key" size={20} />
+          <span className="row__label">Checking…</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!status.unlocked) {
+    return (
+      <div className="group">
+        <div className="row">
+          <Icon name="lock" size={20} />
+          <span className="row__label">
+            Bring your own key
+            <em className="row__sub">
+              Unlock BYOK in the phone app (one-off purchase, or invite 5 friends) to use your
+              own Gemini key with no monthly cap.
+            </em>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const save = async () => {
+    const candidate = key.trim();
+    if (!candidate) return;
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const hint = await setByokKey(candidate);
+      setStatus({ ...status, active: true, provider: "gemini", keyHint: hint });
+      setKey("");
+      setNote("Key verified and saved. Transcription now runs on it.");
+    } catch (e) {
+      // The server tells apart "wrong key" from "right key, empty billing account".
+      setError((e as Error)?.message || "Couldn't verify that key.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      await clearByokKey();
+      setStatus({ ...status, active: false, provider: null, keyHint: null });
+      setNote("Key removed — back to the built-in allowance.");
+    } catch (e) {
+      setError((e as Error)?.message || "Couldn't remove the key.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="group">
+      <div className="row">
+        <Icon name={status.active ? "key" : "key_off"} size={20} />
+        <span className="row__label">
+          Gemini key
+          <em className="row__sub">
+            {status.active
+              ? `Active · ending ${status.keyHint ?? "••••"}. You're billed by Google directly, with no monthly cap.`
+              : "No key set — transcription uses the built-in monthly allowance."}
+          </em>
+        </span>
+        {status.active && (
+          <button className="btn btn--quiet" onClick={remove} disabled={busy}>
+            Remove
+          </button>
+        )}
+      </div>
+      <div className="row">
+        <Icon name="password" size={20} />
+        <span className="row__label">
+          <input
+            className="input"
+            type="password"
+            value={key}
+            placeholder={status.active ? "Replace key — AIza…" : "AIza…"}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={busy}
+            onChange={(e) => {
+              setKey(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+          />
+          {error && <em className="row__sub row__sub--error">{error}</em>}
+          {note && !error && <em className="row__sub">{note}</em>}
+        </span>
+        <button className="btn" onClick={save} disabled={busy || !key.trim()}>
+          {busy ? "Verifying…" : "Verify & save"}
+        </button>
       </div>
     </div>
   );

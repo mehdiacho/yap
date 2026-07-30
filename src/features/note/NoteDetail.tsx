@@ -173,6 +173,37 @@ export default function NoteDetail({
       </header>
 
       <div className="detail__scroll">
+        {/*
+         * A failed note is not an empty note. Without this the page rendered "This note has
+         * no text.", which reads as "nothing was recorded" — the opposite of the truth. The
+         * audio is intact; only the transcription didn't land, and statusMessage says why.
+         */}
+        {s.status === "FAILED" && (
+          <div className="banner banner--error" role="status">
+            <Icon name="error" size={17} />
+            <div>
+              <strong>Transcription didn&apos;t finish</strong>
+              <span>
+                {s.statusMessage?.trim() ||
+                  "Your recording is safe — only the transcription failed."}
+                {s.statusReason === "PROVIDER_CREDIT" &&
+                  " Retry from the phone app once it's topped up."}
+              </span>
+            </div>
+          </div>
+        )}
+        {s.status === "QUOTA" && (
+          <div className="banner banner--error" role="status">
+            <Icon name="error" size={17} />
+            <div>
+              <strong>Monthly limit reached</strong>
+              <span>
+                The audio is saved. It can be transcribed after an upgrade, a promo code, or
+                when the cycle resets.
+              </span>
+            </div>
+          </div>
+        )}
         <article className="md">
           {body.trim() ? (
             view === "raw" || !refined ? (
