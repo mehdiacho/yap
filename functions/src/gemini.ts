@@ -332,6 +332,91 @@ Only pure JSON, no commentary.`;
   }
 }
 
+export interface OccurrenceVerdict {
+  index: number;
+  /** True when this occurrence looks like the word was MEANT — i.e. do not change it. */
+  intentional: boolean;
+  /** Short reason, shown only when intentional. */
+  reason: string;
+}
+
+/**
+ * Given one hand-made correction and every remaining occurrence of the old word (each as a
+ * short context snippet), say which ones look deliberate.
+ *
+ * Purely advisory. The client finds occurrences itself with a literal scan — offline,
+ * instant, deterministic — and this only annotates them. If it fails, times out, or returns
+ * nonsense, the user still gets the full list and decides; nothing here is on the critical
+ * path. That ordering matters: fixing a typo should never depend on a model round trip.
+ *
+ * It is asked to flag ONLY the clear cases, because a false caution on a genuine mistake is
+ * worse than no caution at all — it makes the user second-guess a fix they already know is
+ * right, which is the whole reason they used this feature.
+ */
+export async function judgeCorrectionOccurrences(
+  from: string,
+  to: string,
+  snippets: string[],
+  apiKey: string
+): Promise<OccurrenceVerdict[]> {
+  if (snippets.length === 0) return [];
+  const ai = new GoogleGenAI({ apiKey });
+
+  const prompt = `A user corrected a speech-transcription error: the word "${from}" should have been "${to}".
+
+They want to apply the same fix elsewhere in the document. Below are the remaining places "${from}" appears, with surrounding context.
+
+For each one, decide whether "${from}" was ACTUALLY INTENDED there — i.e. changing it to "${to}" would be WRONG.
+
+${snippets.map((s, i) => `[${i}] …${s}…`).join("\n")}
+
+Rules:
+- Default to intentional: false. The user already knows this transcription error is systematic.
+- Only set intentional: true when the context makes the original word clearly correct — a different, well-established meaning ("cloud storage", "cloud computing", weather).
+- A false alarm is costly: it makes the user doubt a fix they know is right. When unsure, say false.
+- reason: at most 8 words, and only when intentional is true. Otherwise "".
+
+Return ONLY JSON: {"verdicts":[{"index":number,"intentional":boolean,"reason":string}]}`;
+
+  const res = await ai.models.generateContent({
+    model: MODEL,
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          verdicts: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                index: { type: Type.INTEGER },
+                intentional: { type: Type.BOOLEAN },
+                reason: { type: Type.STRING },
+              },
+              required: ["index", "intentional", "reason"],
+            },
+          },
+        },
+        required: ["verdicts"],
+      },
+    },
+  });
+
+  try {
+    const text = (res.text || "{}").replace(/```json/g, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(text).verdicts;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (v: any) =>
+        typeof v?.index === "number" && v.index >= 0 && v.index < snippets.length
+    );
+  } catch {
+    return [];
+  }
+}
+
 async function formalize(
   ai: GoogleGenAI,
   rawText: string

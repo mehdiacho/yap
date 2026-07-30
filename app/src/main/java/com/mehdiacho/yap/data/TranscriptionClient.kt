@@ -208,30 +208,36 @@ object TranscriptionClient {
         )
     }
 
-    data class ReviewedBlock(
-        val blockIndex: Int,
-        val newText: String,
-        val flagged: Boolean,
-        val reason: String?,
-    )
+    /** One occurrence the model thinks was deliberate; [reason] is short and shown inline. */
+    data class OccurrenceVerdict(val index: Int, val intentional: Boolean, val reason: String)
 
-    /** Smart Review — sends paragraph blocks, returns flagged/corrected blocks. */
-    suspend fun smartReview(blocks: List<String>): List<ReviewedBlock> {
+    /**
+     * Advisory pass over propagated corrections — which remaining occurrences look
+     * intentional ("cloud storage" when correcting cloud→Claude).
+     *
+     * Purely optional. The occurrence list is produced locally by [TextCorrections] and is
+     * shown before this returns; callers are expected to time it out and carry on. Fixing a
+     * typo must never wait on the network.
+     */
+    suspend fun reviewCorrections(
+        from: String,
+        to: String,
+        snippets: List<String>,
+    ): List<OccurrenceVerdict> {
         ensureSignedIn()
-        val payload = hashMapOf(
-            "blocks" to blocks.map { hashMapOf("versions" to listOf(it), "activeIndex" to 0) }
+        val result = awaitTask(
+            functions.getHttpsCallable("reviewCorrections")
+                .withTimeout(30, TimeUnit.SECONDS)
+                .call(hashMapOf("from" to from, "to" to to, "snippets" to snippets))
         )
-        val result = awaitTask(functions.getHttpsCallable("smartReview").call(payload))
         @Suppress("UNCHECKED_CAST")
         val map = result.getData() as? Map<String, Any?> ?: emptyMap()
-        val updated = map["updatedBlocks"] as? List<*> ?: emptyList<Any>()
-        return updated.mapNotNull { item ->
+        return (map["verdicts"] as? List<*> ?: emptyList<Any>()).mapNotNull { item ->
             val m = item as? Map<*, *> ?: return@mapNotNull null
-            ReviewedBlock(
-                blockIndex = (m["blockIndex"] as? Number)?.toInt() ?: return@mapNotNull null,
-                newText = m["newText"] as? String ?: "",
-                flagged = m["flagged"] as? Boolean ?: false,
-                reason = m["reason"] as? String,
+            OccurrenceVerdict(
+                index = (m["index"] as? Number)?.toInt() ?: return@mapNotNull null,
+                intentional = m["intentional"] as? Boolean ?: false,
+                reason = m["reason"] as? String ?: "",
             )
         }
     }
