@@ -424,6 +424,7 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                     viewModel = viewModel,
                     sessionId = sessionId,
                     onOpenSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
+                    onOpenApiKey = { navController.navigate(Routes.BYOK_KEY) },
                     onAppendRecording = { session ->
                         // Append-to-note: the next recording merges into this note.
                         viewModel.setAppendTarget(session)

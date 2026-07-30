@@ -14,5 +14,9 @@ service cloud.firestore {
       allow read: if request.auth != null && request.auth.uid == uid;
     }
     // promos/* has no client rule at all → fully server-side.
+
+    // byokKeys/{uid} likewise has NO rule, deliberately: it holds users' own provider API
+    // keys (encrypted), and not even the owner may read one back. The readable summary
+    // (byokActive / byokKeyHint) lives on entitlements/{uid} above. Do not add a rule here.
   }
 }

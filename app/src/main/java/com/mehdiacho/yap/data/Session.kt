@@ -16,7 +16,12 @@ data class Session(
     val formattedText: String? = null,
     val audioPath: String? = null,     // local file on this device (may not exist on others)
     val storagePath: String? = null,   // canonical copy in Cloud Storage (users/{uid}/audio/…)
-    val status: String = "DRAFT",      // TRANSCRIBING, DONE, FAILED
+    val status: String = "DRAFT",      // TRANSCRIBING, DONE, FAILED, QUOTA, POLISHING
+    // Why a FAILED note failed. The server sets these (see functions/src/providerErrors.ts)
+    // so "the AI account needs topping up" doesn't read the same as "that audio was bad".
+    // Both null on every other status.
+    val statusReason: String? = null,  // PROVIDER_CREDIT, PROVIDER_RATE_LIMIT, PROVIDER_AUTH, …
+    val statusMessage: String? = null, // human-readable, shown verbatim on the note
     val createdAt: Long = System.currentTimeMillis(),
     val durationMs: Long = 0L,
     val category: String = "Memo",
