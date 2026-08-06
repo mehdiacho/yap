@@ -95,6 +95,10 @@ class FirestoreSessionRepository {
                 "bookmarks" to it.bookmarks,
             )
         },
+        "actionItems" to actionItems.map {
+            mapOf("id" to it.id, "text" to it.text, "done" to it.done, "doneAt" to it.doneAt)
+        },
+        "enrichVersion" to enrichVersion,
     )
 
     private fun DocumentSnapshot.toSession(): Session? {
@@ -127,6 +131,20 @@ class FirestoreSessionRepository {
                     )
                 }
             } ?: emptyList(),
+            actionItems = (get("actionItems") as? List<*>)?.mapNotNull { raw ->
+                (raw as? Map<*, *>)?.let { m ->
+                    val text = m["text"] as? String ?: return@mapNotNull null
+                    ActionItem(
+                        // Older writes may predate stable ids; fall back to the text so a
+                        // tick still binds to something rather than being dropped.
+                        id = m["id"] as? String ?: text.hashCode().toString(),
+                        text = text,
+                        done = m["done"] as? Boolean ?: false,
+                        doneAt = (m["doneAt"] as? Number)?.toLong(),
+                    )
+                }
+            } ?: emptyList(),
+            enrichVersion = (get("enrichVersion") as? Number)?.toInt() ?: 0,
         )
     }
 

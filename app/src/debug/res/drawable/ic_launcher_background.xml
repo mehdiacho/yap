@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Dev-build launcher background: the Google-colours gradient from the "Continue with Google"
+  button (GoogleGradientButton in AuthComponents.kt), in place of the brand purple.
+
+  Debug-only override — AGP merges this source set over src/main, so the Play build keeps the
+  purple mark untouched. The foreground (waveform + spark) is shared, so the two icons differ
+  only in background, which is the point: at a glance on the launcher you can tell the dev
+  build from the real one without reading the label.
+
+  Stops are deliberately NOT evenly spaced. The button runs its palette horizontally behind
+  large text; an icon runs it diagonally behind thin white bars, and the icon's centre — where
+  the tallest bars sit — falls at offset 0.5. Evenly spaced stops would put Google yellow
+  (#FBBC05) exactly there, and white-on-yellow at launcher size is unreadable. Compressing the
+  early stops moves the centre onto green/blue and pushes yellow up into the corner, keeping
+  the same four colours in the same order.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF4285F4" />
+                <item android:offset="0.20" android:color="#FFEA4335" />
+                <item android:offset="0.38" android:color="#FFFBBC05" />
+                <item android:offset="0.66" android:color="#FF34A853" />
+                <item android:offset="1.0" android:color="#FF4285F4" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.BubbleChart
 import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Colorize
@@ -47,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
+import com.mehdiacho.yap.ui.theme.brandBrush
+import com.mehdiacho.yap.ui.theme.brandTint
 import kotlinx.coroutines.launch
 
 // =====================================================================================
@@ -146,7 +149,8 @@ fun CaptureSettingsScreen(onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Auto-stop after silence", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                     color = cs.onSurface, modifier = Modifier.weight(1f))
-                Text("${autoStopSecs.toInt()}s", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = cs.primary)
+                Text("${autoStopSecs.toInt()}s", fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                    style = androidx.compose.ui.text.TextStyle(brush = com.mehdiacho.yap.ui.theme.brandTextBrush(seed = 11)))
             }
             Text("Stops recording when you go quiet.", fontSize = 12.sp, color = cs.onSurfaceVariant)
             Spacer(Modifier.height(10.dp))
@@ -264,7 +268,10 @@ fun PrivacySettingsScreen(onBack: () -> Unit) {
                         modifier = Modifier
                             .padding(end = 6.dp)
                             .clip(RoundedCornerShape(50))
-                            .background(if (selected) cs.primaryContainer else cs.surfaceContainer)
+                            .then(
+                                if (selected) Modifier.background(brandBrush(forSmallText = true, seed = 12))
+                                else Modifier.background(cs.surfaceContainer)
+                            )
                             .clickable { store.setLockTimeoutMins(mins) }
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                     )
@@ -469,8 +476,11 @@ private fun RowScope.ThemeSwatch(
         ) {
             Box(Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(dot))
             if (isSel) {
-                Icon(Icons.Default.CheckCircle, null, tint = cs.primary,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(18.dp))
+                Icon(
+                    Icons.Default.CheckCircle, null, tint = Color.White,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(18.dp)
+                        .brandTint(seed = 14),
+                )
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -483,7 +493,7 @@ private fun RowScope.ThemeSwatch(
 // -------------------------------------------------------------- Settings · Transcription
 
 @Composable
-fun TranscriptionSettingsScreen(onBack: () -> Unit) {
+fun TranscriptionSettingsScreen(onBack: () -> Unit, viewModel: com.mehdiacho.yap.ui.MainViewModel? = null) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
     val store = com.mehdiacho.yap.data.SettingsStore
@@ -493,8 +503,33 @@ fun TranscriptionSettingsScreen(onBack: () -> Unit) {
         android.widget.Toast.makeText(context, "$what coming soon", android.widget.Toast.LENGTH_SHORT).show()
 
     SettingsSubScaffold("Transcription", onBack) {
+        // The batch pass for older notes. Explicit rather than automatic: it costs a model
+        // call per note, and spending someone's quota unannounced the first time they open
+        // the app after an update isn't ours to decide.
+        if (viewModel != null) {
+            val progress by viewModel.backfillProgress.collectAsState()
+            val sessions by viewModel.allSessions.collectAsState()
+            val stale = sessions.count {
+                it.enrichVersion < com.mehdiacho.yap.data.CURRENT_ENRICH_VERSION && it.trashedAt == null
+            }
+            SubRow(
+                Icons.Outlined.Checklist,
+                "Scan notes for tasks",
+                when {
+                    progress != null -> "Scanning ${progress!!.first} of ${progress!!.second}…"
+                    stale == 0 -> "All notes up to date"
+                    else -> "$stale note${if (stale == 1) "" else "s"} recorded before tasks existed"
+                },
+                onClick = { if (progress == null && stale > 0) viewModel.backfillActionItems() },
+            ) {
+                if (progress != null) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                else if (stale > 0) Text("Run", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.primary)
+            }
+        }
+
         SubRow(Icons.Outlined.Translate, "Language", "Auto-detect · override", onClick = { stub("Language override") }) {
-            Text("Auto", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.primary)
+            Text("Auto", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                style = androidx.compose.ui.text.TextStyle(brush = com.mehdiacho.yap.ui.theme.brandTextBrush(seed = 13)))
         }
         SubRow(Icons.Outlined.Subtitles, "Default VTT / subtitles", "Add timed captions on export") {
             Switch(checked = vtt, onCheckedChange = { store.setVttExport(it) })
@@ -507,7 +542,8 @@ fun TranscriptionSettingsScreen(onBack: () -> Unit) {
                     Text("Standard (Fast)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
                     Text("Best for quick capture", fontSize = 12.sp, color = cs.onSurfaceVariant)
                 }
-                Icon(Icons.Default.RadioButtonChecked, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+                Icon(Icons.Default.RadioButtonChecked, null, tint = Color.White,
+                    modifier = Modifier.size(22.dp).brandTint(seed = 15))
             }
             HorizontalDivider(Modifier.padding(vertical = 14.dp), thickness = 1.dp, color = cs.surfaceVariant)
             Row {
@@ -531,7 +567,7 @@ fun TranscriptionSettingsScreen(onBack: () -> Unit) {
                 Text("+320 MB · download to enable", fontSize = 12.sp, color = ext.subdued)
             }
             Box(
-                Modifier.clip(RoundedCornerShape(50)).background(cs.primaryContainer)
+                Modifier.clip(RoundedCornerShape(50)).background(brandBrush(forSmallText = true, seed = 16))
                     .clickable { stub("Model download") }.padding(horizontal = 14.dp, vertical = 7.dp),
             ) { Text("Get", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer) }
         }

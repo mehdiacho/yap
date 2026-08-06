@@ -401,7 +401,7 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
             composable(Routes.SETTINGS_CAPTURE) { CaptureSettingsScreen(onBack = { navController.popBackStack() }) }
             composable(Routes.SETTINGS_PRIVACY) { PrivacySettingsScreen(onBack = { navController.popBackStack() }) }
             composable(Routes.SETTINGS_APPEARANCE) { AppearanceSettingsScreen(onBack = { navController.popBackStack() }) }
-            composable(Routes.SETTINGS_TRANSCRIPTION) { TranscriptionSettingsScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.SETTINGS_TRANSCRIPTION) { TranscriptionSettingsScreen(onBack = { navController.popBackStack() }, viewModel = viewModel) }
             composable(Routes.SETTINGS_ABOUT) { AboutSettingsScreen(onBack = { navController.popBackStack() }) }
             composable(Routes.SETTINGS_RESCUE) {
                 RescueRecordingsScreen(
@@ -489,19 +489,25 @@ fun NavBarItem(
             .clickable { onClick() }
             .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
-        // Design: 56 x 30 pill, active fill only.
+        // Design: 56 x 30 pill, active fill only — now the brand gradient rather than a flat
+        // container. The glyph inside stays a solid colour: gradient-on-gradient would lose
+        // the icon entirely, and the selected item has to stay the most readable thing here.
+        val brand = com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 1)
         Box(
             modifier = Modifier
                 .size(width = 56.dp, height = 30.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+                .then(
+                    if (isSelected) Modifier.background(brand)
+                    else Modifier.background(Color.Transparent)
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 if (isSelected) selectedIcon else unselectedIcon,
                 contentDescription = label,
                 modifier = Modifier.size(23.dp),
-                tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                tint = if (isSelected) Color.White
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

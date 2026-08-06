@@ -11,6 +11,7 @@ import com.mehdiacho.yap.audio.RecorderEvent
 import com.mehdiacho.yap.audio.RecordingBus
 import com.mehdiacho.yap.data.FirestoreSessionRepository
 import com.mehdiacho.yap.data.OrphanRecordings
+import com.mehdiacho.yap.data.CURRENT_ENRICH_VERSION
 import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.data.TranscriptionClient
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +65,117 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
     fun consumeNotice() { _notice.value = null }
+
+    /**
+     * Category chosen on the Capture screen before recording starts.
+     *
+     * Held here rather than in the screen so it survives navigating away mid-thought, and so
+     * the transcription path can read it without threading it through four call sites.
+     */
+    private val _pendingCategory = MutableStateFlow<String?>(null)
+    val pendingCategory: StateFlow<String?> = _pendingCategory.asStateFlow()
+    fun setPendingCategory(category: String?) {
+        _pendingCategory.value = category?.takeIf { it.isNotBlank() }
+    }
+
+    /** Progress of the action-item backfill: null when idle, else done-count to total. */
+    private val _backfillProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+    val backfillProgress: StateFlow<Pair<Int, Int>?> = _backfillProgress.asStateFlow()
+
+    /** Tick or untick a task on a note. */
+    fun setActionItemDone(session: Session, itemId: String, done: Boolean) {
+        viewModelScope.launch {
+            val updated = session.copy(
+                actionItems = session.actionItems.map {
+                    if (it.id == itemId) it.copy(done = done, doneAt = if (done) System.currentTimeMillis() else null)
+                    else it
+                }
+            )
+            runCatching { repository.upsert(updated) }
+                .onFailure { Log.e("Yap", "task toggle failed: ${it.message}", it) }
+        }
+    }
+
+    /**
+     * Bring every older note up to [CURRENT_ENRICH_VERSION].
+     *
+     * The alternative — making every screen cope with notes that predate a feature — is how
+     * codebases accumulate "if this field is missing" branches that never get removed. One
+     * pass, one shape, and readers can assume the field is there.
+     *
+     * Explicit rather than automatic on launch: it costs a model call per note, and silently
+     * spending someone's quota (or their own API credit) the first time they open the app
+     * after an update isn't ours to decide.
+     */
+    fun backfillActionItems() {
+        if (_backfillProgress.value != null) return // already running
+        viewModelScope.launch {
+            val stale = allSessions.value.filter {
+                it.enrichVersion < CURRENT_ENRICH_VERSION && it.trashedAt == null
+            }
+            if (stale.isEmpty()) {
+                _notice.value = "All notes are already up to date."
+                return@launch
+            }
+            _backfillProgress.value = 0 to stale.size
+            var processed = 0
+            try {
+                // Server caps a batch at 10; page through so a large library still completes.
+                stale.chunked(10).forEach { chunk ->
+                    val texts = chunk.map { it.id to (it.formattedText?.takeIf { t -> t.isNotBlank() } ?: it.draftText) }
+                    val results = TranscriptionClient.enrichNotes(texts)
+                    chunk.forEach { session ->
+                        val tasks = results[session.id]
+                        // Absent means that note failed; leave its version alone so the next
+                        // run retries it rather than marking it done with nothing.
+                        if (tasks != null) {
+                            runCatching {
+                                repository.upsert(
+                                    session.copy(
+                                        actionItems = mergeTasks(session.actionItems, tasks, session.id),
+                                        enrichVersion = CURRENT_ENRICH_VERSION,
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    processed += chunk.size
+                    _backfillProgress.value = processed to stale.size
+                }
+                _notice.value = "Scanned ${stale.size} note${if (stale.size == 1) "" else "s"} for tasks."
+            } catch (e: Exception) {
+                Log.e("Yap", "backfill failed: ${e.message}", e)
+                _notice.value = e.message?.takeIf { it.isNotBlank() }
+                    ?: "Couldn't finish scanning. Already-scanned notes are saved."
+            } finally {
+                _backfillProgress.value = null
+            }
+        }
+    }
+
+    /**
+     * Keep completion state across a re-extraction.
+     *
+     * Tasks are matched by text, not position: re-running the extractor on an edited note can
+     * reorder, add or drop items, and losing every tick because a sentence moved would make
+     * the feature untrustworthy the first time it happened.
+     */
+    private fun mergeTasks(
+        existing: List<com.mehdiacho.yap.data.ActionItem>,
+        fresh: List<String>,
+        sessionId: String,
+    ): List<com.mehdiacho.yap.data.ActionItem> {
+        val byText = existing.associateBy { it.text.trim().lowercase() }
+        return fresh.mapIndexed { i, text ->
+            val prior = byText[text.trim().lowercase()]
+            com.mehdiacho.yap.data.ActionItem(
+                id = prior?.id ?: "$sessionId-$i",
+                text = text,
+                done = prior?.done ?: false,
+                doneAt = prior?.doneAt,
+            )
+        }
+    }
 
     // Recordings on disk that no note references. Populated on demand by the recovery
     // screen rather than continuously — it's a rare-path tool, not library state.
@@ -279,6 +391,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             durationMs = durationMs,
             status = "TRANSCRIBING",
             bookmarks = bookmarks,
+            // Applied straight away so the note is filed correctly while it transcribes,
+            // not only once the server answers.
+            category = _pendingCategory.value ?: "Memo",
         )
         try {
             repository.upsert(session)
@@ -302,8 +417,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         try {
+            val chosenCategory = _pendingCategory.value
             val r = TranscriptionClient.transcribe(
-                File(audioPath), mimeType, durationMs, sessionId = session.id
+                File(audioPath), mimeType, durationMs, sessionId = session.id,
+                category = chosenCategory,
             )
             val title = r.name.ifBlank { "Recording" }
             repository.upsert(
@@ -311,9 +428,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     title = title,
                     draftText = r.rawText,
                     formattedText = r.formattedText,
-                    category = r.category.ifBlank { "Memo" },
+                    // The user's pick wins over the model's guess.
+                    category = chosenCategory ?: r.category.ifBlank { "Memo" },
                     topicCluster = r.topicCluster.ifBlank { "General" },
                     storagePath = r.storagePath,
+                    actionItems = mergeTasks(emptyList(), r.actionItems, session.id),
+                    enrichVersion = CURRENT_ENRICH_VERSION,
                     status = "DONE",
                     statusReason = null,
                     statusMessage = null,
