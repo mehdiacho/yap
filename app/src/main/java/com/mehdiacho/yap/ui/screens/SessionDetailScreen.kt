@@ -57,6 +57,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 
+/**
+ * The two ways to read a note.
+ *
+ * "Formatted" and "Raw" described how the text was produced, not what you get. **Note** is the
+ * one you live in — the tidied prose plus everything the enrichment pass pulled out of it
+ * (tasks today, more later). **Transcript** is the verbatim record and stays exactly that:
+ * nothing derived is layered on top, because the whole point of keeping it is to be able to
+ * check what was actually said.
+ */
+private const val NOTE_VIEW = "Note"
+private const val TRANSCRIPT_VIEW = "Transcript"
+
 // Amber accents for Smart Review flagged blocks (design #E0A52E family).
 private val ReviewAmber = Color(0xFFE0A52E)
 private val ReviewAmberBg = Color(0xFFFFF8EC)
@@ -74,7 +86,7 @@ fun SessionDetailScreen(
     // Stable flow: remember by id so we don't recreate the StateFlow every recomposition.
     val sessionFlow = remember(sessionId) { viewModel.getSessionById(sessionId) }
     val session by sessionFlow.collectAsState()
-    var viewMode by remember { mutableStateOf("Formatted") }
+    var viewMode by remember { mutableStateOf(NOTE_VIEW) }
 
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
@@ -110,7 +122,7 @@ fun SessionDetailScreen(
     var correctionChecking by remember { mutableStateOf(false) }
 
     fun currentText(): String =
-        if (viewMode == "Formatted") currentSession.formattedText ?: currentSession.draftText
+        if (viewMode == NOTE_VIEW) currentSession.formattedText ?: currentSession.draftText
         else currentSession.draftText
 
     val hasFormatted = currentSession.formattedText != null
@@ -126,7 +138,7 @@ fun SessionDetailScreen(
             onClose = { editingBody = false },
             onDone = {
                 val saved = bodyDraft
-                val updated = if (viewMode == "Formatted" && hasFormatted)
+                val updated = if (viewMode == NOTE_VIEW && hasFormatted)
                     currentSession.copy(formattedText = saved)
                 else currentSession.copy(draftText = saved)
                 viewModel.updateSession(updated)
@@ -253,7 +265,7 @@ fun SessionDetailScreen(
                     val fixed = com.mehdiacho.yap.data.TextCorrections.apply(base, accepted)
                     if (fixed != base) {
                         viewModel.updateSession(
-                            if (viewMode == "Formatted" && hasFormatted)
+                            if (viewMode == NOTE_VIEW && hasFormatted)
                                 currentSession.copy(formattedText = fixed)
                             else currentSession.copy(draftText = fixed)
                         )
@@ -318,7 +330,7 @@ fun SessionDetailScreen(
                 modifier = Modifier.padding(horizontal = 22.dp).fillMaxWidth().height(46.dp)
                     .clip(RoundedCornerShape(14.dp)).background(cs.surfaceContainer).padding(5.dp)
             ) {
-                listOf("Formatted", "Raw").forEach { mode ->
+                listOf(NOTE_VIEW, TRANSCRIPT_VIEW).forEach { mode ->
                     val selected = viewMode == mode
                     Box(
                         modifier = Modifier.weight(1f).fillMaxHeight()
@@ -352,7 +364,18 @@ fun SessionDetailScreen(
                         Text("Your recording is saved — it can be transcribed after you upgrade, redeem a code, or when your cycle resets.",
                             fontSize = 13.sp, lineHeight = 18.sp, color = cs.onErrorContainer)
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = onOpenSubscription, shape = RoundedCornerShape(50)) { Text("View plans & usage") }
+                        // The banner above promises the recording can be transcribed later,
+                        // and until this button existed there was no way to do it: the
+                        // upgrade landed and the note stayed stuck. Offered unconditionally
+                        // — if the cap is still spent, saying so costs one round trip and
+                        // is better than hiding the only way forward.
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { viewModel.retryTranscription(currentSession) },
+                                shape = RoundedCornerShape(50),
+                            ) { Text("Transcribe now") }
+                            TextButton(onClick = onOpenSubscription) { Text("Plans & usage") }
+                        }
                     }
                 }
                 currentSession.status == "TRANSCRIBING" -> {
@@ -408,7 +431,7 @@ fun SessionDetailScreen(
                     }
                 }
                 content.isBlank() -> Text("No transcription available.", fontSize = 15.sp, color = cs.onSurfaceVariant)
-                viewMode == "Formatted" && hasFormatted -> {
+                viewMode == NOTE_VIEW && hasFormatted -> {
                     // Dialogue renderer when the note reads as speaker-labelled lines; markdown otherwise.
                     val dialogue = remember(content) { parseDialogue(content) }
                     if (dialogue != null) DialogueBody(dialogue)
@@ -417,7 +440,10 @@ fun SessionDetailScreen(
                 else -> Text(content, fontSize = 15.sp, lineHeight = 24.sp, color = cs.onSurface)
             }
 
-            ActionItemsSection(
+            // Derived content belongs to the Note view only. Tasks are something we inferred
+            // FROM the transcript, so showing them under it would misrepresent the one view
+            // whose value is being an unedited record.
+            if (viewMode == NOTE_VIEW) ActionItemsSection(
                 session = currentSession,
                 onToggle = { item, done -> viewModel.setActionItemDone(currentSession, item.id, done) },
                 onAct = { item ->

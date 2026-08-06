@@ -82,6 +82,17 @@ object TranscriptionClient {
         sessionId: String? = null,
         /** Category chosen before recording. Overrides the model's guess server-side. */
         category: String? = null,
+        /**
+         * Called the moment the audio is safely in Cloud Storage, before transcription is
+         * even attempted.
+         *
+         * The upload and the transcription fail independently: hitting the monthly cap
+         * leaves a perfectly good recording sitting in the bucket, and because this
+         * function only returns the path on success, the note used to be left with no
+         * pointer to it. Transcribing it later then meant re-uploading the whole file —
+         * or, after a reinstall, finding the local copy gone and the cloud copy orphaned.
+         */
+        onUploaded: ((String) -> Unit)? = null,
     ): TranscriptionResult {
         ensureSignedIn()
         // Preferred: upload to Cloud Storage, pass the path (no inline size ceiling).
@@ -89,6 +100,7 @@ object TranscriptionClient {
         var uploadedPath: String? = null
         val payload: HashMap<String, Any> = try {
             uploadedPath = uploadAudio(file)
+            onUploaded?.invoke(uploadedPath)
             hashMapOf("storagePath" to uploadedPath, "mimeType" to mimeType, "durationMs" to durationMs)
         } catch (e: Exception) {
             // Inline is a fallback for SMALL clips only. Base64-ing a large file here means
@@ -119,11 +131,14 @@ object TranscriptionClient {
         mimeType: String = "audio/wav",
         durationMs: Long = 0L,
         sessionId: String? = null,
+        /** Category already on the note. Keeps a deliberate filing from being re-guessed. */
+        category: String? = null,
     ): TranscriptionResult {
         ensureSignedIn()
         val payload: HashMap<String, Any> =
             hashMapOf("storagePath" to storagePath, "mimeType" to mimeType, "durationMs" to durationMs)
         sessionId?.let { payload["sessionId"] = it }
+        category?.takeIf { it.isNotBlank() }?.let { payload["category"] = it }
         val result = awaitTask(callable("transcribeSession").call(payload))
         return parseTranscription(result.getData(), storagePath)
     }
@@ -171,6 +186,29 @@ object TranscriptionClient {
             val id = m["id"] as? String ?: return@mapNotNull null
             id to ((m["tasks"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList())
         }.toMap()
+    }
+
+    /**
+     * The cloud copy of a recording, looked up by file name — or null if it isn't there.
+     *
+     * Upload paths are deterministic ([uploadAudio]), so a note that lost its `storagePath`
+     * can still find its own audio. That matters most where it's least visible: a recording
+     * refused at the monthly cap was uploaded before it was refused, and after a reinstall
+     * (or on any other device) the cloud copy is the only copy left. Without this the note
+     * would report its audio as unavailable while the bytes sat in the bucket.
+     */
+    suspend fun findUploadedAudio(fileName: String): String? {
+        if (fileName.isBlank()) return null
+        ensureSignedIn()
+        val uid = auth.currentUser!!.uid
+        val path = "users/$uid/audio/$fileName"
+        return try {
+            awaitTask(FirebaseStorage.getInstance().reference.child(path).metadata)
+            path
+        } catch (e: Exception) {
+            Log.d("Yap", "no cloud copy at $path: ${e.message}")
+            null
+        }
     }
 
     /** Re-upload a (merged) recording to an existing storage path, or create one. */

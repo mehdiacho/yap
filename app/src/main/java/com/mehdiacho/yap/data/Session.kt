@@ -62,6 +62,11 @@ data class Session(
 ) {
     /** True once every task in the note is ticked (and there was at least one). */
     val allDone: Boolean get() = actionItems.isNotEmpty() && actionItems.all { it.done }
+
+    val hasTasks: Boolean get() = actionItems.isNotEmpty()
+    val tasksDone: Int get() = actionItems.count { it.done }
+    /** True when there is at least one task still outstanding. */
+    val hasOpenTasks: Boolean get() = actionItems.any { !it.done }
 }
 
 /** Bump when a new enrichment pass is added; the backfill picks up everything below it. */

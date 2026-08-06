@@ -1,5 +1,6 @@
 package com.mehdiacho.yap.data
 
+import android.content.Context
 import com.google.android.gms.tasks.Task
 import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -31,6 +32,53 @@ data class ByokStatus(
 object AccountClient {
     private val functions by lazy { FirebaseFunctions.getInstance("africa-south1") }
 
+    // ----------------------------------------------------------------- cache
+    //
+    // Your plan and this cycle's usage change rarely and slowly. Waiting on a round trip
+    // before drawing anything turned a settings row into a blank screen with a spinner —
+    // the one screen in the app that did that. Keeping the last answer means the page is
+    // whole the instant it opens and the numbers correct themselves a moment later.
+
+    private const val PREFS = "yap_account_cache"
+    private var prefs: android.content.SharedPreferences? = null
+
+    @Volatile
+    private var cached: AccountStatus? = null
+
+    /** Last known status — may be stale, never blocks. Null only before the first fetch ever. */
+    val lastKnown: AccountStatus? get() = cached
+
+    fun initCache(context: Context) {
+        if (prefs != null) return
+        val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs = p
+        if (!p.contains("plan")) return
+        cached = AccountStatus(
+            plan = p.getString("plan", "free")!!,
+            byokUnlocked = p.getBoolean("byokUnlocked", false),
+            byokActive = p.getBoolean("byokActive", false),
+            byokKeyHint = p.getString("byokKeyHint", null),
+            expiresAt = p.getLong("expiresAt", 0L).takeIf { it > 0L },
+            cycle = p.getString("cycle", "")!!,
+            secondsUsed = p.getLong("secondsUsed", 0L),
+            secondsCap = p.getLong("secondsCap", 1800L),
+        )
+    }
+
+    private fun remember(s: AccountStatus) {
+        cached = s
+        prefs?.edit()
+            ?.putString("plan", s.plan)
+            ?.putBoolean("byokUnlocked", s.byokUnlocked)
+            ?.putBoolean("byokActive", s.byokActive)
+            ?.putString("byokKeyHint", s.byokKeyHint)
+            ?.putLong("expiresAt", s.expiresAt ?: 0L)
+            ?.putString("cycle", s.cycle)
+            ?.putLong("secondsUsed", s.secondsUsed)
+            ?.putLong("secondsCap", s.secondsCap)
+            ?.apply()
+    }
+
     suspend fun status(): AccountStatus {
         TranscriptionClient.ensureSignedIn()
         val res = awaitTask(functions.getHttpsCallable("getAccountStatus").call())
@@ -45,7 +93,7 @@ object AccountClient {
             cycle = m["cycle"] as? String ?: "",
             secondsUsed = (m["secondsUsed"] as? Number)?.toLong() ?: 0L,
             secondsCap = (m["secondsCap"] as? Number)?.toLong() ?: 1800L,
-        )
+        ).also { remember(it) }
     }
 
     /** Current BYOK state for the key screen. */
