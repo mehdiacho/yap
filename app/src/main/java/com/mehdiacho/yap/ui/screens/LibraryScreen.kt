@@ -32,7 +32,10 @@ import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.CloudQueue
+import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Mic
@@ -61,6 +64,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -85,6 +89,14 @@ fun LibraryScreen(
     var query by remember { androidx.compose.runtime.mutableStateOf("") }
     var searchFocused by remember { androidx.compose.runtime.mutableStateOf(false) }
     var activeFilter by remember { androidx.compose.runtime.mutableStateOf("All") }
+    // Task filter, kept separate from the category filter so the two stack: "Brainstorm"
+    // AND "has tasks" AND "still open" is the query you actually want, and folding tasks
+    // into the same one-of-N chip row would make it exclusive with categories for no reason.
+    // null = off · "any" = notes with tasks · "open" = only those with something outstanding.
+    var taskFilter by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    // Which cards have their checklist open. Hoisted out of the card so it survives the
+    // LazyColumn recycling rows as you scroll.
+    var expandedCards by remember { androidx.compose.runtime.mutableStateOf<Set<String>>(emptySet()) }
     var selection by remember { androidx.compose.runtime.mutableStateOf<Set<String>>(emptySet()) }
     var confirmTrash by remember { androidx.compose.runtime.mutableStateOf(false) }
     var showSkeleton by remember { androidx.compose.runtime.mutableStateOf(false) } // debug preview
@@ -101,6 +113,18 @@ fun LibraryScreen(
     val (offline, recheckOnline) = rememberOfflineState()
     val pendingCount = remember(sessions) { sessions.count { it.status == "OFFLINE_PENDING" } }
     var showSyncSheet by remember { androidx.compose.runtime.mutableStateOf(false) }
+
+    // Recordings turned away at the monthly cap. They're intact and waiting — the only thing
+    // missing was quota, so once there is some they should not need chasing down one by one.
+    val waitingCount = remember(sessions) {
+        sessions.count { it.status == "QUOTA" && it.trashedAt == null }
+    }
+    val catchUp by viewModel.pendingTranscribeProgress.collectAsState()
+
+    // Once per launch, and only if the server says there's room — see the ViewModel.
+    LaunchedEffect(sessionsLoaded) {
+        if (sessionsLoaded) viewModel.resumePendingTranscriptions()
+    }
 
     // Multi-select replaces the app bottom nav with the 4-action bar (design · multi-select).
     LaunchedEffect(selecting) { LibraryChrome.selectionActive.value = selecting }
@@ -130,12 +154,17 @@ fun LibraryScreen(
             (if (sessions.any { it.pinned }) listOf("Pinned") else emptyList()) +
             sessions.map { it.category }.filter { it.isNotBlank() }.distinct().take(6)
     }
-    val filtered = remember(sessions, query, activeFilter) {
+    val filtered = remember(sessions, query, activeFilter, taskFilter) {
         val q = query.trim().lowercase()
         sessions.filter { s ->
             (activeFilter == "All" ||
                 (activeFilter == "Pinned" && s.pinned) ||
                 s.category == activeFilter) &&
+                when (taskFilter) {
+                    "any" -> s.hasTasks
+                    "open" -> s.hasOpenTasks
+                    else -> true
+                } &&
                 (q.isBlank() ||
                     s.title.lowercase().contains(q) ||
                     s.draftText.lowercase().contains(q) ||
@@ -146,7 +175,10 @@ fun LibraryScreen(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val edge = (maxWidth.value * 0.061f).dp.coerceIn(20.dp, 28.dp)
+        // Tightened from 6.1%/20–28dp: the cards were leaving more margin than they needed
+        // and reading as narrow strips. Everything on the screen shares this inset, so the
+        // cards get wider without breaking alignment with the header and search field.
+        val edge = (maxWidth.value * 0.044f).dp.coerceIn(14.dp, 20.dp)
         val avatar = (maxWidth.value * 0.106f).dp.coerceIn(34.dp, 44.dp)
         val fab = (maxWidth.value * 0.167f).dp.coerceIn(56.dp, 64.dp)
 
@@ -276,6 +308,14 @@ fun LibraryScreen(
                                         highlight = query.trim(),
                                         selected = session.id in selection,
                                         selectionMode = selecting,
+                                        expanded = session.id in expandedCards,
+                                        onExpandToggle = {
+                                            expandedCards = if (session.id in expandedCards)
+                                                expandedCards - session.id else expandedCards + session.id
+                                        },
+                                        onToggleTask = { item, done ->
+                                            viewModel.setActionItemDone(session, item.id, done)
+                                        },
                                         onClick = {
                                             if (selecting) selection =
                                                 if (session.id in selection) selection - session.id
@@ -312,11 +352,29 @@ fun LibraryScreen(
                     }
 
                     else -> {
+                        if (!selecting && (waitingCount > 0 || catchUp != null)) {
+                            Spacer(Modifier.height(12.dp))
+                            WaitingOnQuotaBanner(
+                                waiting = waitingCount,
+                                progress = catchUp,
+                                onTranscribe = { viewModel.transcribePending() },
+                            )
+                        }
+
                         // 3 · Filter chips (design: outlined radius-10; active = filled Primary + check)
-                        if (!selecting && categories.size > 1) {
+                        val anyTasks = remember(sessions) { sessions.any { it.hasTasks } }
+                        if (!selecting && (categories.size > 1 || anyTasks)) {
                             Spacer(Modifier.height(12.dp))
                             Row(Modifier.horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Tasks leads the row — it cuts across every category, so it
+                                // isn't one of them. Hidden entirely until a note has tasks.
+                                if (anyTasks) {
+                                    TaskFilterChip(
+                                        value = taskFilter,
+                                        onChange = { taskFilter = it },
+                                    )
+                                }
                                 categories.forEach { cat ->
                                     FilterChipSquare(cat, active = cat != "All" && cat == activeFilter) {
                                         activeFilter = if (activeFilter == cat) "All" else cat
@@ -325,14 +383,16 @@ fun LibraryScreen(
                             }
                         }
                         // Filtered count row — "N notes · Clear all"
-                        if (activeFilter != "All" && !selecting) {
+                        if ((activeFilter != "All" || taskFilter != null) && !selecting) {
                             Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 Text("${filtered.size} note${if (filtered.size == 1) "" else "s"}",
                                     fontSize = 12.sp, color = ext.subdued)
                                 Spacer(Modifier.weight(1f))
                                 Text("Clear all", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                                    color = cs.primary, modifier = Modifier.clickable { activeFilter = "All" })
+                                    color = cs.primary, modifier = Modifier.clickable {
+                                        activeFilter = "All"; taskFilter = null
+                                    })
                             }
                         } else {
                             Spacer(Modifier.height(if (selecting) 16.dp else 12.dp))
@@ -365,6 +425,14 @@ fun LibraryScreen(
                                         session,
                                         selected = session.id in selection,
                                         selectionMode = selecting,
+                                        expanded = session.id in expandedCards,
+                                        onExpandToggle = {
+                                            expandedCards = if (session.id in expandedCards)
+                                                expandedCards - session.id else expandedCards + session.id
+                                        },
+                                        onToggleTask = { item, done ->
+                                            viewModel.setActionItemDone(session, item.id, done)
+                                        },
                                         onClick = {
                                             if (selecting) selection =
                                                 if (session.id in selection) selection - session.id else selection + session.id
@@ -502,6 +570,66 @@ private fun SearchField(
 }
 
 /** Filter chip — design: radius 10, outlined idle / filled Primary with check when active. */
+/**
+ * Tasks filter — one chip that grows a second segment instead of spawning a second chip.
+ *
+ * "Unfinished" is meaningless on its own: it only narrows notes that have tasks at all. Two
+ * separate chips would let you pick the nonsensical combination and would imply they're
+ * independent. Joining them into one pill says what's true — the second refines the first —
+ * and keeps the row short.
+ */
+@Composable
+private fun TaskFilterChip(value: String?, onChange: (String?) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val on = value != null
+    val openOnly = value == "open"
+    val shape = RoundedCornerShape(10.dp)
+    Row(
+        Modifier.height(34.dp).clip(shape)
+            .then(
+                if (on) Modifier.background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 33))
+                else Modifier.border(1.dp, cs.outlineVariant, shape)
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            Modifier.fillMaxHeight()
+                // Turning the parent off has to take the refinement with it, otherwise
+                // "open" would linger invisibly and the next tap would filter unexpectedly.
+                .clickable { onChange(if (on) null else "any") }
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.Checklist, null,
+                tint = if (on) Color.White else cs.onSurfaceVariant,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text("Tasks", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                color = if (on) Color.White else cs.onSurfaceVariant)
+        }
+        if (on) {
+            // Hairline seam: one pill, two parts — not two chips that happen to touch.
+            Box(Modifier.width(1.dp).fillMaxHeight().background(Color.White.copy(alpha = 0.45f)))
+            Row(
+                Modifier.fillMaxHeight()
+                    .background(if (openOnly) Color.Black.copy(alpha = 0.22f) else Color.Transparent)
+                    .clickable { onChange(if (openOnly) "any" else "open") }
+                    .padding(horizontal = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (openOnly) {
+                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(5.dp))
+                }
+                Text("Unfinished", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    color = Color.White.copy(alpha = if (openOnly) 1f else 0.8f))
+            }
+        }
+    }
+}
+
 @Composable
 private fun FilterChipSquare(label: String, active: Boolean, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
@@ -568,105 +696,230 @@ fun SessionCard(
     selected: Boolean = false,
     selectionMode: Boolean = false,
     highlight: String? = null,
+    expanded: Boolean = false,
+    onExpandToggle: () -> Unit = {},
+    onToggleTask: (com.mehdiacho.yap.data.ActionItem, Boolean) -> Unit = { _, _ -> },
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
+    val shape = RoundedCornerShape(14.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(if (selected) cs.primaryContainer.copy(alpha = 0.35f) else cs.surface)
-            .border(
-                width = if (selected) 2.dp else 1.dp,
-                color = if (selected) cs.primary else cs.outlineVariant,
-                shape = RoundedCornerShape(18.dp),
-            )
+            // Depth instead of an outline. A hairline border reads as a boundary drawn on the
+            // page; a raised surface reads as an object sitting on it, which is what a note is.
+            // The shadow carries it in light mode and the lifted container colour carries it in
+            // dark, where shadows are all but invisible.
+            .shadow(if (selected) 0.dp else 3.dp, shape, clip = false)
+            .clip(shape)
+            .background(if (selected) cs.primaryContainer.copy(alpha = 0.35f) else cs.surfaceContainer)
+            .then(if (selected) Modifier.border(2.dp, cs.primary, shape) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(14.dp)
     ) {
-        // Selection badge — 22dp check circle / empty ring (design · multi-select).
-        if (selectionMode) {
+        Row(Modifier.height(IntrinsicSize.Min)) {
+            // Category spine. Seeded off the category name, so every note in a collection
+            // carries the same sweep and the library becomes scannable by colour before you
+            // read a word — without painting whole cards and turning the list into confetti.
             Box(
-                Modifier.align(Alignment.TopEnd).size(22.dp).clip(CircleShape)
-                    .then(
-                        if (selected) Modifier.background(cs.primary)
-                        else Modifier.border(2.dp, cs.outlineVariant, CircleShape)
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (selected) Icon(Icons.Default.Check, null, tint = cs.onPrimary, modifier = Modifier.size(16.dp))
-            }
-        }
-
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.clip(RoundedCornerShape(7.dp))
-                        .background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true))
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                ) {
-                    Text(session.category.ifBlank { "Note" }, color = Color.White,
-                        fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                }
-                if (session.topicCluster.isNotBlank() && session.topicCluster != "General") {
+                Modifier.width(4.dp).fillMaxHeight()
+                    .background(com.mehdiacho.yap.ui.theme.brandBrush(seed = session.category.hashCode()))
+            )
+            Column(Modifier.weight(1f).padding(start = 13.dp, end = 13.dp, top = 12.dp, bottom = 11.dp)) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        highlightText(session.title, highlight, cs.primaryContainer, cs.onPrimaryContainer),
+                        fontFamily = Outfit, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.2).sp, color = cs.onSurface,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
                     Spacer(Modifier.width(8.dp))
-                    Box(
-                        Modifier.clip(RoundedCornerShape(7.dp)).background(cs.surfaceContainerHigh)
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Text(session.topicCluster, color = cs.onSurfaceVariant, fontSize = 11.sp,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (selectionMode) {
+                        Box(
+                            Modifier.size(22.dp).clip(CircleShape)
+                                .then(
+                                    if (selected) Modifier.background(cs.primary)
+                                    else Modifier.border(2.dp, cs.outlineVariant, CircleShape)
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (selected) Icon(Icons.Default.Check, null, tint = cs.onPrimary,
+                                modifier = Modifier.size(16.dp))
+                        }
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (session.pinned) {
+                                Icon(Icons.Filled.PushPin, "Pinned", tint = cs.primary,
+                                    modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Text(relativeTimeLib(session.createdAt), fontSize = 11.sp, color = ext.subdued)
+                        }
                     }
                 }
-                Spacer(Modifier.weight(1f))
-                if (session.pinned && !selectionMode) {
-                    Icon(Icons.Filled.PushPin, "Pinned", tint = cs.primary,
-                        modifier = Modifier.size(17.dp))
-                    Spacer(Modifier.width(6.dp))
-                }
+
                 if (!selectionMode) {
-                    // Offline-availability glyph on THIS device.
-                    val context = androidx.compose.ui.platform.LocalContext.current
-                    val availableOffline = remember(session.audioPath) {
-                        session.audioPath != null && java.io.File(session.audioPath).exists()
-                    }
-                    val cached = remember(session.storagePath) {
-                        com.mehdiacho.yap.data.AudioCache.isCached(context, session.storagePath)
-                    }
-                    when {
-                        availableOffline -> Icon(Icons.Outlined.OfflinePin, "Available offline",
-                            tint = cs.outline, modifier = Modifier.size(16.dp))
-                        cached -> Icon(Icons.Outlined.CloudDone, "Downloaded",
-                            tint = cs.primary, modifier = Modifier.size(16.dp))
-                        session.storagePath != null -> Icon(Icons.Outlined.CloudQueue, "Online only",
-                            tint = cs.primary, modifier = Modifier.size(16.dp))
-                    }
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        highlightText(snippetAround(session, highlight), highlight, cs.primaryContainer, cs.onPrimaryContainer),
+                        fontSize = 13.sp, color = cs.onSurfaceVariant,
+                        lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
                 }
-            }
-
-            Spacer(Modifier.height(8.dp))
-            Text(highlightText(session.title, highlight, cs.primaryContainer, cs.onPrimaryContainer),
-                fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-
-            if (!selectionMode) {
-                Spacer(Modifier.height(4.dp))
-                Text(highlightText(snippetAround(session, highlight), highlight, cs.primaryContainer, cs.onPrimaryContainer),
-                    fontSize = 12.sp, color = cs.onSurfaceVariant,
-                    lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
 
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusChip(session.status)
-                    if (session.audioPath != null || session.storagePath != null) {
-                        Spacer(Modifier.width(8.dp))
-                        Icon(Icons.Outlined.GraphicEq, "Has audio", tint = Color(0xFF7A7886),
-                            modifier = Modifier.size(16.dp))
+                    Text(
+                        session.category.ifBlank { "Note" },
+                        fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.3.sp,
+                        color = cs.onSurfaceVariant,
+                    )
+                    if (session.topicCluster.isNotBlank() && session.topicCluster != "General") {
+                        Text("  ·  ", fontSize = 11.sp, color = cs.outlineVariant)
+                        Text(session.topicCluster, fontSize = 11.sp, color = ext.subdued,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false))
                     }
                     Spacer(Modifier.weight(1f))
-                    Text(relativeTimeLib(session.createdAt), fontSize = 11.sp, color = ext.subdued)
+                    // Only states that need acting on earn a chip. "Refined" on every settled
+                    // note is noise: it's the norm, and repeating it everywhere makes the
+                    // handful of notes that are stuck harder to spot, not easier.
+                    if (session.status != "DONE" && session.status != "REFINED") {
+                        StatusChip(session.status)
+                        Spacer(Modifier.width(7.dp))
+                    }
+                    if (!selectionMode) {
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        val availableOffline = remember(session.audioPath) {
+                            session.audioPath != null && java.io.File(session.audioPath).exists()
+                        }
+                        val cached = remember(session.storagePath) {
+                            com.mehdiacho.yap.data.AudioCache.isCached(context, session.storagePath)
+                        }
+                        when {
+                            availableOffline -> Icon(Icons.Outlined.OfflinePin, "Available offline",
+                                tint = cs.outline, modifier = Modifier.size(15.dp))
+                            cached -> Icon(Icons.Outlined.CloudDone, "Downloaded",
+                                tint = cs.primary, modifier = Modifier.size(15.dp))
+                            session.storagePath != null -> Icon(Icons.Outlined.CloudQueue, "Online only",
+                                tint = cs.primary, modifier = Modifier.size(15.dp))
+                        }
+                    }
+                }
+
+                if (session.hasTasks && !selectionMode) {
+                    Spacer(Modifier.height(10.dp))
+                    TaskStrip(
+                        session = session,
+                        expanded = expanded,
+                        onExpandToggle = onExpandToggle,
+                        onToggleTask = onToggleTask,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The checklist, summarised on the card and openable in place.
+ *
+ * Ticking one thing off a note should not cost a screen transition and a trip back. The
+ * summary alone answers the question you scan a library for — is there anything left in this
+ * one? — and expanding answers the follow-up without losing your place in the list.
+ */
+@Composable
+private fun TaskStrip(
+    session: Session,
+    expanded: Boolean,
+    onExpandToggle: () -> Unit,
+    onToggleTask: (com.mehdiacho.yap.data.ActionItem, Boolean) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
+    val total = session.actionItems.size
+    val done = session.tasksDone
+    val allDone = done == total
+
+    Column {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp))
+                .clickable { onExpandToggle() }
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (allDone) {
+                // Finished is a different KIND of state, not merely 100% of the same one. A
+                // full bar and a cleared list look alike at a glance, so say it outright.
+                Row(
+                    Modifier.clip(RoundedCornerShape(50)).background(ext.refinedContainer)
+                        .padding(start = 6.dp, end = 9.dp, top = 3.dp, bottom = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.CheckCircle, null, tint = ext.onRefinedContainer,
+                        modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text("All $total done", fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                        color = ext.onRefinedContainer)
+                }
+                Spacer(Modifier.weight(1f))
+            } else {
+                Icon(Icons.Outlined.Checklist, null, tint = ext.subdued, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(7.dp))
+                Box(
+                    Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(3.dp))
+                        .background(cs.surfaceContainerHighest)
+                ) {
+                    if (done > 0) {
+                        Box(
+                            Modifier.fillMaxWidth(done.toFloat() / total).fillMaxHeight()
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 31))
+                        )
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                Text("$done/$total", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                    color = ext.subdued)
+            }
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                if (expanded) "Hide tasks" else "Show tasks",
+                tint = ext.subdued, modifier = Modifier.size(18.dp),
+            )
+        }
+
+        if (expanded) {
+            Spacer(Modifier.height(4.dp))
+            session.actionItems.forEach { item ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp))
+                        .clickable { onToggleTask(item, !item.done) }
+                        .padding(vertical = 6.dp, horizontal = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(17.dp).clip(RoundedCornerShape(6.dp))
+                            .then(
+                                if (item.done) Modifier.background(
+                                    com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 32)
+                                )
+                                else Modifier.border(2.dp, cs.outlineVariant, RoundedCornerShape(6.dp))
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (item.done) Icon(Icons.Default.Check, null, tint = Color.White,
+                            modifier = Modifier.size(11.dp))
+                    }
+                    Spacer(Modifier.width(9.dp))
+                    Text(
+                        item.text, fontSize = 13.sp, lineHeight = 18.sp,
+                        color = if (item.done) ext.subdued else cs.onSurface,
+                        textDecoration = if (item.done) TextDecoration.LineThrough else null,
+                    )
                 }
             }
         }
@@ -746,9 +999,69 @@ fun StatusChip(status: String) {
         val label = when {
             refined -> "Refined"; pending -> "Pending"
             status == "TRANSCRIBING" -> "Polishing"; polishing -> "Polishing"
+            // "Quota" describes our accounting, not the note. What the user has is a
+            // recording that still needs transcribing.
+            status == "QUOTA" -> "Waiting"
             else -> status.lowercase().replaceFirstChar { it.uppercase() }
         }
         Text(label, color = fg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/**
+ * Recordings that were turned away at the monthly cap and are still waiting.
+ *
+ * Surfaced on the Library rather than only on each stuck note: after an upgrade you want the
+ * backlog cleared, and finding out how many there are by scrolling for grey chips is not a
+ * way to learn it. Only appears when there is something to act on.
+ */
+@Composable
+private fun WaitingOnQuotaBanner(
+    waiting: Int,
+    progress: Pair<Int, Int>?,
+    onTranscribe: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
+    val running = progress != null
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(ext.warningSoft)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (running) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp), strokeWidth = 2.dp,
+                color = ext.onOfflineContainer,
+            )
+        } else {
+            Icon(Icons.Outlined.Schedule, null, tint = ext.onOfflineContainer,
+                modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (running) "Transcribing ${(progress!!.first + 1).coerceAtMost(progress.second)} of ${progress.second}…"
+                else "$waiting recording${if (waiting == 1) "" else "s"} waiting",
+                fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ext.onOfflineContainer,
+            )
+            Text(
+                if (running) "Keep the app open until this finishes."
+                else "Held back by your monthly limit. The audio is safe.",
+                fontSize = 12.sp, color = ext.onOfflineContainer.copy(alpha = 0.85f),
+            )
+        }
+        if (!running) {
+            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier.clip(RoundedCornerShape(50)).background(cs.primary)
+                    .clickable { onTranscribe() }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                Text("Transcribe", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    color = cs.onPrimary)
+            }
+        }
     }
 }
 

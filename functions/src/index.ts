@@ -193,7 +193,18 @@ export const transcribeSession = onCall(
       } catch (e) {
         if (sessionRef) {
           await sessionRef
-            .set({ status: "QUOTA", title: "Monthly limit reached" }, { merge: true })
+            .set(
+              {
+                status: "QUOTA",
+                title: "Monthly limit reached",
+                // Remember where the audio landed. The upload happens before this call, so
+                // without this the note has no pointer to bytes we are already storing —
+                // and transcribing it later would mean re-uploading the whole recording,
+                // or discovering the local copy is gone after a reinstall.
+                ...(data.storagePath ? { storagePath: data.storagePath } : {}),
+              },
+              { merge: true }
+            )
             .catch((writeErr) =>
               console.error("could not mark session QUOTA", { sessionId, writeErr })
             );
@@ -279,7 +290,14 @@ export const transcribeSession = onCall(
       if (sessionRef) {
         await sessionRef
           .set(
-            { status: "FAILED", statusReason: failure.reason, statusMessage: failure.message },
+            {
+              status: "FAILED",
+              statusReason: failure.reason,
+              statusMessage: failure.message,
+              // As above: keep the pointer to the uploaded audio so "Try again" is a
+              // re-run rather than a re-upload.
+              ...(data.storagePath ? { storagePath: data.storagePath } : {}),
+            },
             { merge: true }
           )
           .catch((writeErr) =>

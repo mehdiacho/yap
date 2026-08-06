@@ -43,7 +43,11 @@ fun SubscriptionScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
-    var status by remember { mutableStateOf<AccountStatus?>(null) }
+    // Seeded from the last known values so the page is whole on arrival. Only a first-ever
+    // open (no cache) has nothing to draw, and that case gets placeholders rather than an
+    // empty screen — the shape of the page never depends on the network.
+    var status by remember { mutableStateOf(AccountClient.lastKnown) }
+    var refreshing by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var code by remember { mutableStateOf("") }
     var redeeming by remember { mutableStateOf(false) }
@@ -53,9 +57,11 @@ fun SubscriptionScreen(onBack: () -> Unit) {
     fun reload() {
         scope.launch {
             loadError = null
+            refreshing = true
             try { status = AccountClient.status() } catch (e: Exception) {
+                // Stale numbers beat no numbers: keep showing what we had and say it's stale.
                 loadError = e.message ?: "Couldn't load your plan"
-            }
+            } finally { refreshing = false }
         }
     }
     LaunchedEffect(Unit) { reload() }
@@ -70,82 +76,96 @@ fun SubscriptionScreen(onBack: () -> Unit) {
             Spacer(Modifier.width(14.dp))
             Text("Subscription", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 21.sp,
                 letterSpacing = (-0.3).sp, color = cs.onSurface)
+            Spacer(Modifier.weight(1f))
+            // Where the wait belongs: a quiet marker in the chrome, while the page itself
+            // stays readable underneath.
+            if (refreshing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp), strokeWidth = 2.dp,
+                    color = cs.onSurfaceVariant,
+                )
+            }
         }
 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
             Spacer(Modifier.height(16.dp))
-            when {
-                loadError != null -> {
-                    Text(loadError!!, color = cs.error, fontSize = 14.sp)
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = { reload() }) { Text("Retry") }
+            // A failed refresh is a strip above the page, not a replacement for it. The plans
+            // and whatever usage we last knew are still true and still worth showing.
+            loadError?.let {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .background(cs.errorContainer).padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (status == null) it else "$it Showing your last known usage.",
+                        color = cs.onErrorContainer, fontSize = 12.sp, lineHeight = 17.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Retry", color = cs.onErrorContainer, fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold, modifier = Modifier.clickable { reload() })
                 }
-                status == null -> {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-                else -> {
-                    val s = status!!
-                    UsagePanel(s)
-                    Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
+            }
 
-                    // Plan cards — design copy and pricing.
-                    PlanCard(
-                        name = "Pro", price = "$1.99", priceSuffix = "/mo · $19.99/yr",
-                        desc = "30 hrs/mo refine · 2 GB · AI actions · priority",
-                        current = s.plan == "pro",
-                        onSelect = { purchasing = com.mehdiacho.yap.data.BillingManager.PRO_MONTHLY to "Pro · $1.99/mo" },
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    PlanCard(
-                        name = "Free", price = "$0", priceSuffix = null,
-                        desc = "30 min/mo refine · 50 MB · unlimited on-device",
-                        current = s.plan == "free",
-                        onSelect = {},
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    PlanCard(
-                        name = "BYOK + Storage", price = "$0.99", priceSuffix = "/mo",
-                        desc = "Unlimited AI (own key) · 2 GB sync",
-                        current = s.plan == "byok",
-                        onSelect = { purchasing = com.mehdiacho.yap.data.BillingManager.BYOK_STORAGE_MONTHLY to "BYOK + Storage · $0.99/mo" },
-                    )
+            UsagePanel(status)
+            Spacer(Modifier.height(16.dp))
 
-                    // Redeem a code — live feature (quota promos), kept below the plans.
-                    Spacer(Modifier.height(22.dp))
-                    Text("REDEEM A CODE", fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.6.sp, color = ext.subdued)
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = code, onValueChange = { code = it.uppercase(); redeemError = null },
-                            placeholder = { Text("Promo code") }, singleLine = true,
-                            shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f),
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Button(
-                            enabled = code.isNotBlank() && !redeeming,
-                            shape = RoundedCornerShape(50),
-                            onClick = {
-                                scope.launch {
-                                    redeeming = true; redeemError = null
-                                    try {
-                                        AccountClient.redeem(code.trim())
-                                        Toast.makeText(context, "Code applied 🎉", Toast.LENGTH_SHORT).show()
-                                        code = ""; reload()
-                                    } catch (e: Exception) {
-                                        redeemError = e.message ?: "Couldn't redeem that code"
-                                    } finally { redeeming = false }
-                                }
-                            },
-                        ) { Text(if (redeeming) "…" else "Apply") }
-                    }
-                    redeemError?.let {
-                        Spacer(Modifier.height(6.dp))
-                        Text(it, color = cs.error, fontSize = 13.sp)
-                    }
-                }
+            // Plan cards — design copy and pricing.
+            PlanCard(
+                name = "Pro", price = "$1.99", priceSuffix = "/mo · $19.99/yr",
+                desc = "30 hrs/mo refine · 2 GB · AI actions · priority",
+                current = status?.plan == "pro",
+                onSelect = { purchasing = com.mehdiacho.yap.data.BillingManager.PRO_MONTHLY to "Pro · $1.99/mo" },
+            )
+            Spacer(Modifier.height(12.dp))
+            PlanCard(
+                name = "Free", price = "$0", priceSuffix = null,
+                desc = "30 min/mo refine · 50 MB · unlimited on-device",
+                current = status?.plan == "free",
+                onSelect = {},
+            )
+            Spacer(Modifier.height(12.dp))
+            PlanCard(
+                name = "BYOK + Storage", price = "$0.99", priceSuffix = "/mo",
+                desc = "Unlimited AI (own key) · 2 GB sync",
+                current = status?.plan == "byok",
+                onSelect = { purchasing = com.mehdiacho.yap.data.BillingManager.BYOK_STORAGE_MONTHLY to "BYOK + Storage · $0.99/mo" },
+            )
+
+            // Redeem a code — live feature (quota promos), kept below the plans.
+            Spacer(Modifier.height(22.dp))
+            Text("REDEEM A CODE", fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                letterSpacing = 0.6.sp, color = ext.subdued)
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = code, onValueChange = { code = it.uppercase(); redeemError = null },
+                    placeholder = { Text("Promo code") }, singleLine = true,
+                    shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(10.dp))
+                Button(
+                    enabled = code.isNotBlank() && !redeeming,
+                    shape = RoundedCornerShape(50),
+                    onClick = {
+                        scope.launch {
+                            redeeming = true; redeemError = null
+                            try {
+                                AccountClient.redeem(code.trim())
+                                Toast.makeText(context, "Code applied 🎉", Toast.LENGTH_SHORT).show()
+                                code = ""; reload()
+                            } catch (e: Exception) {
+                                redeemError = e.message ?: "Couldn't redeem that code"
+                            } finally { redeeming = false }
+                        }
+                    },
+                ) { Text(if (redeeming) "…" else "Apply") }
+            }
+            redeemError?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(it, color = cs.error, fontSize = 13.sp)
             }
             Spacer(Modifier.height(28.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
@@ -251,15 +271,21 @@ fun SubscriptionScreen(onBack: () -> Unit) {
     }
 }
 
-/** Usage panel — "THIS CYCLE · RESETS <date>" + Cloud refine / Storage meters (§3.12). */
+/**
+ * Usage panel — "THIS CYCLE · RESETS <date>" + Cloud refine / Storage meters (§3.12).
+ *
+ * Takes a nullable status so the panel can be drawn before the numbers arrive: the layout is
+ * identical either way and only the figures fill in. That keeps the page from reflowing under
+ * the reader, which is the real cost of swapping a whole screen out for a spinner.
+ */
 @Composable
-private fun UsagePanel(s: AccountStatus) {
+private fun UsagePanel(s: AccountStatus?) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
     // Real cloud-storage usage, summed from users/{uid}/audio metadata.
     var storageBytes by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(Unit) { storageBytes = com.mehdiacho.yap.data.StorageUsage.totalBytes() }
-    val storageCap = if (s.plan == "free") 50L * 1024 * 1024 else 2L * 1024 * 1024 * 1024
+    val storageCap = if (s?.plan == "free") 50L * 1024 * 1024 else 2L * 1024 * 1024 * 1024
     val storageLabel = when (val b = storageBytes) {
         null -> "… / ${fmtBytes(storageCap)}"
         else -> "${fmtBytes(b)} / ${fmtBytes(storageCap)}"
@@ -270,10 +296,12 @@ private fun UsagePanel(s: AccountStatus) {
         }
         SimpleDateFormat("MMM d", Locale.getDefault()).format(cal.time).uppercase()
     }
-    val usedMin = s.secondsUsed / 60.0
-    val capMin = (s.secondsCap / 60).coerceAtLeast(1)
-    val capLabel = if (capMin >= 60) "%.1f / %d hrs".format(usedMin / 60.0, capMin / 60)
-    else "%.1f / %d min".format(usedMin, capMin)
+    val capLabel = if (s == null) "…" else {
+        val usedMin = s.secondsUsed / 60.0
+        val capMin = (s.secondsCap / 60).coerceAtLeast(1)
+        if (capMin >= 60) "%.1f / %d hrs".format(usedMin / 60.0, capMin / 60)
+        else "%.1f / %d min".format(usedMin, capMin)
+    }
 
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainer).padding(14.dp)) {
         Text("THIS CYCLE · RESETS $resetLabel", fontSize = 11.sp, fontWeight = FontWeight.Bold,
@@ -286,7 +314,7 @@ private fun UsagePanel(s: AccountStatus) {
         }
         Spacer(Modifier.height(5.dp))
         LinearProgressIndicator(
-            progress = { (s.secondsUsed.toFloat() / s.secondsCap).coerceIn(0f, 1f) },
+            progress = { if (s == null) 0f else (s.secondsUsed.toFloat() / s.secondsCap).coerceIn(0f, 1f) },
             trackColor = cs.surfaceVariant,
             modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)),
         )

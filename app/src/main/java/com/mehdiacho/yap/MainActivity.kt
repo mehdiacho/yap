@@ -110,6 +110,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         if (intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true) autoStart.value = true
         intent?.let { handleShare(it) }
         com.mehdiacho.yap.data.SettingsStore.init(this)
+        com.mehdiacho.yap.data.AccountClient.initCache(this)
         com.mehdiacho.yap.data.BillingManager.init(this)
         com.mehdiacho.yap.data.BillingManager.reconcilePending()
         com.mehdiacho.yap.overlay.FloatingBubble.startIfEnabled(this)

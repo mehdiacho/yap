@@ -421,6 +421,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val r = TranscriptionClient.transcribe(
                 File(audioPath), mimeType, durationMs, sessionId = session.id,
                 category = chosenCategory,
+                // Hold on to the cloud copy even if the transcription that follows is
+                // refused — a note stopped at the monthly cap is transcribed later, and
+                // that should be a re-run, not a second upload of the whole recording.
+                onUploaded = { path -> session = session.copy(storagePath = path) },
             )
             val title = r.name.ifBlank { "Recording" }
             repository.upsert(
@@ -549,67 +553,213 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             code == com.google.firebase.functions.FirebaseFunctionsException.Code.CANCELLED
     }
 
-    /**
-     * "Try again" on a note whose transcription failed.
-     *
-     * A FAILED note used to be a dead end: the audio was intact but there was no way to
-     * re-run it, so a server-side hiccup permanently cost you the note's text. Prefers the
-     * cloud copy (no re-upload) and falls back to the local file.
-     */
-    fun retryTranscription(session: Session) {
-        viewModelScope.launch {
-            val localFile = session.audioPath?.let { File(it) }?.takeIf { it.exists() }
-            if (session.storagePath == null && localFile == null) {
-                _notice.value = "That recording's audio isn't available on this device."
-                return@launch
-            }
+    /** How one attempt at (re-)transcribing an existing note ended. */
+    private enum class Attempt { DONE, QUOTA, FAILED, NO_AUDIO, STILL_RUNNING }
 
-            runCatching {
-                repository.upsert(session.copy(status = "TRANSCRIBING", title = "Transcribing…"))
-            }
-            try {
-                val r = if (session.storagePath != null) {
-                    TranscriptionClient.transcribeExisting(
-                        session.storagePath, "audio/wav", session.durationMs, session.id
-                    )
-                } else {
-                    TranscriptionClient.transcribe(
-                        localFile!!, "audio/wav", session.durationMs, sessionId = session.id
-                    )
-                }
-                val title = r.name.ifBlank { session.title.ifBlank { "Recording" } }
-                repository.upsert(
-                    session.copy(
-                        title = title,
-                        draftText = r.rawText,
-                        formattedText = r.formattedText,
-                        category = r.category.ifBlank { session.category },
-                        topicCluster = r.topicCluster.ifBlank { session.topicCluster },
-                        storagePath = r.storagePath ?: session.storagePath,
-                        status = "DONE",
-                        statusReason = null,
-                        statusMessage = null,
-                    )
+    /**
+     * Run transcription over a note that already exists — the shared body behind "Try again"
+     * on a failed note and the catch-up run for recordings that hit the monthly cap.
+     *
+     * The two paths must agree on every detail (which audio is used, what a second failure
+     * leaves behind, whether tasks come back), so they are one function rather than two that
+     * drift. Prefers the cloud copy: a failure here is usually server-side, and re-sending
+     * tens of megabytes to retry would be pure waste.
+     */
+    private suspend fun transcribeExistingNote(session: Session): Attempt {
+        val localFile = session.audioPath?.let { File(it) }?.takeIf { it.exists() }
+
+        // Where the audio lives in the cloud. Seeded from the note, and — when the note has
+        // no pointer — found by name, because upload paths are deterministic. Recordings
+        // refused at the monthly cap were uploaded before they were refused, so the bytes
+        // are already there; asking Storage costs one round trip and is the difference
+        // between "we can transcribe this" and "that audio isn't available" on any device
+        // that doesn't happen to hold the local file. Also filled in by the upload below,
+        // so even a second failure leaves the note pointing at what we already store.
+        var cloudPath = session.storagePath ?: session.audioPath
+            ?.substringAfterLast('/')
+            ?.let { runCatching { TranscriptionClient.findUploadedAudio(it) }.getOrNull() }
+        if (cloudPath == null && localFile == null) return Attempt.NO_AUDIO
+        // A category the user picked deliberately is passed back to the server so it wins
+        // over the model's fresh guess, exactly as it does on a first transcription. The
+        // default "Memo" means nobody chose, so the model is free to file it.
+        val deliberateCategory = session.category.takeIf { it.isNotBlank() && it != "Memo" }
+
+        runCatching {
+            repository.upsert(session.copy(status = "TRANSCRIBING", title = "Transcribing…"))
+        }
+        return try {
+            val r = if (cloudPath != null) {
+                TranscriptionClient.transcribeExisting(
+                    cloudPath, "audio/wav", session.durationMs, session.id, deliberateCategory
                 )
-                com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
-            } catch (e: Exception) {
-                Log.e("Yap", "retry failed for ${session.id}: ${e.message}", e)
-                if (isClientGaveUp(e)) {
-                    _notice.value = "Still transcribing — this one's long. It'll appear shortly."
-                    return@launch
-                }
-                val quotaHit = (e as? com.google.firebase.functions.FirebaseFunctionsException)?.code ==
-                    com.google.firebase.functions.FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED
-                // Restore the failed state rather than leaving it spinning forever.
+            } else {
+                TranscriptionClient.transcribe(
+                    localFile!!, "audio/wav", session.durationMs,
+                    sessionId = session.id,
+                    category = deliberateCategory,
+                    onUploaded = { cloudPath = it },
+                )
+            }
+            // "Monthly limit reached" was a status, not a name — never keep it as the title.
+            val priorTitle = session.title
+                .takeIf { it.isNotBlank() && it != "Monthly limit reached" && it != "Transcribing…" }
+            val title = r.name.ifBlank { priorTitle ?: "Recording" }
+            repository.upsert(
+                session.copy(
+                    title = title,
+                    draftText = r.rawText,
+                    formattedText = r.formattedText,
+                    category = deliberateCategory ?: r.category.ifBlank { session.category },
+                    topicCluster = r.topicCluster.ifBlank { session.topicCluster },
+                    storagePath = r.storagePath ?: cloudPath,
+                    // Same shape as a first-time transcription. A note rescued here must not
+                    // come back missing its tasks and stale by one enrichment version — that
+                    // is exactly the "notes that predate a feature" problem the backfill exists
+                    // to avoid, and it would be self-inflicted.
+                    actionItems = mergeTasks(session.actionItems, r.actionItems, session.id),
+                    enrichVersion = CURRENT_ENRICH_VERSION,
+                    status = "DONE",
+                    statusReason = null,
+                    statusMessage = null,
+                )
+            )
+            com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
+            Attempt.DONE
+        } catch (e: Exception) {
+            Log.e("Yap", "transcribe failed for ${session.id}: ${e.message}", e)
+            if (isClientGaveUp(e)) return Attempt.STILL_RUNNING
+            val quotaHit = (e as? com.google.firebase.functions.FirebaseFunctionsException)?.code ==
+                com.google.firebase.functions.FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED
+            // Restore a settled state rather than leaving the note spinning forever.
+            runCatching {
                 repository.upsert(
                     session.copy(
+                        storagePath = cloudPath,
+                        title = if (quotaHit) "Monthly limit reached" else session.title,
                         status = if (quotaHit) "QUOTA" else "FAILED",
                         statusMessage = if (quotaHit) null else e.message?.takeIf { it.isNotBlank() },
                     )
                 )
-                _notice.value = if (quotaHit) "Monthly limit reached."
-                else e.message?.takeIf { it.isNotBlank() } ?: "Still couldn't transcribe that."
             }
+            if (quotaHit) Attempt.QUOTA else Attempt.FAILED
+        }
+    }
+
+    /**
+     * "Try again" on a note whose transcription failed, and "Transcribe now" on one that hit
+     * the monthly cap.
+     *
+     * A FAILED note used to be a dead end: the audio was intact but there was no way to
+     * re-run it, so a server-side hiccup permanently cost you the note's text.
+     */
+    fun retryTranscription(session: Session) {
+        viewModelScope.launch {
+            when (transcribeExistingNote(session)) {
+                Attempt.NO_AUDIO ->
+                    _notice.value = "That recording's audio isn't available on this device."
+                Attempt.STILL_RUNNING ->
+                    _notice.value = "Still transcribing — this one's long. It'll appear shortly."
+                Attempt.QUOTA -> _notice.value =
+                    "Still over the monthly limit. Your recording is safe and stays in the queue."
+                Attempt.FAILED -> _notice.value = "Still couldn't transcribe that."
+                Attempt.DONE -> Unit // the note itself is the feedback
+            }
+        }
+    }
+
+    // ------------------------------------------------------- waiting on quota
+
+    /** Progress of the catch-up run: null when idle, else done-count to total. */
+    private val _pendingTranscribeProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+    val pendingTranscribeProgress: StateFlow<Pair<Int, Int>?> =
+        _pendingTranscribeProgress.asStateFlow()
+
+    /** Notes whose recording is intact but was never transcribed: the cap was already spent. */
+    private fun pendingNotes(): List<Session> =
+        allSessions.value
+            .filter { it.status == "QUOTA" && it.trashedAt == null }
+            .sortedBy { it.createdAt } // oldest first: it has been waiting longest
+
+    /**
+     * Transcribe every recording that was turned away at the monthly cap.
+     *
+     * Strictly sequential. Running these in parallel would race the same usage counter, so
+     * a cap with room for two more recordings would start five and refund three — and each
+     * one is a 1 GiB function invocation holding an entire recording in memory.
+     *
+     * Stops at the first note that is turned away again: past that point every further call
+     * is a round trip that can only fail, and the notes it would burn are the ones the user
+     * would most want done once there IS room.
+     */
+    fun transcribePending() {
+        if (_pendingTranscribeProgress.value != null) return // already running
+        viewModelScope.launch {
+            val queue = pendingNotes()
+            if (queue.isEmpty()) {
+                _notice.value = "No recordings are waiting to be transcribed."
+                return@launch
+            }
+            _pendingTranscribeProgress.value = 0 to queue.size
+            var done = 0
+            var stoppedOnQuota = false
+            var failed = 0
+            try {
+                for ((index, note) in queue.withIndex()) {
+                    _pendingTranscribeProgress.value = index to queue.size
+                    when (transcribeExistingNote(note)) {
+                        Attempt.DONE, Attempt.STILL_RUNNING -> done++
+                        Attempt.QUOTA -> { stoppedOnQuota = true; break }
+                        // A note with no audio left, or one the provider refused, must not
+                        // stall the rest of the queue behind it.
+                        Attempt.FAILED, Attempt.NO_AUDIO -> failed++
+                    }
+                }
+                val remaining = queue.size - done - failed
+                _notice.value = when {
+                    stoppedOnQuota && done > 0 ->
+                        "Transcribed $done. $remaining still over the monthly limit."
+                    stoppedOnQuota -> "Still over the monthly limit — nothing was transcribed."
+                    done > 0 && failed > 0 ->
+                        "Transcribed $done. $failed couldn't be recovered."
+                    done > 0 -> "Transcribed $done waiting recording${if (done == 1) "" else "s"}."
+                    else -> "Couldn't transcribe those recordings."
+                }
+            } catch (e: Exception) {
+                Log.e("Yap", "pending transcription run failed: ${e.message}", e)
+                _notice.value = e.message?.takeIf { it.isNotBlank() }
+                    ?: "Couldn't finish. Anything already transcribed is saved."
+            } finally {
+                _pendingTranscribeProgress.value = null
+            }
+        }
+    }
+
+    /** Only auto-resume once per app launch, however many times the Library recomposes. */
+    private var autoResumeAttempted = false
+
+    /**
+     * Pick up waiting recordings on their own once there's room for them.
+     *
+     * Unlike the task backfill this does NOT ask first, and the difference is intent: these
+     * are recordings the user already asked to transcribe and was refused. Making them
+     * hunt for a button to re-issue a request they already made — after paying to upgrade,
+     * no less — is the app failing to keep a promise its own error message made.
+     *
+     * Gated on real headroom read from the server, so a still-capped account doesn't spend
+     * a launch firing calls that can only come back refused.
+     */
+    fun resumePendingTranscriptions() {
+        if (autoResumeAttempted || _pendingTranscribeProgress.value != null) return
+        autoResumeAttempted = true
+        viewModelScope.launch {
+            if (pendingNotes().isEmpty()) return@launch
+            val status = runCatching { com.mehdiacho.yap.data.AccountClient.status() }
+                .onFailure { Log.w("Yap", "account status unavailable: ${it.message}") }
+                .getOrNull() ?: return@launch
+            // On their own key the plan cap doesn't apply at all.
+            val hasHeadroom = status.byokActive || status.secondsUsed < status.secondsCap
+            if (!hasHeadroom) return@launch
+            transcribePending()
         }
     }
 
