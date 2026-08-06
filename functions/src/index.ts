@@ -7,6 +7,7 @@ import {
   formalizeText,
   reviewAndPropagate,
   judgeCorrectionOccurrences,
+  extractActionItems,
   ReviewBlock,
 } from "./gemini";
 
@@ -210,6 +211,24 @@ export const transcribeSession = onCall(
     try {
       const result = await transcribeAndFormalize(audio, mimeType, apiKey);
 
+      // The user can pick a category before they hit record ("this one's an app update").
+      // Their choice wins over the model's guess — they said it deliberately, and having the
+      // note land somewhere else would make the pre-selection pointless.
+      const chosenCategory =
+        typeof data.category === "string" && data.category.trim()
+          ? data.category.trim().slice(0, 60)
+          : null;
+
+      // Tasks come from the same extractor the backfill uses, so a new note and a
+      // ten-month-old one end up with identical shape. Never fatal: a note with a
+      // transcript but no task list is fine, one that failed to save is not.
+      let tasks: string[] = [];
+      try {
+        tasks = await extractActionItems(result.formattedText || result.rawText, apiKey);
+      } catch (e: any) {
+        console.warn("action item extraction failed (non-fatal)", { sessionId, message: e?.message });
+      }
+
       if (sessionRef) {
         // merge:true so we never clobber fields the client owns (pinned, trashedAt,
         // bookmarks, extraRecordings) if it edited the note while we were working.
@@ -218,18 +237,27 @@ export const transcribeSession = onCall(
             title: result.name || "Recording",
             draftText: result.rawText,
             formattedText: result.formattedText,
-            category: result.category || "Memo",
+            category: chosenCategory || result.category || "Memo",
             topicCluster: result.topicCluster || "General",
             storagePath: data.storagePath ?? null,
             status: "DONE",
+            actionItems: tasks.map((text, i) => ({
+              id: `${sessionId}-${i}`,
+              text,
+              done: false,
+              doneAt: null,
+            })),
+            enrichVersion: 1,
             statusReason: admin.firestore.FieldValue.delete(),
             statusMessage: admin.firestore.FieldValue.delete(),
           },
           { merge: true }
         );
-        console.log(`transcribeSession: wrote result to session ${sessionId}`);
+        console.log(
+          `transcribeSession: wrote result to session ${sessionId} (${tasks.length} tasks)`
+        );
       }
-      return result;
+      return { ...result, category: chosenCategory || result.category, actionItems: tasks };
     } catch (e: any) {
       const failure = classifyProviderError(e, byok);
       console.error("transcribeSession failed", {
@@ -437,5 +465,61 @@ export const reviewCorrections = onCall(
       // Advisory only — degrade to "no advice" rather than failing the user's edit.
       return { verdicts: [] };
     }
+  }
+);
+
+/**
+ * enrichNotes — extract action items for a batch of notes.
+ *
+ * Serves the backfill described by CURRENT_ENRICH_VERSION on the client: rather than
+ * teaching every reader to cope with notes that predate the feature, old notes are simply
+ * brought up to date by running them through here. The same call also enriches a single
+ * freshly-opened note, so there is one definition of what a task is.
+ *
+ * Batched because the alternative is one round trip per note and a library has hundreds.
+ * Capped at 10 per call so a batch stays inside the timeout; the client pages.
+ *
+ * Text-only and cheap, so it doesn't consume the transcription quota — charging a user
+ * minutes of their audio allowance to re-read notes they already paid to transcribe would
+ * be indefensible.
+ *
+ * Request:  { notes: [{ id, text }] }
+ * Response: { results: [{ id, tasks: string[] }] }   // absent id == failed, leave as-is
+ */
+export const enrichNotes = onCall(
+  { region: "africa-south1", secrets: [GEMINI_API_KEY, BYOK_ENC_KEY], timeoutSeconds: 300 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    const notes = request.data?.notes;
+    if (!Array.isArray(notes) || notes.length === 0) return { results: [] };
+    const batch = notes.slice(0, 10).flatMap((n: any) => {
+      const id = typeof n?.id === "string" ? n.id : null;
+      const text = typeof n?.text === "string" ? n.text : "";
+      return id ? [{ id, text }] : [];
+    });
+
+    const entitlement = await getEntitlement(request.auth.uid);
+    const { apiKey, byok } = await resolveGeminiKey(
+      request.auth.uid,
+      entitlement,
+      GEMINI_API_KEY.value()
+    );
+
+    const results: { id: string; tasks: string[] }[] = [];
+    for (const note of batch) {
+      try {
+        results.push({ id: note.id, tasks: await extractActionItems(note.text, apiKey) });
+      } catch (e: any) {
+        // One bad note must not fail the batch — the client marks only what came back, so
+        // anything omitted is simply retried on the next pass.
+        const failure = classifyProviderError(e, byok);
+        console.warn("enrichNotes: note failed", { id: note.id, reason: failure.reason });
+        if (failure.reason === "PROVIDER_CREDIT" || failure.reason === "PROVIDER_AUTH") {
+          // No point grinding through the rest on a dead key; surface it and stop.
+          throw new HttpsError(failure.httpsCode, failure.message);
+        }
+      }
+    }
+    return { results };
   }
 );

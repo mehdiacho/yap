@@ -22,6 +22,7 @@ data class TranscriptionResult(
     val topicCluster: String,
     val formattedText: String,
     val storagePath: String? = null, // where the audio landed in Cloud Storage (null if inline fallback)
+    val actionItems: List<String> = emptyList(), // tasks the server pulled out of the text
 )
 
 /**
@@ -79,6 +80,8 @@ object TranscriptionClient {
         mimeType: String = "audio/wav",
         durationMs: Long = 0L,
         sessionId: String? = null,
+        /** Category chosen before recording. Overrides the model's guess server-side. */
+        category: String? = null,
     ): TranscriptionResult {
         ensureSignedIn()
         // Preferred: upload to Cloud Storage, pass the path (no inline size ceiling).
@@ -100,6 +103,7 @@ object TranscriptionClient {
             hashMapOf("audioBase64" to b64, "mimeType" to mimeType, "durationMs" to durationMs)
         }
         sessionId?.let { payload["sessionId"] = it }
+        category?.takeIf { it.isNotBlank() }?.let { payload["category"] = it }
         val result = awaitTask(callable("transcribeSession").call(payload))
         return parseTranscription(result.getData(), uploadedPath)
     }
@@ -136,7 +140,37 @@ object TranscriptionClient {
             topicCluster = map["topicCluster"] as? String ?: "General",
             formattedText = map["formattedText"] as? String ?: "",
             storagePath = storagePath,
+            actionItems = (map["actionItems"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
         )
+    }
+
+    /**
+     * Extract action items for a batch of notes — the backfill for everything recorded
+     * before tasks existed. Server caps each call at 10 notes; page through.
+     *
+     * Notes missing from the response failed and are simply retried next pass, so a partial
+     * result never needs special handling here.
+     */
+    suspend fun enrichNotes(notes: List<Pair<String, String>>): Map<String, List<String>> {
+        if (notes.isEmpty()) return emptyMap()
+        ensureSignedIn()
+        val payload = hashMapOf(
+            "notes" to notes.map { (id, text) ->
+                hashMapOf("id" to id, "text" to text.take(40_000))
+            }
+        )
+        val result = awaitTask(
+            functions.getHttpsCallable("enrichNotes")
+                .withTimeout(300, TimeUnit.SECONDS)
+                .call(payload)
+        )
+        @Suppress("UNCHECKED_CAST")
+        val map = result.getData() as? Map<String, Any?> ?: emptyMap()
+        return (map["results"] as? List<*> ?: emptyList<Any>()).mapNotNull { raw ->
+            val m = raw as? Map<*, *> ?: return@mapNotNull null
+            val id = m["id"] as? String ?: return@mapNotNull null
+            id to ((m["tasks"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList())
+        }.toMap()
     }
 
     /** Re-upload a (merged) recording to an existing storage path, or create one. */

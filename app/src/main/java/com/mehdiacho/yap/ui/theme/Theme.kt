@@ -167,6 +167,10 @@ fun YapTheme(
   val extended = if (darkTheme) DarkExtended else LightExtended
 
   CompositionLocalProvider(LocalYapExtendedColors provides extended) {
-    MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+    MaterialTheme(colorScheme = colorScheme, typography = Typography) {
+      // Single shared animation clock for every gradient surface in the app — see
+      // BrandGradient.kt for why this is provided once here rather than per-widget.
+      ProvideBrandPhase(content)
+    }
   }
 }

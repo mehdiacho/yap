@@ -416,6 +416,25 @@ fun SessionDetailScreen(
                 }
                 else -> Text(content, fontSize = 15.sp, lineHeight = 24.sp, color = cs.onSurface)
             }
+
+            ActionItemsSection(
+                session = currentSession,
+                onToggle = { item, done -> viewModel.setActionItemDone(currentSession, item.id, done) },
+                onAct = { item ->
+                    // Hand off to whatever the user actually uses — assistant, task app, chat.
+                    // Carrying the note's title gives the receiving app the context that makes
+                    // a bare "Email Sam the deck" actionable.
+                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(android.content.Intent.EXTRA_SUBJECT, item.text)
+                        putExtra(
+                            android.content.Intent.EXTRA_TEXT,
+                            "${item.text}\n\n(from “${currentSession.title}” in Yap)",
+                        )
+                    }
+                    context.startActivity(android.content.Intent.createChooser(send, "Send task to…"))
+                },
+            )
             Spacer(Modifier.height(16.dp))
         }
 

@@ -9,6 +9,21 @@ data class ExtraRecording(
     val bookmarks: List<Long> = emptyList(), // clip-relative elapsed-ms markers
 )
 
+/**
+ * A task pulled out of a note's text — "email Sam the deck", "book the venue".
+ *
+ * Separate from the prose rather than parsed out of it on every read: the note's text is
+ * edited freely, and a checkbox whose state lived in a markdown "- [x]" would be destroyed
+ * the first time the wording changed.
+ */
+data class ActionItem(
+    /** Stable for the life of the note, so completion survives re-extraction and re-ordering. */
+    val id: String,
+    val text: String,
+    val done: Boolean = false,
+    val doneAt: Long? = null,
+)
+
 data class Session(
     val id: String,
     val title: String,
@@ -30,4 +45,24 @@ data class Session(
     val pinned: Boolean = false,      // pinned notes sort first in the Library
     val bookmarks: List<Long> = emptyList(), // elapsed-ms markers dropped while recording
     val extraRecordings: List<ExtraRecording> = emptyList(), // appended clips, oldest first
-)
+    /** Tasks found in this note. Empty is a valid answer — see [enrichVersion]. */
+    val actionItems: List<ActionItem> = emptyList(),
+    /**
+     * Which enrichment pass has been run over this note.
+     *
+     * Rather than teaching every reader to cope with notes that predate a feature, a note
+     * below [CURRENT_ENRICH_VERSION] is simply brought up to date by a batch pass (Settings →
+     * Transcription → Scan notes for tasks, or lazily when the note is opened). New features
+     * bump the constant; the backfill does the rest. That keeps one code path for all notes
+     * instead of a growing pile of "if this field is missing" branches.
+     *
+     * 0 = never enriched. 1 = action items extracted.
+     */
+    val enrichVersion: Int = 0,
+) {
+    /** True once every task in the note is ticked (and there was at least one). */
+    val allDone: Boolean get() = actionItems.isNotEmpty() && actionItems.all { it.done }
+}
+
+/** Bump when a new enrichment pass is added; the backfill picks up everything below it. */
+const val CURRENT_ENRICH_VERSION = 1

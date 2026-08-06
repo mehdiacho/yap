@@ -200,9 +200,12 @@ fun LibraryScreen(
                         Icon(Icons.Outlined.Delete, "Trash", tint = cs.onSurfaceVariant,
                             modifier = Modifier.size(22.dp).clickable { onOpenTrash() })
                         Spacer(Modifier.width(10.dp))
-                        Box(Modifier.size(avatar).clip(CircleShape).background(cs.primaryContainer),
-                            contentAlignment = Alignment.Center) {
-                            Text("Y", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = cs.onPrimaryContainer)
+                        Box(
+                            Modifier.size(avatar).clip(CircleShape)
+                                .background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("Y", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White)
                         }
                     }
                     // Offline banner — "Offline · showing cached notes".
@@ -264,8 +267,27 @@ fun LibraryScreen(
                                 modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
                             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
                                 items(filtered, key = { it.id }) { session ->
-                                    SessionCard(session, highlight = query.trim(),
-                                        onClick = { onNavigateToDetail(session.id) })
+                                    // Long-press selection works here too. Search is exactly
+                                    // where you need it most — finding an old note by name is
+                                    // the whole reason you searched, and previously you had to
+                                    // clear the query and hunt for it down the list to pin it.
+                                    SessionCard(
+                                        session,
+                                        highlight = query.trim(),
+                                        selected = session.id in selection,
+                                        selectionMode = selecting,
+                                        onClick = {
+                                            if (selecting) selection =
+                                                if (session.id in selection) selection - session.id
+                                                else selection + session.id
+                                            else onNavigateToDetail(session.id)
+                                        },
+                                        onLongClick = {
+                                            selection =
+                                                if (session.id in selection) selection - session.id
+                                                else selection + session.id
+                                        },
+                                    )
                                     Spacer(Modifier.height(12.dp))
                                 }
                             }
@@ -390,11 +412,12 @@ fun LibraryScreen(
                 Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 16.dp)
                     .size(fab)
                     .shadow(10.dp, RoundedCornerShape(20.dp), spotColor = cs.primary, ambientColor = cs.primary)
-                    .clip(RoundedCornerShape(20.dp)).background(cs.primary)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(com.mehdiacho.yap.ui.theme.brandBrush(seed = 5))
                     .clickable { onRecordNew() },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Rounded.Mic, "New note", tint = cs.onPrimary, modifier = Modifier.size(30.dp))
+                Icon(Icons.Rounded.Mic, "New note", tint = Color.White, modifier = Modifier.size(30.dp))
             }
         }
     }
@@ -484,19 +507,23 @@ private fun FilterChipSquare(label: String, active: Boolean, onClick: () -> Unit
     val cs = MaterialTheme.colorScheme
     Row(
         Modifier.clip(RoundedCornerShape(10.dp))
-            .background(if (active) cs.primary else cs.surface)
-            .then(if (active) Modifier else Modifier.border(1.dp, cs.outlineVariant, RoundedCornerShape(10.dp)))
+            .then(
+                if (active) Modifier.background(
+                    com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true)
+                ) else Modifier.background(cs.surface)
+                    .border(1.dp, cs.outlineVariant, RoundedCornerShape(10.dp))
+            )
             .clickable { onClick() }
             .padding(horizontal = 11.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (active) {
-            Icon(Icons.Default.Check, null, tint = cs.onPrimary, modifier = Modifier.size(15.dp))
+            Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(5.dp))
         }
         Text(label, fontSize = 12.sp,
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (active) cs.onPrimary else cs.onSurfaceVariant)
+            color = if (active) Color.White else cs.onSurfaceVariant)
     }
 }
 
@@ -576,10 +603,11 @@ fun SessionCard(
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.clip(RoundedCornerShape(7.dp)).background(cs.primaryContainer)
+                    Modifier.clip(RoundedCornerShape(7.dp))
+                        .background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true))
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
-                    Text(session.category.ifBlank { "Note" }, color = cs.onPrimaryContainer,
+                    Text(session.category.ifBlank { "Note" }, color = Color.White,
                         fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 if (session.topicCluster.isNotBlank() && session.topicCluster != "General") {
@@ -687,11 +715,17 @@ fun StatusChip(status: String) {
     val (bg, fg) = when {
         refined -> ext.refinedContainer to ext.onRefinedContainer
         pending -> ext.warningSoft to cs.onSurfaceVariant
-        polishing -> cs.primaryContainer to cs.onPrimaryContainer
+        // Polishing is the one live, in-progress state, so it gets the moving gradient —
+        // the motion says "working" without needing a spinner. The settled states stay flat
+        // on purpose: if every chip animated, none of them would signal anything.
+        polishing -> null to Color.White
         else -> ext.draftNeutral to cs.onSurfaceVariant
     }
+    val brand = com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 7)
     Row(
-        Modifier.clip(RoundedCornerShape(50)).background(bg).padding(horizontal = 10.dp, vertical = 3.dp),
+        Modifier.clip(RoundedCornerShape(50))
+            .then(if (bg != null) Modifier.background(bg) else Modifier.background(brand))
+            .padding(horizontal = 10.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         when {

@@ -536,3 +536,63 @@ export async function formalizeText(
   const ai = new GoogleGenAI({ apiKey });
   return formalize(ai, rawText);
 }
+
+/**
+ * Pull the actionable tasks out of a note.
+ *
+ * Separate from `formalize` on purpose: this has to run over the thousands of words of notes
+ * that already exist, long after they were transcribed, without re-doing transcription or
+ * touching their prose. One entry point serves both the fresh-recording path and the backfill
+ * (see CURRENT_ENRICH_VERSION on the client), so there is exactly one definition of what
+ * counts as a task.
+ *
+ * Returns [] freely. Most notes are not to-do lists, and inventing tasks from a rambling idea
+ * memo would make the feature noise — a user who sees one bogus checkbox stops trusting all
+ * of them.
+ */
+export async function extractActionItems(text: string, apiKey: string): Promise<string[]> {
+  const trimmed = (text || "").trim();
+  if (trimmed.length < 20) return [];
+  const ai = new GoogleGenAI({ apiKey });
+
+  const prompt = `Read this note and list ONLY the concrete, actionable tasks it contains.
+
+### Note:
+${trimmed.slice(0, 40000)}
+
+Rules:
+- A task is something a person could put on a to-do list and later tick off.
+- Ignore observations, opinions, background, and decisions already made.
+- Rewrite each as a short imperative starting with a verb ("Email Sam the deck"), max 12 words.
+- Keep the note's own nouns and names; do not generalise them away.
+- Do NOT invent tasks. Most notes have none — returning an empty list is the correct answer
+  far more often than not.
+- At most 20, in the order they appear.
+
+Return ONLY JSON: {"tasks":["...", "..."]}`;
+
+  const res = await ai.models.generateContent({
+    model: MODEL,
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: { tasks: { type: Type.ARRAY, items: { type: Type.STRING } } },
+        required: ["tasks"],
+      },
+    },
+  });
+
+  try {
+    const raw = (res.text || "{}").replace(/```json/g, "").replace(/```/g, "").trim();
+    const tasks = JSON.parse(raw).tasks;
+    if (!Array.isArray(tasks)) return [];
+    return tasks
+      .filter((t: unknown): t is string => typeof t === "string" && t.trim().length > 0)
+      .map((t) => t.trim().slice(0, 200))
+      .slice(0, 20);
+  } catch {
+    return [];
+  }
+}

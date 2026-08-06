@@ -47,6 +47,7 @@ import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material.icons.outlined.WorkspacePremium
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -54,6 +55,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -88,6 +90,7 @@ import com.mehdiacho.yap.ui.MainViewModel
 import com.mehdiacho.yap.ui.rememberOfflineState
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
+import com.mehdiacho.yap.ui.theme.brandTint
 import kotlinx.coroutines.delay
 
 private const val WAVE_BARS = 56
@@ -163,6 +166,7 @@ fun CaptureScreen(
     }
 
     val sessions by viewModel.allSessions.collectAsState()
+    val pendingCategory by viewModel.pendingCategory.collectAsState()
 
     // UI-level states not tracked by the recorder (IDLE/RECORDING/PAUSED): permission-denied
     // and offline are wired to their real triggers.
@@ -199,6 +203,14 @@ fun CaptureScreen(
                 onRecord = ::requestAndStart,
                 onImport = { importLauncher.launch(arrayOf("audio/*", "video/*")) },
                 onOpenSession = onOpenSession,
+                // Most-used categories first — the one you want is usually one you already use.
+                categories = remember(sessions) {
+                    sessions.map { it.category }.filter { it.isNotBlank() && it != "Memo" }
+                        .groupingBy { it }.eachCount()
+                        .entries.sortedByDescending { it.value }.map { it.key }
+                },
+                selectedCategory = pendingCategory,
+                onSelectCategory = { viewModel.setPendingCategory(it) },
             )
             // Real interruption: another app took the mic — service auto-paused and flagged it.
             state.silenced -> ErrorContent(
@@ -239,6 +251,11 @@ private fun IdleContent(
     onRecord: () -> Unit,
     onImport: () -> Unit,
     onOpenSession: (String) -> Unit = {},
+    // Pre-recording filing. Passed in rather than read from the ViewModel here so this stays
+    // a pure presentation composable, matching how the rest of its state arrives.
+    categories: List<String> = emptyList(),
+    selectedCategory: String? = null,
+    onSelectCategory: (String?) -> Unit = {},
 ) {
     val user by com.mehdiacho.yap.data.AuthManager.authState()
         .collectAsState(initial = com.mehdiacho.yap.data.AuthManager.currentUser)
@@ -273,11 +290,12 @@ private fun IdleContent(
             // 1 · Top row — avatar + sync chip (§3.1)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.size(avatar).clip(CircleShape).background(cs.primaryContainer),
+                    Modifier.size(avatar).clip(CircleShape)
+                        .background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 3)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(name.firstOrNull()?.uppercaseChar()?.toString() ?: "Y",
-                        fontWeight = FontWeight.Bold, fontSize = 16.sp, color = cs.onPrimaryContainer)
+                        fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
                 }
                 Spacer(Modifier.weight(1f))
                 if (offline) {
@@ -382,23 +400,76 @@ private fun IdleContent(
                     Box(
                         Modifier.size(captureDia)
                             .shadow(10.dp, CircleShape, spotColor = cs.primary, ambientColor = cs.primary)
-                            .clip(CircleShape).background(cs.primary).clickable { onRecord() },
+                            .clip(CircleShape)
+                            // The app's biggest surface, so it carries the full palette
+                            // rather than the legibility-tuned one — the mic glyph is large
+                            // and solid white, which stays readable over every stop.
+                            .background(com.mehdiacho.yap.ui.theme.brandBrush(seed = 2))
+                            .clickable { onRecord() },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Rounded.Mic, "Record", tint = cs.onPrimary, modifier = Modifier.size(micIcon))
+                        Icon(Icons.Rounded.Mic, "Record", tint = Color.White, modifier = Modifier.size(micIcon))
                     }
                 }
                 Spacer(Modifier.height(20.dp))
                 Text("Tap to record", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                Spacer(Modifier.height(14.dp))
+
+                // File it before you speak. Choosing afterwards means finding the note again,
+                // which is the friction that leaves libraries unsorted.
+                var showNewCategory by remember { mutableStateOf(false) }
+                CategoryPicker(
+                    categories = categories,
+                    selected = selectedCategory,
+                    onSelect = onSelectCategory,
+                    onCreate = { showNewCategory = true },
+                )
+                if (showNewCategory) {
+                    var draft by remember { mutableStateOf("") }
+                    AlertDialog(
+                        onDismissRequest = { showNewCategory = false },
+                        shape = RoundedCornerShape(28.dp),
+                        title = { Text("New category") },
+                        text = {
+                            OutlinedTextField(
+                                value = draft,
+                                onValueChange = { draft = it },
+                                singleLine = true,
+                                placeholder = { Text("e.g. Updates for the app") },
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                enabled = draft.isNotBlank(),
+                                onClick = {
+                                    onSelectCategory(draft.trim())
+                                    showNewCategory = false
+                                },
+                            ) { Text("Use it") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showNewCategory = false }) { Text("Cancel") }
+                        },
+                    )
+                }
                 Spacer(Modifier.height(14.dp))
                 Row(
                     Modifier.clip(RoundedCornerShape(50)).background(cs.surfaceContainer)
                         .clickable { onImport() }.padding(horizontal = 15.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Outlined.UploadFile, null, tint = cs.primary, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Outlined.UploadFile, null,
+                        modifier = Modifier.size(18.dp).brandTint(seed = 4),
+                        tint = Color.White,
+                    )
                     Spacer(Modifier.width(7.dp))
-                    Text("Import a file", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.primary)
+                    Text(
+                        "Import a file", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        style = androidx.compose.ui.text.TextStyle(
+                            brush = com.mehdiacho.yap.ui.theme.brandTextBrush(seed = 4)
+                        ),
+                    )
                 }
             }
         }

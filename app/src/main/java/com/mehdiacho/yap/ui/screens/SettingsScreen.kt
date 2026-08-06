@@ -22,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -29,6 +30,8 @@ import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.data.AuthManager
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
+import com.mehdiacho.yap.ui.theme.brandBrush
+import com.mehdiacho.yap.ui.theme.brandTint
 
 /**
  * Settings · main list (design section 09) — sectioned rows with hairline dividers,
@@ -68,11 +71,14 @@ fun SettingsScreen(
                     .clickable(enabled = !signedIn) { onSignInClick() }.padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(44.dp).clip(CircleShape).background(cs.primary),
-                    contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.size(44.dp).clip(CircleShape)
+                        .background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 6)),
+                    contentAlignment = Alignment.Center,
+                ) {
                     val label = user?.displayName?.takeIf { it.isNotBlank() } ?: user?.email?.takeIf { it.isNotBlank() }
                     val initial = if (signedIn) (label?.firstOrNull()?.uppercaseChar() ?: 'U').toString() else "G"
-                    Text(initial, color = cs.onPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(initial, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -135,7 +141,13 @@ private fun MainRow(
             Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 6.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(icon, null, tint = cs.primary, modifier = Modifier.size(23.dp))
+            // Seeded off the row's own title, so each settings row runs its sweep at a
+            // different phase and angle — a column of identical icons all showing the exact
+            // same colour at the same instant is the uncanny case.
+            Icon(
+                icon, null, tint = Color.White,
+                modifier = Modifier.size(23.dp).brandTint(seed = title.hashCode()),
+            )
             Spacer(Modifier.width(14.dp))
             Text(title, fontSize = 15.sp, color = cs.onSurface, modifier = Modifier.weight(1f))
             if (locked) {
