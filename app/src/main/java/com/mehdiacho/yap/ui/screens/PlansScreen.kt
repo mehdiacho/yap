@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.data.AccountClient
 import com.mehdiacho.yap.data.BillingManager
+import com.mehdiacho.yap.ui.components.Pill
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
 import kotlinx.coroutines.delay
@@ -135,13 +137,13 @@ fun PlansScreen(onBack: () -> Unit) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
                 Spacer(Modifier.height(14.dp))
                 Row(
-                    Modifier.fillMaxWidth().height(42.dp).clip(RoundedCornerShape(12.dp))
+                    Modifier.fillMaxWidth().height(42.dp).clip(YapShapes.lg)
                         .background(cs.surfaceContainer).padding(4.dp)
                 ) {
                     listOf(false to "Monthly", true to "Yearly").forEach { (isYear, label) ->
                         val on = yearly == isYear
                         Box(
-                            Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(9.dp))
+                            Modifier.weight(1f).fillMaxHeight().clip(YapShapes.md)
                                 .background(if (on) cs.surface else Color.Transparent)
                                 .clickable { yearly = isYear },
                             contentAlignment = Alignment.Center,
@@ -235,7 +237,7 @@ private fun SelectablePlanCard(
 ) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
-    val shape = RoundedCornerShape(16.dp)
+    val shape = YapShapes.panel
     Row(
         Modifier.fillMaxWidth().clip(shape)
             .background(if (selected) cs.primaryContainer.copy(alpha = 0.4f) else cs.surfaceContainer)
@@ -263,13 +265,11 @@ private fun SelectablePlanCard(
                     color = cs.onSurface)
                 if (current) {
                     Spacer(Modifier.width(8.dp))
-                    Box(
-                        Modifier.clip(RoundedCornerShape(50)).background(ext.refinedContainer)
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text("CURRENT", fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.4.sp, color = ext.onRefinedContainer)
-                    }
+                    Pill(
+                        label = "Current",
+                        background = ext.refinedContainer,
+                        contentColor = ext.onRefinedContainer,
+                    )
                 }
             }
             Spacer(Modifier.height(3.dp))

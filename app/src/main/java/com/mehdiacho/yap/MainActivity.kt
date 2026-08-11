@@ -37,6 +37,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.navigation.Routes
 import com.mehdiacho.yap.ui.MainViewModel
 import com.mehdiacho.yap.ui.screens.AboutSettingsScreen
@@ -461,7 +462,7 @@ private fun LockScreen(onUnlock: () -> Unit) {
             verticalArrangement = Arrangement.Center,
         ) {
             Box(
-                Modifier.size(84.dp).clip(RoundedCornerShape(24.dp)).background(cs.primaryContainer),
+                Modifier.size(84.dp).clip(YapShapes.xl).background(cs.primaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Outlined.Fingerprint, null,
@@ -492,7 +493,7 @@ fun NavBarItem(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(YapShapes.panel)
             .clickable { onClick() }
             .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
@@ -503,7 +504,7 @@ fun NavBarItem(
         Box(
             modifier = Modifier
                 .size(width = 56.dp, height = 30.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(YapShapes.panel)
                 .then(
                     if (isSelected) Modifier.background(brand)
                     else Modifier.background(Color.Transparent)

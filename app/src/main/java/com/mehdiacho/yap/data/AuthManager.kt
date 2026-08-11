@@ -54,7 +54,7 @@ object AuthManager {
         } catch (e: androidx.credentials.exceptions.NoCredentialException) {
             // Typically Play services still fetching its credentials module (fresh installs)
             // or refreshing its verification cache — config-correct devices recover on retry.
-            throw Exception("Google sign-in isn't ready on this device yet — wait a minute and try again, or use email.")
+            throw Exception("Google sign-in isn't ready on this device yet. Wait a minute and try again, or use email.")
         }
         val idToken = GoogleIdTokenCredential.createFrom(result.credential.data).idToken
         return linkOrSignIn(GoogleAuthProvider.getCredential(idToken, null))

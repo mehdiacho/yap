@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.audio.RecorderStatus
 import com.mehdiacho.yap.audio.RecordingBus
 import com.mehdiacho.yap.audio.RecordingController
@@ -342,7 +343,7 @@ fun SpikeScreen(onBack: () -> Unit) {
 
         // The reading script — the ground truth we score against.
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            Modifier.fillMaxWidth().clip(YapShapes.card)
                 .background(MaterialTheme.colorScheme.primaryContainer).padding(14.dp)
         ) {
             Text("READ THIS ALOUD", fontWeight = FontWeight.Bold, fontSize = 12.sp,
@@ -397,7 +398,7 @@ fun SpikeScreen(onBack: () -> Unit) {
 @Composable
 private fun StatCard(title: String, body: String) {
     Column(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(14.dp))
+        Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(YapShapes.card)
             .background(MaterialTheme.colorScheme.surfaceVariant).padding(14.dp)
     ) {
         Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)

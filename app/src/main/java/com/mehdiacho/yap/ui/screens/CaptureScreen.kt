@@ -63,8 +63,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
@@ -88,7 +86,10 @@ import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.ui.CaptureChrome
 import com.mehdiacho.yap.ui.MainViewModel
 import com.mehdiacho.yap.ui.rememberOfflineState
+import com.mehdiacho.yap.ui.components.Pill
 import com.mehdiacho.yap.ui.theme.Outfit
+import com.mehdiacho.yap.ui.theme.YapDims
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.YapTheme
 import com.mehdiacho.yap.ui.theme.brandTint
 import kotlinx.coroutines.delay
@@ -298,32 +299,35 @@ private fun IdleContent(
                         fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
                 }
                 Spacer(Modifier.weight(1f))
+                // Connection state. Both variants go through the shared pill so the header
+                // doesn't shift by a pixel or two when you walk out of signal.
                 if (offline) {
                     // Tap: re-check connectivity. Long-press: re-show the banner (tooltip-style).
-                    Row(
-                        Modifier.clip(RoundedCornerShape(50))
-                            .combinedClickable(
-                                onClick = onRecheckOnline,
-                                onLongClick = { bannerDismissed = false },
-                            )
-                            .background(ext.warningSoft).padding(horizontal = 12.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Outlined.CloudOff, null, tint = ext.onOfflineContainer, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("Offline", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = ext.onOfflineContainer)
-                    }
+                    Pill(
+                        label = "Offline",
+                        // Clipped here as well as inside the pill: the ripple is attached by
+                        // this modifier, so it needs the shape before the touch target, not after.
+                        modifier = Modifier.clip(CircleShape).combinedClickable(
+                            onClick = onRecheckOnline,
+                            onLongClick = { bannerDismissed = false },
+                        ),
+                        background = ext.warningSoft,
+                        contentColor = ext.onOfflineContainer,
+                        leading = {
+                            Icon(Icons.Outlined.CloudOff, null, tint = ext.onOfflineContainer,
+                                modifier = Modifier.size(13.dp))
+                        },
+                    )
                 } else {
-                    Row(
-                        Modifier.clip(RoundedCornerShape(50))
-                            .background(ext.successSoft).padding(horizontal = 12.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Outlined.CloudDone, null, tint = ext.onRefinedContainer, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text(if (signedIn) "Synced" else "Guest",
-                            fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = ext.onRefinedContainer)
-                    }
+                    Pill(
+                        label = if (signedIn) "Synced" else "Guest",
+                        background = ext.successSoft,
+                        contentColor = ext.onRefinedContainer,
+                        leading = {
+                            Icon(Icons.Outlined.CloudDone, null, tint = ext.onRefinedContainer,
+                                modifier = Modifier.size(13.dp))
+                        },
+                    )
                 }
             }
 
@@ -331,13 +335,13 @@ private fun IdleContent(
             if (offline && !bannerDismissed) {
                 Spacer(Modifier.height(14.dp))
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    Modifier.fillMaxWidth().clip(YapShapes.card)
                         .background(ext.warningSoft).padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Outlined.CloudOff, null, tint = ext.onOfflineContainer, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text("Offline — draft saved, will refine when connected.",
+                    Text("Offline. Your draft is saved and will refine once you reconnect.",
                         fontSize = 13.sp, lineHeight = 18.sp, color = ext.onOfflineContainer,
                         modifier = Modifier.weight(1f))
                     Icon(Icons.Filled.Close, "Dismiss", tint = ext.onOfflineContainer,
@@ -358,7 +362,7 @@ private fun IdleContent(
             if (lastSession != null) {
                 Spacer(Modifier.height(20.dp))
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                    Modifier.fillMaxWidth().clip(YapShapes.panel)
                         .background(cs.surfaceContainer)
                         .clickable { onOpenSession(lastSession.id) }
                         .padding(horizontal = 16.dp, vertical = 14.dp)
@@ -387,19 +391,15 @@ private fun IdleContent(
             ) {
                 // 5 · Capture button + label + import pill
                 Box(contentAlignment = Alignment.Center) {
-                    // Soft purple glow behind the button — design: 0 18px 44px rgba(91,91,214,.42).
-                    // A blurred, offset primary disc gives the halo real depth (Compose shadow
-                    // alone reads too flat on a light surface). Unbounded lets it spread past bounds.
+                    // No coloured halo, no tinted shadow. There used to be both: a blurred
+                    // accent disc offset behind the button plus a primary-tinted drop shadow.
+                    // Nothing in the room casts accent-coloured light, so the effect doesn't
+                    // read as depth — it reads as a sticker with a glow filter, which is a
+                    // signature of generated UI and was doubly loud stacked under a gradient.
+                    // Neutral elevation says the one true thing: this sits above the page.
                     Box(
                         Modifier.size(captureDia)
-                            .offset(y = 9.dp)
-                            .blur(36.dp, BlurredEdgeTreatment.Unbounded)
-                            .clip(CircleShape)
-                            .background(cs.primary.copy(alpha = 0.42f))
-                    )
-                    Box(
-                        Modifier.size(captureDia)
-                            .shadow(10.dp, CircleShape, spotColor = cs.primary, ambientColor = cs.primary)
+                            .shadow(12.dp, CircleShape)
                             .clip(CircleShape)
                             // The app's biggest surface, so it carries the full palette
                             // rather than the legibility-tuned one — the mic glyph is large
@@ -428,7 +428,7 @@ private fun IdleContent(
                     var draft by remember { mutableStateOf("") }
                     AlertDialog(
                         onDismissRequest = { showNewCategory = false },
-                        shape = RoundedCornerShape(28.dp),
+                        shape = YapShapes.dialog,
                         title = { Text("New category") },
                         text = {
                             OutlinedTextField(
@@ -539,7 +539,7 @@ private fun ErrorContent(recovered: String, onResume: () -> Unit, onSave: () -> 
                 fontSize = 15.sp, lineHeight = 22.sp, color = cs.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(18.dp))
-            Row(Modifier.clip(RoundedCornerShape(12.dp)).background(ext.successSoft)
+            Row(Modifier.clip(YapShapes.lg).background(ext.successSoft)
                 .padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Shield, null, tint = ext.onRefinedContainer, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
@@ -601,16 +601,18 @@ private fun RecordingContent(
             // Append-to-note indicator — this recording merges into an existing note.
             if (appendTitle != null) {
                 Spacer(Modifier.height(6.dp))
-                Row(
-                    Modifier.clip(RoundedCornerShape(50)).background(cs.primaryContainer)
-                        .padding(horizontal = 12.dp, vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Filled.AutoAwesome, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(13.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Adding to \"${appendTitle.take(28)}${if (appendTitle.length > 28) "…" else ""}\"",
-                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer)
-                }
+                // Truncation is the pill's job now — hand it the whole title and a width cap
+                // rather than chopping at 28 characters, which cut mid-word and mid-emoji.
+                Pill(
+                    label = "Adding to \"$appendTitle\"",
+                    background = cs.primaryContainer,
+                    contentColor = cs.onPrimaryContainer,
+                    maxWidth = 260.dp,
+                    leading = {
+                        Icon(Icons.Filled.AutoAwesome, null, tint = cs.onPrimaryContainer,
+                            modifier = Modifier.size(13.dp))
+                    },
+                )
 
                 // Additions travel inline in the callable payload, so they cap out around
                 // MAX_APPEND_MINUTES. Warn from a minute out: going over is no longer
@@ -620,25 +622,19 @@ private fun RecordingContent(
                 if (elapsedMs > limitMs - 60_000L) {
                     val over = elapsedMs >= limitMs
                     Spacer(Modifier.height(6.dp))
-                    Row(
-                        Modifier.clip(RoundedCornerShape(50))
-                            .background(if (over) cs.errorContainer else YapTheme.extended.offlineContainer)
-                            .padding(horizontal = 12.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.Filled.Warning, null,
-                            tint = if (over) cs.onErrorContainer else YapTheme.extended.onOfflineContainer,
-                            modifier = Modifier.size(13.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            if (over) "Too long to add — will save as its own note"
-                            else "Nearing the addition limit (~${com.mehdiacho.yap.data.TranscriptionClient.MAX_APPEND_MINUTES} min)",
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                            color = if (over) cs.onErrorContainer else YapTheme.extended.onOfflineContainer,
-                        )
-                    }
+                    val warnFg =
+                        if (over) cs.onErrorContainer else YapTheme.extended.onOfflineContainer
+                    Pill(
+                        label = if (over) "Too long to add. Saving as its own note."
+                        else "Nearing the addition limit (~${com.mehdiacho.yap.data.TranscriptionClient.MAX_APPEND_MINUTES} min)",
+                        background = if (over) cs.errorContainer else YapTheme.extended.offlineContainer,
+                        contentColor = warnFg,
+                        maxWidth = 300.dp,
+                        leading = {
+                            Icon(Icons.Filled.Warning, null, tint = warnFg,
+                                modifier = Modifier.size(13.dp))
+                        },
+                    )
                 }
             }
 
@@ -650,7 +646,7 @@ private fun RecordingContent(
             val draft by com.mehdiacho.yap.audio.LiveDraftEngine.draftText.collectAsState()
             Spacer(Modifier.height(16.dp))
             Column(
-                Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp))
+                Modifier.fillMaxWidth().weight(1f).clip(YapShapes.panel)
                     .background(cs.surfaceContainer).padding(16.dp)
             ) {
                 Text(if (draft.isBlank()) "DRAFT SO FAR" else "LIVE DRAFT", fontSize = 11.sp,

@@ -197,7 +197,7 @@ object BillingManager {
             if (uiDriven && purchase.purchaseState == Purchase.PurchaseState.PENDING) {
                 _purchasePhase.value = PurchasePhase.Failed(
                     productId,
-                    "Payment is pending — you'll get access as soon as Google Play confirms it.",
+                    "Payment is pending. You'll get access as soon as Google Play confirms it.",
                 )
             }
             return
@@ -229,7 +229,7 @@ object BillingManager {
                 if (watchedProductId == productId) _purchasePhase.value = PurchasePhase.Failed(
                     productId,
                     "Google Play took the payment, but we couldn't activate it on your " +
-                        "account. Nothing has been charged to you yet — retry below, or " +
+                        "account. Nothing has been charged to you yet. Retry below, or " +
                         "close and reopen the app.",
                     paid = true,
                 )

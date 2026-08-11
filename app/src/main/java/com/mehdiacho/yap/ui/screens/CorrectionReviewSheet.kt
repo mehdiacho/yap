@@ -23,11 +23,12 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.data.TextCorrections
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
 
 /**
- * "You fixed one — here are the others."
+ * "You fixed one. Here are the others."
  *
  * Every occurrence is listed WITH its surrounding words, because that is the only thing that
  * lets you tell a mis-transcribed "cloud" from a real one. A bare count would force you to
@@ -173,19 +174,19 @@ private fun OccurrenceRow(
     val ext = YapTheme.extended
     Row(
         Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(YapShapes.card)
             .background(if (isSelected) cs.primaryContainer.copy(alpha = 0.35f) else cs.surfaceContainerLow)
             .border(
                 1.dp,
                 if (isSelected) cs.primary.copy(alpha = 0.5f) else cs.outlineVariant,
-                RoundedCornerShape(14.dp),
+                YapShapes.card,
             )
             .clickable { onToggle() }
             .padding(horizontal = 13.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(22.dp).clip(RoundedCornerShape(7.dp))
+            Modifier.size(22.dp).clip(YapShapes.sm)
                 .background(if (isSelected) cs.primary else cs.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {

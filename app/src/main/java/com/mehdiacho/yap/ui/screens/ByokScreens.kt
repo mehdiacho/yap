@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -33,6 +34,8 @@ import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.data.AccountClient
 import com.mehdiacho.yap.data.AuthManager
 // (referral info + deleteAccount both go through AccountClient)
+import com.mehdiacho.yap.ui.components.Pill
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
 import kotlinx.coroutines.launch
@@ -79,7 +82,7 @@ fun UnlockByokScreen(onBack: () -> Unit) {
 
             // Intro — key tile + copy
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.size(60.dp).clip(RoundedCornerShape(18.dp)).background(cs.primaryContainer),
+                Box(Modifier.size(60.dp).clip(YapShapes.panel).background(cs.primaryContainer),
                     contentAlignment = Alignment.Center) {
                     Icon(Icons.Outlined.Key, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(32.dp))
                 }
@@ -91,9 +94,9 @@ fun UnlockByokScreen(onBack: () -> Unit) {
 
             // Pay once card
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                Modifier.fillMaxWidth().clip(YapShapes.panel)
                     .background(cs.surfaceContainerLow)
-                    .border(2.dp, cs.primary, RoundedCornerShape(18.dp)).padding(16.dp)
+                    .border(2.dp, cs.primary, YapShapes.panel).padding(16.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Pay once", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = cs.onSurface,
@@ -120,8 +123,8 @@ fun UnlockByokScreen(onBack: () -> Unit) {
 
             // Referral card
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surface)
-                    .border(1.dp, cs.outlineVariant, RoundedCornerShape(18.dp)).padding(16.dp)
+                Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surface)
+                    .border(1.dp, cs.outlineVariant, YapShapes.panel).padding(16.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Or invite $needed friends", fontSize = 15.sp, fontWeight = FontWeight.Bold,
@@ -133,7 +136,7 @@ fun UnlockByokScreen(onBack: () -> Unit) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     repeat(needed) { i ->
                         Box(
-                            Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(4.dp))
+                            Modifier.weight(1f).height(8.dp).clip(CircleShape)
                                 .background(if (i < invited) cs.primary else cs.surfaceVariant)
                         )
                     }
@@ -141,7 +144,7 @@ fun UnlockByokScreen(onBack: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 // Referral-link chip with copy.
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(cs.surfaceContainer)
+                    Modifier.fillMaxWidth().clip(YapShapes.lg).background(cs.surfaceContainer)
                         .clickable {
                             clipboard.setText(androidx.compose.ui.text.AnnotatedString("https://$refLink"))
                             android.widget.Toast.makeText(context, "Link copied", android.widget.Toast.LENGTH_SHORT).show()
@@ -159,7 +162,7 @@ fun UnlockByokScreen(onBack: () -> Unit) {
                         val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(android.content.Intent.EXTRA_TEXT,
-                                "Catch every idea before it slips away — try Yap: https://$refLink")
+                                "Catch every idea before it slips away. Try Yap: https://$refLink")
                         }
                         context.startActivity(android.content.Intent.createChooser(send, "Share invite"))
                     },
@@ -213,7 +216,7 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Box(Modifier.size(84.dp).clip(RoundedCornerShape(24.dp)).background(ext.warningSoft),
+                    Box(Modifier.size(84.dp).clip(YapShapes.xl).background(ext.warningSoft),
                         contentAlignment = Alignment.Center) {
                         Icon(Icons.Outlined.Lock, null, tint = ext.onOfflineContainer, modifier = Modifier.size(44.dp))
                     }
@@ -261,15 +264,15 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                     Text("API key", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 21.sp,
                         letterSpacing = (-0.3).sp, color = cs.onSurface)
                     Spacer(Modifier.weight(1f))
-                    Row(
-                        Modifier.clip(RoundedCornerShape(50)).background(ext.refinedContainer)
-                            .padding(horizontal = 11.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Outlined.LockOpen, null, tint = ext.onRefinedContainer, modifier = Modifier.size(13.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("Unlocked", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = ext.onRefinedContainer)
-                    }
+                    Pill(
+                        label = "Unlocked",
+                        background = ext.refinedContainer,
+                        contentColor = ext.onRefinedContainer,
+                        leading = {
+                            Icon(Icons.Outlined.LockOpen, null, tint = ext.onRefinedContainer,
+                                modifier = Modifier.size(13.dp))
+                        },
+                    )
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
                     Spacer(Modifier.height(20.dp))
@@ -278,7 +281,7 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         // Gemini — selected/filled
                         Row(
-                            Modifier.clip(RoundedCornerShape(10.dp)).background(cs.primary)
+                            Modifier.clip(YapShapes.md).background(cs.primary)
                                 .padding(horizontal = 13.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -303,8 +306,8 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                         else -> cs.outlineVariant
                     }
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(cs.surface)
-                            .border(2.dp, borderColor, RoundedCornerShape(14.dp)).padding(14.dp),
+                        Modifier.fillMaxWidth().clip(YapShapes.card).background(cs.surface)
+                            .border(2.dp, borderColor, YapShapes.card).padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(Modifier.weight(1f)) {
@@ -376,7 +379,7 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                             Text("Valid key · connected to Gemini", fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold, color = cs.tertiary)
                         }
-                        "invalid" -> Text(error ?: "That key doesn't look right — check it and try again.",
+                        "invalid" -> Text(error ?: "That key doesn't look right. Check it and try again.",
                             fontSize = 12.sp, lineHeight = 17.sp,
                             fontWeight = FontWeight.SemiBold, color = cs.error)
                         "saving" -> Text("Checking it against Gemini…", fontSize = 12.sp,
@@ -387,7 +390,7 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                     if (state == "saved") {
                         Spacer(Modifier.height(14.dp))
                         Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(ext.successSoft).padding(14.dp),
+                            Modifier.fillMaxWidth().clip(YapShapes.card).background(ext.successSoft).padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(Icons.Default.Bolt, null, tint = ext.onRefinedContainer, modifier = Modifier.size(22.dp))
@@ -414,7 +417,7 @@ fun ByokKeyScreen(onBack: () -> Unit, onOpenUnlock: () -> Unit) {
                                         key = ""; savedHint = null; state = "empty"; error = null
                                         android.widget.Toast.makeText(
                                             context,
-                                            "Key removed — back to the built-in allowance",
+                                            "Key removed. Back to the built-in allowance.",
                                             android.widget.Toast.LENGTH_SHORT,
                                         ).show()
                                     }
@@ -442,13 +445,13 @@ private fun ProviderSoonChip(name: String) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
     Row(
-        Modifier.clip(RoundedCornerShape(10.dp)).background(cs.surfaceContainer)
+        Modifier.clip(YapShapes.md).background(cs.surfaceContainer)
             .padding(horizontal = 11.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(name, fontSize = 13.sp, color = ext.subdued)
         Spacer(Modifier.width(5.dp))
-        Box(Modifier.clip(RoundedCornerShape(6.dp)).background(ext.offlineContainer)
+        Box(Modifier.clip(YapShapes.sm).background(ext.offlineContainer)
             .padding(horizontal = 6.dp, vertical = 1.dp)) {
             Text("SOON", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = ext.onOfflineContainer)
         }

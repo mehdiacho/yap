@@ -17,6 +17,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.data.AuthManager
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
@@ -68,14 +69,14 @@ fun AuthScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
             OutlinedTextField(
                 value = email, onValueChange = { email = it; error = null }, label = { Text("Email") }, singleLine = true,
-                isError = error != null, shape = RoundedCornerShape(14.dp),
+                isError = error != null, shape = YapShapes.card,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = password, onValueChange = { password = it; error = null }, label = { Text("Password") },
-                singleLine = true, isError = error != null, shape = RoundedCornerShape(14.dp),
+                singleLine = true, isError = error != null, shape = YapShapes.card,
                 visualTransformation = if (showPassword) androidx.compose.ui.text.input.VisualTransformation.None
                     else PasswordVisualTransformation(),
                 trailingIcon = { PeekabooToggle(showPassword) { showPassword = !showPassword } },

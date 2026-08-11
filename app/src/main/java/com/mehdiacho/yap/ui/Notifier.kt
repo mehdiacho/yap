@@ -45,7 +45,7 @@ object Notifier {
         )
         val notif = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(com.mehdiacho.yap.R.drawable.ic_tile_mic)
-            .setContentTitle("Your note is polished ✨")
+            .setContentTitle("Your note is ready")
             .setContentText("\"$title\" is refined.")
             .setAutoCancel(true)
             .setContentIntent(open)

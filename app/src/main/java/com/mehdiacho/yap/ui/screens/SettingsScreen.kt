@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.data.AuthManager
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
 import com.mehdiacho.yap.ui.theme.brandBrush
@@ -67,7 +68,7 @@ fun SettingsScreen(
             // Account summary panel
             Spacer(Modifier.height(16.dp))
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surfaceContainer)
+                Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainer)
                     .clickable(enabled = !signedIn) { onSignInClick() }.padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -89,7 +90,7 @@ fun SettingsScreen(
                             fontSize = 12.sp, color = cs.onSurfaceVariant)
                     } else {
                         Text("Guest", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
-                        Text("Tap to sign in — keeps all your notes", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                        Text("Tap to sign in and back up your notes", fontSize = 12.sp, color = cs.onSurfaceVariant)
                     }
                 }
                 if (signedIn) TextButton(onClick = { AuthManager.signOut() }) { Text("Sign out") }
@@ -141,9 +142,6 @@ private fun MainRow(
             Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 6.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Seeded off the row's own title, so each settings row runs its sweep at a
-            // different phase and angle — a column of identical icons all showing the exact
-            // same colour at the same instant is the uncanny case.
             Icon(icon, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(23.dp))
             Spacer(Modifier.width(14.dp))
             Text(title, fontSize = 15.sp, color = cs.onSurface, modifier = Modifier.weight(1f))
