@@ -119,7 +119,9 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   implementation(libs.androidx.navigation.compose)
-  // implementation(libs.coil.compose)
+  // Avatars: the account photo is a remote URL (a Storage download link, or the one Google
+  // hands over at sign-in), so it needs an async image loader with a memory/disk cache.
+  implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
   implementation(libs.firebase.appcheck.recaptcha)

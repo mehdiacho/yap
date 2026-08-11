@@ -40,10 +40,12 @@ import androidx.navigation.compose.rememberNavController
 import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.navigation.Routes
 import com.mehdiacho.yap.ui.MainViewModel
+import androidx.lifecycle.lifecycleScope
 import com.mehdiacho.yap.ui.screens.AboutSettingsScreen
 import com.mehdiacho.yap.ui.screens.AppearanceSettingsScreen
 import com.mehdiacho.yap.ui.screens.AuthScreen
 import com.mehdiacho.yap.ui.screens.ByokKeyScreen
+import com.mehdiacho.yap.ui.screens.ProfileScreen
 import com.mehdiacho.yap.ui.screens.CaptureScreen
 import com.mehdiacho.yap.ui.screens.CaptureSettingsScreen
 import com.mehdiacho.yap.ui.screens.UnlockByokScreen
@@ -57,6 +59,7 @@ import com.mehdiacho.yap.ui.screens.SpikeScreen
 import com.mehdiacho.yap.ui.screens.SubscriptionScreen
 import com.mehdiacho.yap.ui.screens.TrashScreen
 import com.mehdiacho.yap.ui.theme.YapTheme
+import kotlinx.coroutines.launch
 
 // FragmentActivity (not ComponentActivity) because BiometricPrompt requires it for the app lock.
 class MainActivity : androidx.fragment.app.FragmentActivity() {
@@ -112,6 +115,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         intent?.let { handleShare(it) }
         com.mehdiacho.yap.data.SettingsStore.init(this)
         com.mehdiacho.yap.data.AccountClient.initCache(this)
+        com.mehdiacho.yap.data.ProfileClient.initCache(this)
+        warmProfileCache()
         com.mehdiacho.yap.data.BillingManager.init(this)
         com.mehdiacho.yap.data.BillingManager.reconcilePending()
         com.mehdiacho.yap.overlay.FloatingBubble.startIfEnabled(this)
@@ -211,6 +216,23 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
      * Publishes the dynamic sharing shortcut that puts a "Transcribe in Yap" row in other
      * apps' share sheets for audio/video (pairs with the share-target in shortcuts.xml).
      */
+    /**
+     * Pull the name and avatar in the background so the home greeting and the settings row
+     * are right on the first frame after an update, instead of only once the profile screen
+     * has been visited.
+     *
+     * Skipped for anonymous guests on purpose: the fetch mints a Green Forrest ID, and doing
+     * that for every fresh install would fill the index with identities for people who never
+     * signed up. A guest who opens the profile screen gets one there, on demand.
+     */
+    private fun warmProfileCache() {
+        val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+        if (user == null || user.isAnonymous) return
+        lifecycleScope.launch {
+            runCatching { com.mehdiacho.yap.data.ProfileClient.fetch() }
+        }
+    }
+
     private fun publishShareShortcut() {
         runCatching {
             val shortcut = androidx.core.content.pm.ShortcutInfoCompat.Builder(this, "transcribe_share")
@@ -383,6 +405,7 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
             composable(Routes.SETTINGS) {
                 SettingsScreen(
                     onSignInClick = { navController.navigate(Routes.AUTH) },
+                    onOpenProfile = { navController.navigate(Routes.PROFILE) },
                     onOpenSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
                     onOpenCapture = { navController.navigate(Routes.SETTINGS_CAPTURE) },
                     onOpenByok = { navController.navigate(Routes.BYOK_KEY) },
@@ -413,6 +436,12 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
             }
             composable(Routes.AUTH) {
                 AuthScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.PROFILE) {
+                ProfileScreen(
+                    onBack = { navController.popBackStack() },
+                    onSignIn = { navController.navigate(Routes.AUTH) },
+                )
             }
             composable(Routes.SUBSCRIPTION) {
                 SubscriptionScreen(

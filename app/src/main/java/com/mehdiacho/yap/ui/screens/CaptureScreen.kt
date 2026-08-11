@@ -260,9 +260,13 @@ private fun IdleContent(
 ) {
     val user by com.mehdiacho.yap.data.AuthManager.authState()
         .collectAsState(initial = com.mehdiacho.yap.data.AuthManager.currentUser)
-    val name = user?.displayName?.takeIf { it.isNotBlank() }?.substringBefore(' ')
-        ?: user?.email?.takeIf { it.isNotBlank() }?.substringBefore('@')
-        ?: "there"
+    // The email prefix is not a name. Greeting someone as "mehdiacho" reads as a database
+    // row talking to them, so when there's no real name the greeting simply drops the
+    // address — and the profile screen is where they can supply one.
+    val name = (com.mehdiacho.yap.data.ProfileClient.lastKnown?.firstName
+        ?: user?.displayName?.takeIf { it.isNotBlank() }?.substringBefore(' '))
+        ?.takeIf { it.isNotBlank() }
+    val avatarPhoto = com.mehdiacho.yap.data.ProfileClient.lastKnown?.photoUrl
     val greeting = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
         in 5..11 -> "Good morning"
         in 12..16 -> "Good afternoon"
@@ -295,8 +299,17 @@ private fun IdleContent(
                         .background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 3)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(name.firstOrNull()?.uppercaseChar()?.toString() ?: "Y",
-                        fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
+                    if (avatarPhoto != null) {
+                        coil.compose.AsyncImage(
+                            model = avatarPhoto,
+                            contentDescription = null,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        )
+                    } else {
+                        Text(name?.firstOrNull()?.uppercaseChar()?.toString() ?: "Y",
+                            fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
+                    }
                 }
                 Spacer(Modifier.weight(1f))
                 // Connection state. Both variants go through the shared pill so the header
@@ -351,7 +364,9 @@ private fun IdleContent(
 
             // 2 · Greeting (Headline Outfit 24 + Body-small subtitle)
             Spacer(Modifier.height(22.dp))
-            Text("$greeting, $name",
+            // No name yet means the bare greeting. "Good morning, there" is worse than
+            // "Good morning" — it's a placeholder wearing a person's slot.
+            Text(if (name != null) "$greeting, $name" else greeting,
                 fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 24.sp,
                 lineHeight = 28.sp, letterSpacing = (-0.4).sp, color = cs.onSurface)
             Spacer(Modifier.height(4.dp))

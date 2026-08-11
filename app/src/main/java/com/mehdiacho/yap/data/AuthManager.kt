@@ -69,7 +69,13 @@ object AuthManager {
     suspend fun signInWithEmail(email: String, password: String): SignInResult =
         linkOrSignIn(EmailAuthProvider.getCredential(email, password))
 
-    fun signOut() = auth.signOut() // next ensureSignedIn() creates a fresh guest
+    fun signOut() {
+        // Drop the cached profile first. It is keyed to nothing — it is just "the last
+        // profile we saw" — so leaving it means the guest who lands here a moment later
+        // wears the previous account's name and picture until a fetch corrects it.
+        ProfileClient.clearCache()
+        auth.signOut() // next ensureSignedIn() creates a fresh guest
+    }
 
     /** Sends Firebase's password-reset email. Throws with a readable message on failure. */
     suspend fun sendPasswordReset(email: String) {

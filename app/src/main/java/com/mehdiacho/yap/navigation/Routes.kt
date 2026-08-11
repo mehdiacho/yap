@@ -6,6 +6,7 @@ object Routes {
     const val LIBRARY = "library"
     const val SETTINGS = "settings"
     const val AUTH = "auth"
+    const val PROFILE = "profile"
     const val SUBSCRIPTION = "subscription"
     const val PLANS = "subscription/plans"
     const val TRASH = "trash"

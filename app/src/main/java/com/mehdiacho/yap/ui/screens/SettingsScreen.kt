@@ -41,6 +41,7 @@ import com.mehdiacho.yap.ui.theme.brandTint
 @Composable
 fun SettingsScreen(
     onSignInClick: () -> Unit = {},
+    onOpenProfile: () -> Unit = {},
     onOpenSubscription: () -> Unit = {},
     onOpenCapture: () -> Unit = {},
     onOpenByok: () -> Unit = {},
@@ -52,6 +53,10 @@ fun SettingsScreen(
 ) {
     val user by AuthManager.authState().collectAsState(initial = AuthManager.currentUser)
     val signedIn = user != null && user?.isAnonymous == false
+    // Cached, so the row is complete on arrival; the auth user is the fallback because a
+    // fresh install has no cache until the profile screen has been opened once.
+    val profile = com.mehdiacho.yap.data.ProfileClient.lastKnown
+    val name = (profile?.displayName ?: user?.displayName)?.takeIf { it.isNotBlank() }
     val cs = MaterialTheme.colorScheme
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -67,30 +72,46 @@ fun SettingsScreen(
 
             // Account summary panel
             Spacer(Modifier.height(16.dp))
+            // Opens the profile either way. It used to be the sign-in button when signed
+            // out and inert when signed in, which meant a signed-in user had nowhere to go
+            // to set a name or a picture — there was no profile screen to go to.
             Row(
                 Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainer)
-                    .clickable(enabled = !signedIn) { onSignInClick() }.padding(14.dp),
+                    .clickable { onOpenProfile() }.padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val photo = profile?.photoUrl
                 Box(
                     Modifier.size(44.dp).clip(CircleShape)
                         .background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 6)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    val label = user?.displayName?.takeIf { it.isNotBlank() } ?: user?.email?.takeIf { it.isNotBlank() }
-                    val initial = if (signedIn) (label?.firstOrNull()?.uppercaseChar() ?: 'U').toString() else "G"
-                    Text(initial, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    if (photo != null) {
+                        coil.compose.AsyncImage(
+                            model = photo,
+                            contentDescription = null,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        )
+                    } else {
+                        val label = name ?: user?.email?.takeIf { it.isNotBlank() }
+                        val initial = if (signedIn) (label?.firstOrNull()?.uppercaseChar() ?: 'U').toString() else "G"
+                        Text(initial, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    }
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     if (signedIn) {
-                        Text(user?.displayName?.takeIf { it.isNotBlank() } ?: "Account",
-                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                        Text(name ?: "Add your name",
+                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                            color = if (name != null) cs.onSurface else cs.primary,
+                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         Text(user?.email?.takeIf { it.isNotBlank() } ?: "Synced across devices",
-                            fontSize = 12.sp, color = cs.onSurfaceVariant)
+                            fontSize = 12.sp, color = cs.onSurfaceVariant,
+                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     } else {
                         Text("Guest", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
-                        Text("Tap to sign in and back up your notes", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                        Text("Sign in to back up your notes", fontSize = 12.sp, color = cs.onSurfaceVariant)
                     }
                 }
                 if (signedIn) TextButton(onClick = { AuthManager.signOut() }) { Text("Sign out") }
