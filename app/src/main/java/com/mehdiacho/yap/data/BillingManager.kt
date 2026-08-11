@@ -45,7 +45,18 @@ object BillingManager {
         data class Verifying(val productId: String) : PurchasePhase
         data class Confirmed(val productId: String) : PurchasePhase
         data class Cancelled(val productId: String) : PurchasePhase
-        data class Failed(val productId: String?, val message: String) : PurchasePhase
+        /**
+         * @param paid Google Play already took the money and owns the entitlement; only OUR
+         *   confirmation failed. The distinction decides what "try again" can even mean —
+         *   relaunching the purchase flow here just makes Play answer ITEM_ALREADY_OWNED,
+         *   which lands back on this same screen. That was a genuine dead end: the only way
+         *   out of the loop was to close the sheet, and nothing about the UI said so.
+         */
+        data class Failed(
+            val productId: String?,
+            val message: String,
+            val paid: Boolean = false,
+        ) : PurchasePhase
     }
 
     private val _purchasePhase = MutableStateFlow<PurchasePhase>(PurchasePhase.Idle)
@@ -71,16 +82,21 @@ object BillingManager {
             }
             else -> {
                 Log.w(TAG, "purchase flow ended: ${result.responseCode} ${result.debugMessage}")
+                val alreadyOwned =
+                    result.responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED
+                // Owning it already isn't an error, it's the restore case. Kick off
+                // reconciliation instead of reporting a failure the user can't act on.
+                if (alreadyOwned) reconcilePending()
                 if (watched != null) _purchasePhase.value = PurchasePhase.Failed(
                     watched,
-                    when (result.responseCode) {
-                        BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED ->
-                            "You already own this — restoring it now."
-                        BillingClient.BillingResponseCode.SERVICE_UNAVAILABLE,
-                        BillingClient.BillingResponseCode.NETWORK_ERROR ->
+                    when {
+                        alreadyOwned -> "You already have this. Restoring it now…"
+                        result.responseCode == BillingClient.BillingResponseCode.SERVICE_UNAVAILABLE ||
+                            result.responseCode == BillingClient.BillingResponseCode.NETWORK_ERROR ->
                             "Google Play couldn't be reached. Check your connection."
                         else -> "Google Play couldn't complete the payment."
                     },
+                    paid = alreadyOwned,
                 )
             }
         }
@@ -177,8 +193,10 @@ object BillingManager {
                 Log.e(TAG, "verifyPlayPurchase failed for $productId: ${e.message}", e)
                 if (watchedProductId == productId) _purchasePhase.value = PurchasePhase.Failed(
                     productId,
-                    "Payment went through but we couldn't confirm it yet. " +
-                        "It will be applied automatically — no money is lost.",
+                    "Google Play took the payment, but we couldn't activate it on your " +
+                        "account. Nothing has been charged to you yet — retry below, or " +
+                        "close and reopen the app.",
+                    paid = true,
                 )
             }
         }
@@ -192,5 +210,17 @@ object BillingManager {
                 com.android.billingclient.api.QueryPurchasesParams.newBuilder().setProductType(type).build()
             ) { _, purchases -> purchases.forEach(::handlePurchase) }
         }
+    }
+
+    /**
+     * Retry after a purchase that Play completed but we failed to activate.
+     *
+     * Asks Play what this account actually owns and runs verification over it again. The
+     * purchase already exists, so re-entering the buy flow can only produce
+     * ITEM_ALREADY_OWNED — this is the retry that has a chance of working.
+     */
+    fun retryVerification(productId: String) {
+        _purchasePhase.value = PurchasePhase.Verifying(productId)
+        reconcilePending()
     }
 }

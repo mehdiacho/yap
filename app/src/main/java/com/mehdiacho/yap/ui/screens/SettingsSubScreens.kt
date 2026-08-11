@@ -150,7 +150,7 @@ fun CaptureSettingsScreen(onBack: () -> Unit) {
                 Text("Auto-stop after silence", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                     color = cs.onSurface, modifier = Modifier.weight(1f))
                 Text("${autoStopSecs.toInt()}s", fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                    style = androidx.compose.ui.text.TextStyle(brush = com.mehdiacho.yap.ui.theme.brandTextBrush(seed = 11)))
+                    color = MaterialTheme.colorScheme.primary)
             }
             Text("Stops recording when you go quiet.", fontSize = 12.sp, color = cs.onSurfaceVariant)
             Spacer(Modifier.height(10.dp))
@@ -269,7 +269,7 @@ fun PrivacySettingsScreen(onBack: () -> Unit) {
                             .padding(end = 6.dp)
                             .clip(RoundedCornerShape(50))
                             .then(
-                                if (selected) Modifier.background(brandBrush(forSmallText = true, seed = 12))
+                                if (selected) Modifier.background(MaterialTheme.colorScheme.primary)
                                 else Modifier.background(cs.surfaceContainer)
                             )
                             .clickable { store.setLockTimeoutMins(mins) }
@@ -441,8 +441,8 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
             color = YapTheme.extended.subdued, modifier = Modifier.padding(start = 4.dp, bottom = 10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ThemeSwatch("System", "system", theme, swatchBg = cs.surface, dot = cs.primary) { store.setThemeMode(it) }
-            ThemeSwatch("Light", "light", theme, swatchBg = Color(0xFFFCFBFF), dot = Color(0xFF5B5BD6)) { store.setThemeMode(it) }
-            ThemeSwatch("Dark", "dark", theme, swatchBg = Color(0xFF131318), dot = Color(0xFFC5C0FF)) { store.setThemeMode(it) }
+            ThemeSwatch("Light", "light", theme, swatchBg = Color(0xFFFCFBFF), dot = Color(0xFF1A63D8)) { store.setThemeMode(it) }
+            ThemeSwatch("Dark", "dark", theme, swatchBg = Color(0xFF131318), dot = Color(0xFFA9C7FF)) { store.setThemeMode(it) }
         }
         Spacer(Modifier.height(20.dp))
         HorizontalDivider(thickness = 1.dp, color = cs.surfaceContainerHigh)
@@ -477,9 +477,9 @@ private fun RowScope.ThemeSwatch(
             Box(Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(dot))
             if (isSel) {
                 Icon(
-                    Icons.Default.CheckCircle, null, tint = Color.White,
+                    Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(18.dp)
-                        .brandTint(seed = 14),
+                        ,
                 )
             }
         }
@@ -529,7 +529,7 @@ fun TranscriptionSettingsScreen(onBack: () -> Unit, viewModel: com.mehdiacho.yap
 
         SubRow(Icons.Outlined.Translate, "Language", "Auto-detect · override", onClick = { stub("Language override") }) {
             Text("Auto", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                style = androidx.compose.ui.text.TextStyle(brush = com.mehdiacho.yap.ui.theme.brandTextBrush(seed = 13)))
+                color = MaterialTheme.colorScheme.primary)
         }
         SubRow(Icons.Outlined.Subtitles, "Default VTT / subtitles", "Add timed captions on export") {
             Switch(checked = vtt, onCheckedChange = { store.setVttExport(it) })
@@ -542,8 +542,8 @@ fun TranscriptionSettingsScreen(onBack: () -> Unit, viewModel: com.mehdiacho.yap
                     Text("Standard (Fast)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
                     Text("Best for quick capture", fontSize = 12.sp, color = cs.onSurfaceVariant)
                 }
-                Icon(Icons.Default.RadioButtonChecked, null, tint = Color.White,
-                    modifier = Modifier.size(22.dp).brandTint(seed = 15))
+                Icon(Icons.Default.RadioButtonChecked, null, tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp))
             }
             HorizontalDivider(Modifier.padding(vertical = 14.dp), thickness = 1.dp, color = cs.surfaceVariant)
             Row {
@@ -567,7 +567,7 @@ fun TranscriptionSettingsScreen(onBack: () -> Unit, viewModel: com.mehdiacho.yap
                 Text("+320 MB · download to enable", fontSize = 12.sp, color = ext.subdued)
             }
             Box(
-                Modifier.clip(RoundedCornerShape(50)).background(brandBrush(forSmallText = true, seed = 16))
+                Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.primary)
                     .clickable { stub("Model download") }.padding(horizontal = 14.dp, vertical = 7.dp),
             ) { Text("Get", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer) }
         }
@@ -593,10 +593,10 @@ fun AboutSettingsScreen(onBack: () -> Unit) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(40.dp).clip(RoundedCornerShape(12.dp))
-                    .background(Brush.linearGradient(listOf(Color(0xFF6D5BEA), Color(0xFF5B5BD6)))),
+                    .background(Brush.linearGradient(listOf(Color(0xFF2E7BEF), Color(0xFF1A63D8)))),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Rounded.Mic, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                Icon(Icons.Rounded.Mic, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(22.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column {
@@ -653,13 +653,13 @@ fun AboutSettingsScreen(onBack: () -> Unit) {
                     fontSize = 12.sp, lineHeight = 17.sp, color = Color(0xFFC8C5D0))
                 Spacer(Modifier.height(4.dp))
                 Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Science, null, tint = Color(0xFFC5C0FF), modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Science, null, tint = Color(0xFFA9C7FF), modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
                     Text("Experimental refine model", fontSize = 13.sp, color = Color.White, modifier = Modifier.weight(1f))
                     Switch(checked = experimental, onCheckedChange = { store.setExperimentalModel(it) })
                 }
                 Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.BugReport, null, tint = Color(0xFFC5C0FF), modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.BugReport, null, tint = Color(0xFFA9C7FF), modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
                     Text("Verbose debug logs", fontSize = 13.sp, color = Color.White, modifier = Modifier.weight(1f))
                     Switch(checked = verboseLogs, onCheckedChange = { store.setVerboseLogs(it) })

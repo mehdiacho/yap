@@ -587,7 +587,7 @@ private fun TaskFilterChip(value: String?, onChange: (String?) -> Unit) {
     Row(
         Modifier.height(34.dp).clip(shape)
             .then(
-                if (on) Modifier.background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 33))
+                if (on) Modifier.background(cs.primary)
                 else Modifier.border(1.dp, cs.outlineVariant, shape)
             ),
         verticalAlignment = Alignment.CenterVertically,
@@ -602,16 +602,16 @@ private fun TaskFilterChip(value: String?, onChange: (String?) -> Unit) {
         ) {
             Icon(
                 Icons.Outlined.Checklist, null,
-                tint = if (on) Color.White else cs.onSurfaceVariant,
+                tint = if (on) cs.onPrimary else cs.onSurfaceVariant,
                 modifier = Modifier.size(14.dp),
             )
             Spacer(Modifier.width(6.dp))
             Text("Tasks", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                color = if (on) Color.White else cs.onSurfaceVariant)
+                color = if (on) cs.onPrimary else cs.onSurfaceVariant)
         }
         if (on) {
             // Hairline seam: one pill, two parts — not two chips that happen to touch.
-            Box(Modifier.width(1.dp).fillMaxHeight().background(Color.White.copy(alpha = 0.45f)))
+            Box(Modifier.width(1.dp).fillMaxHeight().background(cs.onPrimary.copy(alpha = 0.45f)))
             Row(
                 Modifier.fillMaxHeight()
                     .background(if (openOnly) Color.Black.copy(alpha = 0.22f) else Color.Transparent)
@@ -620,11 +620,11 @@ private fun TaskFilterChip(value: String?, onChange: (String?) -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (openOnly) {
-                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(13.dp))
+                    Icon(Icons.Default.Check, null, tint = cs.onPrimary, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.width(5.dp))
                 }
                 Text("Unfinished", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                    color = Color.White.copy(alpha = if (openOnly) 1f else 0.8f))
+                    color = cs.onPrimary.copy(alpha = if (openOnly) 1f else 0.8f))
             }
         }
     }
@@ -637,7 +637,7 @@ private fun FilterChipSquare(label: String, active: Boolean, onClick: () -> Unit
         Modifier.clip(RoundedCornerShape(10.dp))
             .then(
                 if (active) Modifier.background(
-                    com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true)
+                    androidx.compose.ui.graphics.SolidColor(cs.primary)
                 ) else Modifier.background(cs.surface)
                     .border(1.dp, cs.outlineVariant, RoundedCornerShape(10.dp))
             )
@@ -646,12 +646,12 @@ private fun FilterChipSquare(label: String, active: Boolean, onClick: () -> Unit
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (active) {
-            Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(15.dp))
+            Icon(Icons.Default.Check, null, tint = cs.onPrimary, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(5.dp))
         }
         Text(label, fontSize = 12.sp,
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (active) Color.White else cs.onSurfaceVariant)
+            color = if (active) cs.onPrimary else cs.onSurfaceVariant)
     }
 }
 
@@ -718,15 +718,7 @@ fun SessionCard(
             .then(if (selected) Modifier.border(2.dp, cs.primary, shape) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
-        Row(Modifier.height(IntrinsicSize.Min)) {
-            // Category spine. Seeded off the category name, so every note in a collection
-            // carries the same sweep and the library becomes scannable by colour before you
-            // read a word — without painting whole cards and turning the list into confetti.
-            Box(
-                Modifier.width(4.dp).fillMaxHeight()
-                    .background(com.mehdiacho.yap.ui.theme.brandBrush(seed = session.category.hashCode()))
-            )
-            Column(Modifier.weight(1f).padding(start = 13.dp, end = 13.dp, top = 12.dp, bottom = 11.dp)) {
+        Column(Modifier.padding(horizontal = 15.dp, vertical = 13.dp)) {
                 Row(verticalAlignment = Alignment.Top) {
                     Text(
                         highlightText(session.title, highlight, cs.primaryContainer, cs.onPrimaryContainer),
@@ -818,7 +810,6 @@ fun SessionCard(
                         onToggleTask = onToggleTask,
                     )
                 }
-            }
         }
     }
 }
@@ -876,7 +867,7 @@ private fun TaskStrip(
                         Box(
                             Modifier.fillMaxWidth(done.toFloat() / total).fillMaxHeight()
                                 .clip(RoundedCornerShape(3.dp))
-                                .background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 31))
+                                .background(cs.primary)
                         )
                     }
                 }
@@ -904,14 +895,12 @@ private fun TaskStrip(
                     Box(
                         Modifier.size(17.dp).clip(RoundedCornerShape(6.dp))
                             .then(
-                                if (item.done) Modifier.background(
-                                    com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 32)
-                                )
+                                if (item.done) Modifier.background(cs.primary)
                                 else Modifier.border(2.dp, cs.outlineVariant, RoundedCornerShape(6.dp))
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (item.done) Icon(Icons.Default.Check, null, tint = Color.White,
+                        if (item.done) Icon(Icons.Default.Check, null, tint = cs.onPrimary,
                             modifier = Modifier.size(11.dp))
                     }
                     Spacer(Modifier.width(9.dp))
@@ -971,10 +960,10 @@ fun StatusChip(status: String) {
         // Polishing is the one live, in-progress state, so it gets the moving gradient —
         // the motion says "working" without needing a spinner. The settled states stay flat
         // on purpose: if every chip animated, none of them would signal anything.
-        polishing -> null to Color.White
+        polishing -> null to cs.onPrimary
         else -> ext.draftNeutral to cs.onSurfaceVariant
     }
-    val brand = com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 7)
+    val brand = androidx.compose.ui.graphics.SolidColor(cs.primary)
     Row(
         Modifier.clip(RoundedCornerShape(50))
             .then(if (bg != null) Modifier.background(bg) else Modifier.background(brand))
