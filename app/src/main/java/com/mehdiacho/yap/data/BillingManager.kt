@@ -107,13 +107,18 @@ object BillingManager {
         client = BillingClient.newBuilder(context.applicationContext)
             .setListener(purchasesListener)
             .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
+            // The Play service drops its binding routinely (Play Store updates, low memory).
+            // We only ever connected once at startup and logged the disconnect, so after the
+            // first drop every billing call in the process failed until the app restarted —
+            // silently, because nothing surfaced it. PBL 8 reconnects for us.
+            .enableAutoServiceReconnection()
             .build()
         client?.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {
-                Log.d(TAG, "billing setup: ${result.responseCode}")
+                Log.d(TAG, "billing setup: ${result.responseCode} ${result.debugMessage}")
             }
             override fun onBillingServiceDisconnected() {
-                Log.d(TAG, "billing disconnected")
+                Log.d(TAG, "billing disconnected (auto-reconnect enabled)")
             }
         })
     }
@@ -135,17 +140,47 @@ object BillingManager {
                     .build()
             ))
             .build()
-        c.queryProductDetailsAsync(params) { result, details ->
-            val product: ProductDetails? = details.firstOrNull()
+        c.queryProductDetailsAsync(params) { result, queryResult ->
+            // PBL 8 changed this callback's second argument from List<ProductDetails> to a
+            // result object that ALSO reports the products it couldn't fetch, and why.
+            val product: ProductDetails? = queryResult.productDetailsList.firstOrNull()
             if (result.responseCode != BillingClient.BillingResponseCode.OK || product == null) {
                 _purchasePhase.value = PurchasePhase.Idle
-                onError("Payments aren't live yet — coming soon")
+                // Previously this said "Payments aren't live yet — coming soon" for every
+                // cause, which was a guess: an unpublished product, a device with no Play
+                // account and a plain network failure all looked identical, to us and to the
+                // user. Log the real reason so a support report is actionable.
+                val unfetched = queryResult.unfetchedProductList.firstOrNull()
+                Log.w(
+                    TAG,
+                    "product $productId unavailable: billing=${result.responseCode} " +
+                        "${result.debugMessage} unfetchedStatus=${unfetched?.statusCode}",
+                )
+                onError(
+                    when (result.responseCode) {
+                        BillingClient.BillingResponseCode.BILLING_UNAVAILABLE ->
+                            "Google Play billing isn't available on this device or account."
+                        BillingClient.BillingResponseCode.SERVICE_UNAVAILABLE,
+                        BillingClient.BillingResponseCode.NETWORK_ERROR ->
+                            "Couldn't reach Google Play. Check your connection and try again."
+                        else -> "That plan isn't available right now."
+                    }
+                )
                 return@queryProductDetailsAsync
             }
             val offerToken = product.subscriptionOfferDetails?.firstOrNull()?.offerToken
+            // A subscription cannot be launched without an offer token, and since PBL 8
+            // setOfferToken THROWS on an empty one rather than ignoring it — so a missing
+            // token has to be caught here instead of crashing the purchase flow.
+            if (isSub && offerToken.isNullOrEmpty()) {
+                _purchasePhase.value = PurchasePhase.Idle
+                Log.w(TAG, "no offer token for subscription $productId")
+                onError("That plan has no active offer in Google Play yet.")
+                return@queryProductDetailsAsync
+            }
             val productParams = BillingFlowParams.ProductDetailsParams.newBuilder()
                 .setProductDetails(product)
-                .apply { if (offerToken != null) setOfferToken(offerToken) }
+                .apply { if (!offerToken.isNullOrEmpty()) setOfferToken(offerToken) }
                 .build()
             val flow = BillingFlowParams.newBuilder()
                 .setProductDetailsParamsList(listOf(productParams))

@@ -39,7 +39,7 @@ import java.util.Locale
 /** Subscription · plans + usage (design section 10). Payments are stubbed. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SubscriptionScreen(onBack: () -> Unit) {
+fun SubscriptionScreen(onBack: () -> Unit, onOpenPlans: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val cs = MaterialTheme.colorScheme
@@ -121,62 +121,9 @@ fun SubscriptionScreen(onBack: () -> Unit) {
             UsagePanel(status)
             Spacer(Modifier.height(16.dp))
 
-            // Billing period. pro_yearly has existed in Play Console and in the server's
-            // product map all along, but nothing in the app could ever buy it — the only
-            // route to Pro was the monthly product. A plan you can't reach isn't a plan.
-            var yearly by remember { mutableStateOf(false) }
-            Row(
-                Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(12.dp))
-                    .background(cs.surfaceContainer).padding(4.dp)
-            ) {
-                listOf(false to "Monthly", true to "Yearly").forEach { (isYear, label) ->
-                    val on = yearly == isYear
-                    Box(
-                        Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(9.dp))
-                            .background(if (on) cs.surface else Color.Transparent)
-                            .clickable { yearly = isYear },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            label, fontSize = 13.sp,
-                            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (on) cs.onSurface else cs.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(12.dp))
+            CurrentPlanRow(status?.plan, onOpenPlans)
 
-            // Plan cards — design copy and pricing.
-            PlanCard(
-                name = if (yearly) "Pro · yearly" else "Pro",
-                price = if (yearly) "$19.99" else "$1.99",
-                priceSuffix = if (yearly) "/yr · two months free" else "/mo",
-                desc = "30 hrs/mo refine · 2 GB · AI actions · priority",
-                current = status?.plan == "pro",
-                onSelect = {
-                    purchasing = if (yearly)
-                        com.mehdiacho.yap.data.BillingManager.PRO_YEARLY to "Pro · $19.99/yr"
-                    else
-                        com.mehdiacho.yap.data.BillingManager.PRO_MONTHLY to "Pro · $1.99/mo"
-                },
-            )
-            Spacer(Modifier.height(12.dp))
-            PlanCard(
-                name = "Free", price = "$0", priceSuffix = null,
-                desc = "30 min/mo refine · 50 MB · unlimited on-device",
-                current = status?.plan == "free",
-                onSelect = {},
-            )
-            Spacer(Modifier.height(12.dp))
-            PlanCard(
-                name = "BYOK + Storage", price = "$0.99", priceSuffix = "/mo",
-                desc = "Unlimited AI (own key) · 2 GB sync",
-                current = status?.plan == "byok",
-                onSelect = { purchasing = com.mehdiacho.yap.data.BillingManager.BYOK_STORAGE_MONTHLY to "BYOK + Storage · $0.99/mo" },
-            )
-
-            // Redeem a code — live feature (quota promos), kept below the plans.
+            // Redeem a code — live feature (quota promos).
             Spacer(Modifier.height(22.dp))
             Text("REDEEM A CODE", fontSize = 11.sp, fontWeight = FontWeight.Bold,
                 letterSpacing = 0.6.sp, color = ext.subdued)
@@ -196,7 +143,7 @@ fun SubscriptionScreen(onBack: () -> Unit) {
                             redeeming = true; redeemError = null
                             try {
                                 AccountClient.redeem(code.trim())
-                                Toast.makeText(context, "Code applied 🎉", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Code applied", Toast.LENGTH_SHORT).show()
                                 code = ""; reload()
                             } catch (e: Exception) {
                                 redeemError = e.message ?: "Couldn't redeem that code"
@@ -212,119 +159,6 @@ fun SubscriptionScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(28.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
-        }
-    }
-
-    // Purchase bottom sheet — drives from BillingManager.purchasePhase:
-    // Initiating (Play sheet up) → Verifying (server check) → tick "Purchase confirmed",
-    // or ✕ "Purchase failed" with Try again. User cancel in the Play sheet auto-dismisses.
-    val purchase = purchasing
-    if (purchase != null) {
-        val (productId, label) = purchase
-        val billing = com.mehdiacho.yap.data.BillingManager
-        val phase by billing.purchasePhase.collectAsState()
-        fun close() { purchasing = null; billing.resetPurchasePhase() }
-
-        ModalBottomSheet(
-            onDismissRequest = { close() },
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-            containerColor = cs.surface,
-        ) {
-            fun start() {
-                val activity = context as? android.app.Activity ?: return close()
-                billing.launchPurchase(activity, productId) { msg ->
-                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                    close()
-                }
-            }
-            LaunchedEffect(productId) {
-                delay(600) // let the sheet settle before the Play sheet appears over it
-                start()
-            }
-            // Backing out of the Play sheet quietly closes ours; success lingers then closes.
-            LaunchedEffect(phase) {
-                when (phase) {
-                    is com.mehdiacho.yap.data.BillingManager.PurchasePhase.Cancelled -> close()
-                    is com.mehdiacho.yap.data.BillingManager.PurchasePhase.Confirmed -> {
-                        // Pull the new entitlement before the sheet goes away, so the page
-                        // behind it already says "Pro" rather than still showing Free until
-                        // you navigate away and come back.
-                        reload()
-                        delay(1800)
-                        close()
-                    }
-                    else -> {}
-                }
-            }
-
-            val failed = phase as? com.mehdiacho.yap.data.BillingManager.PurchasePhase.Failed
-            val confirmed = phase is com.mehdiacho.yap.data.BillingManager.PurchasePhase.Confirmed
-            val verifying = phase is com.mehdiacho.yap.data.BillingManager.PurchasePhase.Verifying
-            Column(
-                Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 44.dp, top = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                // Spinner morphs into a tick (success) or ✕ (failure).
-                val okGreen = Color(0xFF34A853)
-                androidx.compose.animation.AnimatedContent(
-                    targetState = when { confirmed -> 1; failed != null -> 2; else -> 0 },
-                    transitionSpec = {
-                        (androidx.compose.animation.scaleIn(
-                            animationSpec = androidx.compose.animation.core.spring(
-                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy),
-                            initialScale = 0.4f,
-                        ) + androidx.compose.animation.fadeIn()) togetherWith
-                            androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))
-                    },
-                    label = "purchaseIcon",
-                ) { state ->
-                    when (state) {
-                        1 -> Box(
-                            Modifier.size(64.dp).clip(CircleShape).background(okGreen.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(Icons.Default.Check, null, tint = okGreen, modifier = Modifier.size(36.dp)) }
-                        2 -> Box(
-                            Modifier.size(64.dp).clip(CircleShape).background(cs.errorContainer),
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(Icons.Default.Close, null, tint = cs.error, modifier = Modifier.size(34.dp)) }
-                        else -> CircularProgressIndicator(Modifier.size(64.dp), strokeWidth = 4.dp)
-                    }
-                }
-                Spacer(Modifier.height(20.dp))
-                Text(
-                    when {
-                        confirmed -> "Purchase confirmed"
-                        failed != null -> "Purchase failed"
-                        verifying -> "Confirming purchase…"
-                        else -> "Initiating purchase…"
-                    },
-                    fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 19.sp, color = cs.onSurface,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    failed?.message ?: "$label · via Google Play",
-                    fontSize = 13.sp, color = cs.onSurfaceVariant, textAlign = TextAlign.Center,
-                )
-                if (failed != null) {
-                    Spacer(Modifier.height(20.dp))
-                    // Once Play has taken the payment, relaunching the buy flow can only
-                    // return ITEM_ALREADY_OWNED and land straight back here. Retry the step
-                    // that actually failed instead.
-                    Button(
-                        onClick = { if (failed.paid) billing.retryVerification(productId) else start() },
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                    ) {
-                        Text(
-                            if (failed.paid) "Retry activation" else "Try again",
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    TextButton(onClick = { close() }, modifier = Modifier.padding(top = 4.dp)) {
-                        Text("Close", fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
         }
     }
 }
@@ -397,43 +231,37 @@ private fun fmtBytes(b: Long): String = when {
     else -> "%.0f KB".format(b / 1024.0)
 }
 
-/** §3.12 plan card — current plan gets 2dp Primary border, tinted bg, CURRENT badge. */
+/**
+ * What you're on now, and the way to change it.
+ *
+ * The plan cards used to sit directly on this screen and start a Google Play payment the
+ * instant one was tapped. Checking your usage and committing to a purchase are different
+ * intentions and shouldn't share a surface.
+ */
 @Composable
-private fun PlanCard(
-    name: String,
-    price: String,
-    priceSuffix: String?,
-    desc: String,
-    current: Boolean,
-    onSelect: () -> Unit,
-) {
+private fun CurrentPlanRow(plan: String?, onOpenPlans: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val ext = YapTheme.extended
+    val label = when (plan) {
+        "pro" -> "Pro"
+        "byok" -> "Bring your own key"
+        "free" -> "Free"
+        null -> "…"
+        else -> plan.replaceFirstChar { it.uppercase() }
+    }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-            .background(if (current) cs.surfaceContainerLow else cs.surface)
-            .border(if (current) 2.dp else 1.dp, if (current) cs.primary else cs.outlineVariant, RoundedCornerShape(18.dp))
-            .clickable(enabled = !current) { onSelect() }
-            .padding(16.dp)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(cs.surfaceContainer).padding(16.dp)
     ) {
+        Text("YOUR PLAN", fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp, color = ext.subdued)
+        Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(name, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = cs.onSurface,
-                modifier = Modifier.weight(1f))
-            if (current) {
-                Box(Modifier.clip(RoundedCornerShape(8.dp)).background(cs.primary)
-                    .padding(horizontal = 9.dp, vertical = 3.dp)) {
-                    Text("CURRENT", fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp, color = cs.onPrimary)
-                }
-            }
-        }
-        Text(desc, fontSize = 12.sp, lineHeight = 17.sp, color = cs.onSurfaceVariant,
-            modifier = Modifier.padding(top = 7.dp, bottom = 10.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(price, fontFamily = Outfit, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, color = cs.onSurface)
-            if (priceSuffix != null) {
-                Spacer(Modifier.width(4.dp))
-                Text(priceSuffix, fontSize = 12.sp, color = cs.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 3.dp))
+            Text(label, fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 22.sp,
+                color = cs.onSurface, modifier = Modifier.weight(1f))
+            Button(onClick = onOpenPlans, shape = RoundedCornerShape(50)) {
+                Text(if (plan == "free" || plan == null) "See plans" else "Change plan",
+                    fontWeight = FontWeight.SemiBold)
             }
         }
     }
