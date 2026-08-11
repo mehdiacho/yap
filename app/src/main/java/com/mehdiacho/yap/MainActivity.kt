@@ -414,7 +414,13 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                 AuthScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.SUBSCRIPTION) {
-                SubscriptionScreen(onBack = { navController.popBackStack() })
+                SubscriptionScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenPlans = { navController.navigate(Routes.PLANS) },
+                )
+            }
+            composable(Routes.PLANS) {
+                com.mehdiacho.yap.ui.screens.PlansScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.SPIKE) {
                 SpikeScreen(onBack = { navController.popBackStack() })

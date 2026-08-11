@@ -7,6 +7,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val AUTH = "auth"
     const val SUBSCRIPTION = "subscription"
+    const val PLANS = "subscription/plans"
     const val TRASH = "trash"
     const val SPIKE = "spike" // temporary: on-device transcription feasibility spike
     const val SESSION_DETAIL = "session_detail/{sessionId}"
