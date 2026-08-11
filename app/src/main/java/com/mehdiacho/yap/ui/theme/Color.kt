@@ -3,15 +3,20 @@ package com.mehdiacho.yap.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // ============================================================
-// Yap Material 3 palette — seed indigo #5B5BD6, coral #FF6B6B recording accent.
-// Derived from the approved design kit brand sheet.
+// Yap Material 3 palette — accent blue #1A63D8, coral #FF6B6B recording accent.
+//
+// The seed was indigo #5B5BD6. Violet/indigo accents are the single most recognisable
+// signature of AI-generated interfaces, and a product that reads as AI-made reads as
+// generic no matter how well it works. The accent is now the first stop of the brand
+// gradient (Google blue), darkened for text contrast — so the flat working colour and
+// the animated identity mark are the same hue rather than two unrelated choices.
 // ============================================================
 
 // ---- Light scheme ----
-val md_theme_light_primary = Color(0xFF5B5BD6)
+val md_theme_light_primary = Color(0xFF1A63D8)
 val md_theme_light_onPrimary = Color(0xFFFFFFFF)
-val md_theme_light_primaryContainer = Color(0xFFE4E0FF)
-val md_theme_light_onPrimaryContainer = Color(0xFF3A37A0) // spec §1.1
+val md_theme_light_primaryContainer = Color(0xFFD9E4FF)
+val md_theme_light_onPrimaryContainer = Color(0xFF00317A)
 val md_theme_light_secondary = Color(0xFF5D5C72)
 val md_theme_light_onSecondary = Color(0xFFFFFFFF)
 val md_theme_light_secondaryContainer = Color(0xFFE3E0F9)
@@ -39,10 +44,10 @@ val md_theme_light_surfaceContainerHigh = Color(0xFFEDEBF3) // spec §1.1
 val md_theme_light_surfaceContainerHighest = Color(0xFFE6E3ED)
 
 // ---- Dark scheme ----
-val md_theme_dark_primary = Color(0xFFC5C0FF)
-val md_theme_dark_onPrimary = Color(0xFF2B2A60)
-val md_theme_dark_primaryContainer = Color(0xFF4341A8)
-val md_theme_dark_onPrimaryContainer = Color(0xFFE4E0FF)
+val md_theme_dark_primary = Color(0xFFA9C7FF)
+val md_theme_dark_onPrimary = Color(0xFF00315F)
+val md_theme_dark_primaryContainer = Color(0xFF1F4E9C)
+val md_theme_dark_onPrimaryContainer = Color(0xFFD6E3FF)
 val md_theme_dark_secondary = Color(0xFFC6C4DD)
 val md_theme_dark_onSecondary = Color(0xFF2F2F42)
 val md_theme_dark_secondaryContainer = Color(0xFF454559)

@@ -75,7 +75,7 @@ fun ActionItemsSection(
                 Box(
                     Modifier.fillMaxWidth(doneCount.toFloat() / total).fillMaxHeight()
                         .clip(RoundedCornerShape(2.dp))
-                        .background(brandBrush(forSmallText = true, seed = 21))
+                        .background(cs.primary)
                 )
             }
         }
@@ -107,7 +107,7 @@ private fun ActionItemRow(
         Box(
             Modifier.size(21.dp).clip(RoundedCornerShape(7.dp))
                 .then(
-                    if (item.done) Modifier.background(brandBrush(forSmallText = true, seed = 22))
+                    if (item.done) Modifier.background(cs.primary)
                     else Modifier.border(2.dp, cs.outlineVariant, RoundedCornerShape(7.dp))
                 ),
             contentAlignment = Alignment.Center,
@@ -115,7 +115,7 @@ private fun ActionItemRow(
             if (item.done) {
                 Icon(
                     Icons.Default.Check, null,
-                    tint = androidx.compose.ui.graphics.Color.White,
+                    tint = cs.onPrimary,
                     modifier = Modifier.size(14.dp),
                 )
             }
@@ -191,7 +191,7 @@ private fun CategoryChip(label: String, active: Boolean, seed: Int, onClick: () 
     Row(
         Modifier.clip(RoundedCornerShape(50))
             .then(
-                if (active) Modifier.background(brandBrush(forSmallText = true, seed = seed))
+                if (active) Modifier.background(cs.primary)
                 else Modifier.background(cs.surfaceContainer)
             )
             .clickable { onClick() }
@@ -200,7 +200,7 @@ private fun CategoryChip(label: String, active: Boolean, seed: Int, onClick: () 
     ) {
         Text(
             label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-            color = if (active) androidx.compose.ui.graphics.Color.White else cs.onSurfaceVariant,
+            color = if (active) cs.onPrimary else cs.onSurfaceVariant,
         )
     }
 }

@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Release launcher background. Was an indigo/violet ramp (#6D5BEA → #4F46C8); violet is the
+  most recognisable signature of AI-generated product design, and the launcher icon is the
+  very first thing anyone sees. Retoned to the brand blue.
+
+  Deliberately NOT the debug build's four-colour Google gradient: the two icons have to stay
+  tellable apart on the launcher without reading the label.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
@@ -13,9 +21,9 @@
                 android:endX="108"
                 android:endY="108"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#FF6D5BEA" />
-                <item android:offset="0.55" android:color="#FF5B5BD6" />
-                <item android:offset="1.0" android:color="#FF4F46C8" />
+                <item android:offset="0.0" android:color="#FF3B86F7" />
+                <item android:offset="0.55" android:color="#FF1A63D8" />
+                <item android:offset="1.0" android:color="#FF0F47A8" />
             </gradient>
         </aapt:attr>
     </path>

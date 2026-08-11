@@ -16,10 +16,21 @@ const SUBSCRIPTION_PLANS: Record<string, { plan: string; periodMs: number; byok?
 const ONE_TIME_BYOK = "byok_unlock";
 
 /**
- * Calls the Play Developer API as the Functions runtime service account (ADC — no key
- * file). SETUP (one-time, in Play Console → Users and permissions): invite
- * `yap-mehdiacho@appspot.gserviceaccount.com` and grant "View financial data" +
+ * Calls the Play Developer API as the Functions runtime service account (ADC — no key file).
+ *
+ * SETUP (one-time, Play Console → Users and permissions → Invite new user): invite
+ *
+ *     179392577570-compute@developer.gserviceaccount.com
+ *
+ * and grant "View financial data, orders, and cancellation survey responses" +
  * "Manage orders and subscriptions".
+ *
+ * This comment previously named `yap-mehdiacho@appspot.gserviceaccount.com`. That is the
+ * 1st-gen/App Engine identity; these are 2nd-gen (Cloud Run) functions, which default to the
+ * PROJECT_NUMBER-compute account. Granting the wrong one looks exactly like granting the
+ * right one — every call still fails with "insufficient permissions" — and the failure is
+ * silent from the user's side: the purchase succeeds in Play, verification fails here, so
+ * the client never acknowledges, and Play auto-cancels the subscription a few days later.
  */
 async function playApi(path: string): Promise<any> {
   const auth = new GoogleAuth({
@@ -27,8 +38,22 @@ async function playApi(path: string): Promise<any> {
   });
   const client = await auth.getClient();
   const url = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE_NAME}/${path}`;
-  const res = await client.request({ url });
-  return res.data;
+  try {
+    const res = await client.request({ url });
+    return res.data;
+  } catch (e: any) {
+    // Name the identity in the log. Without it, "insufficient permissions" gives no clue
+    // WHICH account needs the grant, which is the whole reason this went undiagnosed.
+    const who = await auth.getCredentials().then((c) => c.client_email).catch(() => "unknown");
+    console.error("play api call failed", {
+      path,
+      serviceAccount: who,
+      status: e?.response?.status,
+      message: e?.message,
+      hint: `Grant ${who} access in Play Console → Users and permissions.`,
+    });
+    throw e;
+  }
 }
 
 function requireAuth(request: CallableRequest): string {
@@ -72,8 +97,9 @@ export const verifyPlayPurchase = onCall(
       try {
         purchase = await playApi(`purchases/products/${productId}/tokens/${purchaseToken}`);
       } catch (e: any) {
-        console.error("play products.get failed", { message: e?.message });
-        throw new HttpsError("permission-denied", "Purchase could not be verified with Google Play.");
+        // "internal", not "permission-denied": the caller did nothing wrong and there is
+        // nothing they can do about it. The client shows this verbatim.
+        throw new HttpsError("internal", "We couldn't activate this purchase. Support has been notified.");
       }
       if (purchase.purchaseState !== 0) {
         throw new HttpsError("failed-precondition", "Purchase is not in a completed state.");
@@ -92,8 +118,7 @@ export const verifyPlayPurchase = onCall(
     try {
       sub = await playApi(`purchases/subscriptionsv2/tokens/${purchaseToken}`);
     } catch (e: any) {
-      console.error("play subscriptionsv2.get failed", { message: e?.message });
-      throw new HttpsError("permission-denied", "Subscription could not be verified with Google Play.");
+      throw new HttpsError("internal", "We couldn't activate this subscription. Support has been notified.");
     }
     const state = String(sub.subscriptionState ?? "");
     const active = state === "SUBSCRIPTION_STATE_ACTIVE" || state === "SUBSCRIPTION_STATE_IN_GRACE_PERIOD";

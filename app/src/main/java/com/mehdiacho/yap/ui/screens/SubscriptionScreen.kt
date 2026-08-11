@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,7 +88,15 @@ fun SubscriptionScreen(onBack: () -> Unit) {
             }
         }
 
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
+        // Pull to refresh — this page's numbers change underneath you (a purchase lands, a
+        // cycle rolls over), and the only way to re-read them used to be leaving the screen
+        // and coming back.
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = { reload() },
+            modifier = Modifier.weight(1f),
+        ) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
             Spacer(Modifier.height(16.dp))
             // A failed refresh is a strip above the page, not a replacement for it. The plans
             // and whatever usage we last knew are still true and still worth showing.
@@ -112,12 +121,45 @@ fun SubscriptionScreen(onBack: () -> Unit) {
             UsagePanel(status)
             Spacer(Modifier.height(16.dp))
 
+            // Billing period. pro_yearly has existed in Play Console and in the server's
+            // product map all along, but nothing in the app could ever buy it — the only
+            // route to Pro was the monthly product. A plan you can't reach isn't a plan.
+            var yearly by remember { mutableStateOf(false) }
+            Row(
+                Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(12.dp))
+                    .background(cs.surfaceContainer).padding(4.dp)
+            ) {
+                listOf(false to "Monthly", true to "Yearly").forEach { (isYear, label) ->
+                    val on = yearly == isYear
+                    Box(
+                        Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(9.dp))
+                            .background(if (on) cs.surface else Color.Transparent)
+                            .clickable { yearly = isYear },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            label, fontSize = 13.sp,
+                            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (on) cs.onSurface else cs.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+
             // Plan cards — design copy and pricing.
             PlanCard(
-                name = "Pro", price = "$1.99", priceSuffix = "/mo · $19.99/yr",
+                name = if (yearly) "Pro · yearly" else "Pro",
+                price = if (yearly) "$19.99" else "$1.99",
+                priceSuffix = if (yearly) "/yr · two months free" else "/mo",
                 desc = "30 hrs/mo refine · 2 GB · AI actions · priority",
                 current = status?.plan == "pro",
-                onSelect = { purchasing = com.mehdiacho.yap.data.BillingManager.PRO_MONTHLY to "Pro · $1.99/mo" },
+                onSelect = {
+                    purchasing = if (yearly)
+                        com.mehdiacho.yap.data.BillingManager.PRO_YEARLY to "Pro · $19.99/yr"
+                    else
+                        com.mehdiacho.yap.data.BillingManager.PRO_MONTHLY to "Pro · $1.99/mo"
+                },
             )
             Spacer(Modifier.height(12.dp))
             PlanCard(
@@ -170,6 +212,7 @@ fun SubscriptionScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(28.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
+        }
     }
 
     // Purchase bottom sheet — drives from BillingManager.purchasePhase:
@@ -202,7 +245,14 @@ fun SubscriptionScreen(onBack: () -> Unit) {
             LaunchedEffect(phase) {
                 when (phase) {
                     is com.mehdiacho.yap.data.BillingManager.PurchasePhase.Cancelled -> close()
-                    is com.mehdiacho.yap.data.BillingManager.PurchasePhase.Confirmed -> { delay(1800); close() }
+                    is com.mehdiacho.yap.data.BillingManager.PurchasePhase.Confirmed -> {
+                        // Pull the new entitlement before the sheet goes away, so the page
+                        // behind it already says "Pro" rather than still showing Free until
+                        // you navigate away and come back.
+                        reload()
+                        delay(1800)
+                        close()
+                    }
                     else -> {}
                 }
             }
@@ -257,11 +307,19 @@ fun SubscriptionScreen(onBack: () -> Unit) {
                 )
                 if (failed != null) {
                     Spacer(Modifier.height(20.dp))
+                    // Once Play has taken the payment, relaunching the buy flow can only
+                    // return ITEM_ALREADY_OWNED and land straight back here. Retry the step
+                    // that actually failed instead.
                     Button(
-                        onClick = { start() },
+                        onClick = { if (failed.paid) billing.retryVerification(productId) else start() },
                         shape = RoundedCornerShape(50),
                         modifier = Modifier.fillMaxWidth().height(52.dp),
-                    ) { Text("Try again", fontWeight = FontWeight.SemiBold) }
+                    ) {
+                        Text(
+                            if (failed.paid) "Retry activation" else "Try again",
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                     TextButton(onClick = { close() }, modifier = Modifier.padding(top = 4.dp)) {
                         Text("Close", fontWeight = FontWeight.SemiBold)
                     }

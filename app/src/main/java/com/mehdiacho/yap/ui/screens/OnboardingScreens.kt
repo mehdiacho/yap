@@ -199,7 +199,7 @@ private fun OnbWelcome(onStart: () -> Unit, onHaveAccount: () -> Unit) {
                     Modifier.size(mark)
                         .shadow(14.dp, RoundedCornerShape(24.dp), spotColor = cs.primary, ambientColor = cs.primary)
                         .clip(RoundedCornerShape(24.dp))
-                        .background(Brush.linearGradient(listOf(Color(0xFF6D5BEA), Color(0xFF5B5BD6), Color(0xFF4F46C8)))),
+                        .background(Brush.linearGradient(listOf(Color(0xFF2E7BEF), Color(0xFF1A63D8), Color(0xFF104BAE)))),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Outlined.GraphicEq, null, tint = Color.White, modifier = Modifier.size(mark * 0.55f))
@@ -802,7 +802,7 @@ private fun OnbSuggestedSetup(onFinish: () -> Unit, onBack: () -> Unit) {
             SetupRow(
                 tile = {
                     Box(Modifier.size(56.dp).clip(RoundedCornerShape(16.dp))
-                        .background(Brush.linearGradient(listOf(Color(0xFF6D5BEA), Color(0xFF5B5BD6)))),
+                        .background(Brush.linearGradient(listOf(Color(0xFF2E7BEF), Color(0xFF1A63D8)))),
                         contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.Mic, null, tint = Color.White, modifier = Modifier.size(30.dp))
                     }

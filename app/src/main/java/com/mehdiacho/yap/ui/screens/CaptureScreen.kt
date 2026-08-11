@@ -460,15 +460,13 @@ private fun IdleContent(
                 ) {
                     Icon(
                         Icons.Outlined.UploadFile, null,
-                        modifier = Modifier.size(18.dp).brandTint(seed = 4),
-                        tint = Color.White,
+                        tint = cs.primary,
+                        modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(7.dp))
                     Text(
                         "Import a file", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        style = androidx.compose.ui.text.TextStyle(
-                            brush = com.mehdiacho.yap.ui.theme.brandTextBrush(seed = 4)
-                        ),
+                        color = cs.primary,
                     )
                 }
             }

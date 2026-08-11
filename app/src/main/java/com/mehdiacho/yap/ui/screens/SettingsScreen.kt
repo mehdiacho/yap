@@ -144,10 +144,7 @@ private fun MainRow(
             // Seeded off the row's own title, so each settings row runs its sweep at a
             // different phase and angle — a column of identical icons all showing the exact
             // same colour at the same instant is the uncanny case.
-            Icon(
-                icon, null, tint = Color.White,
-                modifier = Modifier.size(23.dp).brandTint(seed = title.hashCode()),
-            )
+            Icon(icon, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(23.dp))
             Spacer(Modifier.width(14.dp))
             Text(title, fontSize = 15.sp, color = cs.onSurface, modifier = Modifier.weight(1f))
             if (locked) {

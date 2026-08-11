@@ -101,7 +101,7 @@ class FloatingMicService : Service() {
         val recording = status != RecorderStatus.IDLE
         bubble?.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(if (recording) 0xFFFF6B6B.toInt() else 0xFF5B5BD6.toInt())
+            setColor(if (recording) 0xFFFF6B6B.toInt() else 0xFF1A63D8.toInt())
         }
         icon?.setImageResource(if (recording) R.drawable.ic_stop else R.drawable.ic_tile_mic)
         icon?.setColorFilter(Color.WHITE)
