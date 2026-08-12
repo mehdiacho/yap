@@ -34,6 +34,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.TextUnit
+import com.mehdiacho.yap.data.AuthManager
+import kotlinx.coroutines.launch
 
 // ---------------------------------------------------------------- password policy
 
@@ -167,3 +173,80 @@ fun GoogleGradientButton(
         }
     }
 }
+
+// ---------------------------------------------------------------- forgot password
+
+/**
+ * "Forgot password?", with the guard it was missing.
+ *
+ * Both sign-in screens called `sendPasswordReset` straight out of `onClick` with nothing
+ * disabling the button — the `busy` flag they passed is only set by the sign-in path, never by
+ * this one. So every tap sent an email, and because a `TextButton` accepts a second tap while
+ * the first request is still in the air, an ordinary double-tap sent two. Firebase's own
+ * throttling doesn't catch this: it happily emits several before it starts rejecting, and when
+ * it does reject, the message it returns is not one you'd want to show anybody.
+ *
+ * Three things stop it now. The button disables the moment a send starts, so a request in
+ * flight can't be duplicated. It stays disabled for a cooldown afterwards, so leaning on it
+ * doesn't queue a run of identical emails. And it says the link has been sent, which is the
+ * actual reason people tap twice — nothing on screen had confirmed the first one.
+ */
+@Composable
+fun ForgotPasswordButton(
+    email: String,
+    modifier: Modifier = Modifier,
+    fontSize: TextUnit = 13.sp,
+    onError: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var sending by remember { mutableStateOf(false) }
+    var sentAt by remember { mutableStateOf(0L) }
+
+    // Ticks once a second only while a cooldown is running, so the label can count down
+    // without the screen recomposing forever afterwards.
+    var now by remember { mutableStateOf(0L) }
+    LaunchedEffect(sentAt) {
+        if (sentAt == 0L) return@LaunchedEffect
+        while (true) {
+            now = System.currentTimeMillis()
+            if (now - sentAt >= RESET_COOLDOWN_MS) break
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    val remaining = ((RESET_COOLDOWN_MS - (now - sentAt)) / 1000).coerceAtLeast(0)
+    val cooling = sentAt != 0L && remaining > 0
+
+    TextButton(
+        enabled = email.isNotBlank() && !sending && !cooling,
+        onClick = {
+            sending = true
+            scope.launch {
+                try {
+                    AuthManager.sendPasswordReset(email.trim())
+                    sentAt = System.currentTimeMillis()
+                    now = sentAt
+                    android.widget.Toast.makeText(
+                        context, "Reset link sent to ${email.trim()}",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                } catch (e: Exception) {
+                    onError(e.message ?: "Couldn't send the reset email.")
+                } finally { sending = false }
+            }
+        },
+        modifier = modifier,
+    ) {
+        Text(
+            when {
+                sending -> "Sending…"
+                cooling -> "Link sent · ${remaining}s"
+                else -> "Forgot password?"
+            },
+            fontSize = fontSize, fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+/** Long enough that a frustrated double-tap can't become two emails, short enough to retry. */
+private const val RESET_COOLDOWN_MS = 60_000L

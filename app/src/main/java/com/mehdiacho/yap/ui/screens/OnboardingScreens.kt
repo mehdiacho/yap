@@ -363,24 +363,12 @@ private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone:
                 fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
         if (login) {
-            TextButton(
-                enabled = email.isNotBlank() && !busy,
-                onClick = {
-                    scope.launch {
-                        try {
-                            AuthManager.sendPasswordReset(email.trim())
-                            error = null
-                            android.widget.Toast.makeText(context,
-                                "Reset link sent to ${email.trim()}", android.widget.Toast.LENGTH_LONG).show()
-                        } catch (e: Exception) {
-                            error = e.message ?: "Couldn't send the reset email."
-                        }
-                    }
-                },
+            ForgotPasswordButton(
+                email = email,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
-            ) {
-                Text("Forgot password?", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            }
+                fontSize = 14.sp,
+                onError = { error = it },
+            )
         }
         Spacer(Modifier.weight(1f))
         Spacer(Modifier.height(20.dp))
