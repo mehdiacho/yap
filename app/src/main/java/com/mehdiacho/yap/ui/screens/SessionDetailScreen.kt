@@ -51,7 +51,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.BuildConfig
 import com.mehdiacho.yap.ui.MainViewModel
+import com.mehdiacho.yap.ui.components.Pill
+import com.mehdiacho.yap.ui.note.NoteBody
 import com.mehdiacho.yap.ui.theme.Outfit
+import com.mehdiacho.yap.ui.theme.YapDims
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.YapTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,11 +72,6 @@ import java.io.File
  */
 private const val NOTE_VIEW = "Note"
 private const val TRANSCRIPT_VIEW = "Transcript"
-
-// Amber accents for Smart Review flagged blocks (design #E0A52E family).
-private val ReviewAmber = Color(0xFFE0A52E)
-private val ReviewAmberBg = Color(0xFFFFF8EC)
-private val ReviewAmberHighlight = Color(0xFFFFE0A8)
 
 @Composable
 fun SessionDetailScreen(
@@ -124,6 +123,17 @@ fun SessionDetailScreen(
     fun currentText(): String =
         if (viewMode == NOTE_VIEW) currentSession.formattedText ?: currentSession.draftText
         else currentSession.draftText
+
+    /**
+     * The note as text for copying and sharing.
+     *
+     * Only the Note view has markup to strip. The transcript is already verbatim speech, and
+     * running it through the block parser would be a no-op at best and could reflow it at
+     * worst — the one view whose whole value is being unaltered.
+     */
+    fun shareableText(): String =
+        if (viewMode == NOTE_VIEW) com.mehdiacho.yap.ui.note.NoteExport.asPlainText(currentText())
+        else currentText()
 
     val hasFormatted = currentSession.formattedText != null
     val draftOnly = !hasFormatted && currentSession.draftText.isNotBlank() &&
@@ -209,9 +219,31 @@ fun SessionDetailScreen(
                             val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(android.content.Intent.EXTRA_SUBJECT, currentSession.title)
-                                putExtra(android.content.Intent.EXTRA_TEXT, currentText())
+                                putExtra(android.content.Intent.EXTRA_TEXT, shareableText())
                             }
                             context.startActivity(android.content.Intent.createChooser(send, "Share note"))
+                        })
+                    // Markdown as a file you take away, which is what it's good for: the
+                    // structure survives into an editor or a repo. Sent as text/markdown with
+                    // a .md extension rather than pasted, because pasted Markdown arrives as
+                    // a paragraph of literal asterisks in every app that receives it.
+                    DropdownMenuItem(text = { Text("Export as Markdown") },
+                        onClick = {
+                            menuOpen = false
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent.createChooser(
+                                        com.mehdiacho.yap.ui.note.NoteExport.shareMarkdown(
+                                            context, currentSession.title, currentText(),
+                                        ),
+                                        "Export note",
+                                    )
+                                )
+                            }.onFailure {
+                                android.widget.Toast.makeText(
+                                    context, "Couldn't create the file", android.widget.Toast.LENGTH_LONG,
+                                ).show()
+                            }
                         })
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text("Delete", color = cs.error) },
@@ -223,7 +255,7 @@ fun SessionDetailScreen(
         if (showEditTitle) {
             AlertDialog(
                 onDismissRequest = { showEditTitle = false },
-                shape = RoundedCornerShape(28.dp),
+                shape = YapShapes.dialog,
                 title = { Text("Edit title") },
                 text = { OutlinedTextField(value = titleDraft, onValueChange = { titleDraft = it }, singleLine = true) },
                 confirmButton = {
@@ -238,7 +270,7 @@ fun SessionDetailScreen(
         if (showDeleteConfirm) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirm = false },
-                shape = RoundedCornerShape(28.dp),
+                shape = YapShapes.dialog,
                 title = { Text("Move to trash?") },
                 text = { Text("You can restore it from the trash for 30 days.") },
                 confirmButton = {
@@ -252,7 +284,7 @@ fun SessionDetailScreen(
             )
         }
 
-        // "You fixed one — here are the others." Raised after an edit that changed a single
+        // "You fixed one. Here are the others." Raised after an edit that changed a single
         // word, never applied without an explicit choice.
         pendingCorrection?.let { correction ->
             CorrectionReviewSheet(
@@ -304,8 +336,8 @@ fun SessionDetailScreen(
         if (draftOnly) {
             Row(
                 Modifier.padding(horizontal = 22.dp).padding(top = 16.dp).fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp)).background(ext.warningSoft)
-                    .border(1.dp, Color(0xFFF0D9A8), RoundedCornerShape(16.dp))
+                    .clip(YapShapes.panel).background(ext.warningSoft)
+                    .border(1.dp, ext.onOfflineContainer.copy(alpha = 0.25f), YapShapes.panel)
                     .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -328,14 +360,14 @@ fun SessionDetailScreen(
             Spacer(Modifier.height(14.dp))
             Row(
                 modifier = Modifier.padding(horizontal = 22.dp).fillMaxWidth().height(46.dp)
-                    .clip(RoundedCornerShape(14.dp)).background(cs.surfaceContainer).padding(5.dp)
+                    .clip(YapShapes.card).background(cs.surfaceContainer).padding(5.dp)
             ) {
                 listOf(NOTE_VIEW, TRANSCRIPT_VIEW).forEach { mode ->
                     val selected = viewMode == mode
                     Box(
                         modifier = Modifier.weight(1f).fillMaxHeight()
-                            .then(if (selected) Modifier.shadow(2.dp, RoundedCornerShape(11.dp)) else Modifier)
-                            .clip(RoundedCornerShape(11.dp))
+                            .then(if (selected) Modifier.shadow(2.dp, YapShapes.md) else Modifier)
+                            .clip(YapShapes.md)
                             .background(if (selected) cs.surface else Color.Transparent)
                             .clickable { viewMode = mode },
                         contentAlignment = Alignment.Center,
@@ -355,13 +387,13 @@ fun SessionDetailScreen(
             when {
                 currentSession.status == "QUOTA" -> {
                     Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                        Modifier.fillMaxWidth().clip(YapShapes.card)
                             .background(cs.errorContainer).padding(16.dp)
                     ) {
                         Text("Monthly transcription limit reached", fontWeight = FontWeight.Bold,
                             fontSize = 15.sp, color = cs.onErrorContainer)
                         Spacer(Modifier.height(4.dp))
-                        Text("Your recording is saved — it can be transcribed after you upgrade, redeem a code, or when your cycle resets.",
+                        Text("Your recording is saved. It can be transcribed once you upgrade, redeem a code, or your cycle resets.",
                             fontSize = 13.sp, lineHeight = 18.sp, color = cs.onErrorContainer)
                         Spacer(Modifier.height(12.dp))
                         // The banner above promises the recording can be transcribed later,
@@ -397,7 +429,7 @@ fun SessionDetailScreen(
                 // permanently empty. Offer the retry instead.
                 currentSession.status == "FAILED" -> {
                     Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                        Modifier.fillMaxWidth().clip(YapShapes.card)
                             .background(cs.errorContainer).padding(16.dp)
                     ) {
                         Text("Transcription didn't finish", fontWeight = FontWeight.Bold,
@@ -408,7 +440,7 @@ fun SessionDetailScreen(
                         // account — no amount of retrying fixes that on its own.
                         Text(
                             currentSession.statusMessage?.takeIf { it.isNotBlank() }
-                                ?: "Your recording is safe — only the transcription failed. " +
+                                ?: "Your recording is safe. Only the transcription failed. " +
                                 "This is usually temporary.",
                             fontSize = 13.sp, lineHeight = 18.sp, color = cs.onErrorContainer,
                         )
@@ -432,10 +464,13 @@ fun SessionDetailScreen(
                 }
                 content.isBlank() -> Text("No transcription available.", fontSize = 15.sp, color = cs.onSurfaceVariant)
                 viewMode == NOTE_VIEW && hasFormatted -> {
-                    // Dialogue renderer when the note reads as speaker-labelled lines; markdown otherwise.
+                    // Dialogue renderer when the note reads as speaker-labelled lines; the
+                    // app's own block renderer otherwise. Neither one is a Markdown renderer
+                    // any more — the source is still Markdown, but what you read is Yap's
+                    // layout, and the raw form is a deliberate export rather than the default.
                     val dialogue = remember(content) { parseDialogue(content) }
                     if (dialogue != null) DialogueBody(dialogue)
-                    else com.mikepenz.markdown.m3.Markdown(content = content)
+                    else NoteBody(content)
                 }
                 else -> Text(content, fontSize = 15.sp, lineHeight = 24.sp, color = cs.onSurface)
             }
@@ -480,7 +515,10 @@ fun SessionDetailScreen(
                 editingBody = true
             }
             ActionPill(Icons.Default.ContentCopy, "Copy") {
-                clipboard.setText(androidx.compose.ui.text.AnnotatedString(currentText()))
+                // What lands on the clipboard is what's on screen. Pasting "## Decisions"
+                // and rows of asterisks into a message is nobody's intent when they tap
+                // Copy on a note they are looking at. Markdown has its own export.
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(shareableText()))
                 android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
             }
             ActionPill(Icons.Default.Mic, "Add recording") { onAppendRecording(currentSession) }
@@ -488,7 +526,7 @@ fun SessionDetailScreen(
                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(android.content.Intent.EXTRA_SUBJECT, currentSession.title)
-                    putExtra(android.content.Intent.EXTRA_TEXT, currentText())
+                    putExtra(android.content.Intent.EXTRA_TEXT, shareableText())
                 }
                 context.startActivity(android.content.Intent.createChooser(send, "Share note"))
             }
@@ -544,10 +582,16 @@ private fun ActionPill(
 
 @Composable
 private fun MetaChip(label: String, bg: Color, fg: Color, bold: Boolean = false) {
-    Box(Modifier.clip(RoundedCornerShape(8.dp)).background(bg).padding(horizontal = 9.dp, vertical = 4.dp)) {
-        Text(label, fontSize = 11.sp, color = fg,
-            fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal)
-    }
+    // Category and topic are both user data, so both get the width cap: an unusually long
+    // one used to widen the chip until it ran off the edge of the title block.
+    Pill(
+        label = label,
+        background = bg,
+        contentColor = fg,
+        shape = YapShapes.md,
+        bold = bold,
+        maxWidth = YapDims.chipMaxWidth,
+    )
 }
 
 // ---------- Dialogue renderer ----------
@@ -640,8 +684,8 @@ private fun EditingBlockContent(
         Spacer(Modifier.height(18.dp))
         Column(
             Modifier.weight(1f).padding(horizontal = 22.dp).fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp)).background(cs.surfaceContainerLow)
-                .border(2.dp, cs.primary, RoundedCornerShape(14.dp)).padding(14.dp)
+                .clip(YapShapes.card).background(cs.surfaceContainerLow)
+                .border(2.dp, cs.primary, YapShapes.card).padding(14.dp)
         ) {
             OutlinedTextField(
                 value = draft, onValueChange = onDraftChange,
@@ -700,8 +744,8 @@ private fun DetailSkeleton(onBack: () -> Unit) {
         Column(Modifier.padding(horizontal = 22.dp).padding(top = 16.dp)) {
             Bar(0.8f, 24, 8); Spacer(Modifier.height(8.dp)); Bar(0.55f, 24, 8)
             Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.width(70.dp).height(20.dp).clip(RoundedCornerShape(8.dp)).background(bar))
-                Box(Modifier.width(54.dp).height(20.dp).clip(RoundedCornerShape(8.dp)).background(bar))
+                Box(Modifier.width(70.dp).height(20.dp).clip(YapShapes.md).background(bar))
+                Box(Modifier.width(54.dp).height(20.dp).clip(YapShapes.md).background(bar))
             }
             Spacer(Modifier.height(16.dp)); Bar(1f, 42, 14)
             Spacer(Modifier.height(18.dp))
@@ -765,7 +809,7 @@ private fun MultiRecordingPlayer(session: com.mehdiacho.yap.data.Session) {
                 Box(
                     Modifier.padding(horizontal = 3.dp)
                         .size(width = if (i == current) 18.dp else 7.dp, height = 7.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                        .clip(YapShapes.xs)
                         .background(if (i == current) cs.primary else cs.surfaceVariant)
                         .clickable { current = i },
                 )
@@ -909,8 +953,8 @@ private fun AudioPlayerBar(
                 val frac = if (state.valueRange.endInclusive > 0f)
                     (state.value / state.valueRange.endInclusive).coerceIn(0f, 1f) else 0f
                 Box(Modifier.fillMaxWidth().height(10.dp), contentAlignment = Alignment.CenterStart) {
-                    Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(cs.surfaceVariant)) {
-                        Box(Modifier.fillMaxWidth(frac).height(4.dp).clip(RoundedCornerShape(2.dp)).background(cs.primary))
+                    Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(cs.surfaceVariant)) {
+                        Box(Modifier.fillMaxWidth(frac).height(4.dp).clip(CircleShape).background(cs.primary))
                     }
                     // Bookmark markers dropped while recording.
                     if (durationMs > 0 && bookmarks.isNotEmpty()) {

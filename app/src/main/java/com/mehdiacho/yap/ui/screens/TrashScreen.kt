@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.ui.MainViewModel
 
@@ -61,7 +62,7 @@ fun TrashScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                         (TRASH_DAYS - (System.currentTimeMillis() - it) / 86_400_000L).coerceAtLeast(0)
                     } ?: TRASH_DAYS
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        Modifier.fillMaxWidth().clip(YapShapes.panel)
                             .background(MaterialTheme.colorScheme.surfaceContainer)
                             .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically

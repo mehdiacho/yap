@@ -110,6 +110,10 @@ dependencies {
   implementation(libs.androidx.biometric)
   // Play Billing scaffold — flows work once products exist in Play Console.
   implementation(libs.billing.ktx)
+  // Referral attribution: a Play listing URL carries its "referrer" parameter through
+  // the store and the install, which is the only path that reaches someone who does not
+  // have the app yet — see data/InstallReferral.kt.
+  implementation("com.android.installreferrer:installreferrer:2.2")
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
@@ -119,7 +123,9 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   implementation(libs.androidx.navigation.compose)
-  // implementation(libs.coil.compose)
+  // Avatars: the account photo is a remote URL (a Storage download link, or the one Google
+  // hands over at sign-in), so it needs an async image loader with a memory/disk cache.
+  implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
   implementation(libs.firebase.appcheck.recaptcha)
@@ -127,7 +133,6 @@ dependencies {
   implementation("com.google.firebase:firebase-functions")
   implementation("com.google.firebase:firebase-storage")
   implementation("com.google.firebase:firebase-firestore")
-  implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.26.0")
   implementation("androidx.credentials:credentials:1.3.0")
   implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
   implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")

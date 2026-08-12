@@ -36,7 +36,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -54,6 +53,7 @@ import com.mehdiacho.yap.audio.RecordingController
 import com.mehdiacho.yap.data.AuthManager
 import com.mehdiacho.yap.ui.MainViewModel
 import com.mehdiacho.yap.ui.theme.Outfit
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.YapTheme
 import kotlinx.coroutines.launch
 
@@ -172,7 +172,7 @@ private fun OnbDots(active: Int, modifier: Modifier = Modifier) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
         repeat(3) { i ->
             if (i == active - 1) {
-                Box(Modifier.width(22.dp).height(7.dp).clip(RoundedCornerShape(4.dp)).background(cs.primary))
+                Box(Modifier.width(22.dp).height(7.dp).clip(CircleShape).background(cs.primary))
             } else {
                 Box(Modifier.size(7.dp).clip(CircleShape).background(cs.surfaceVariant))
             }
@@ -197,8 +197,8 @@ private fun OnbWelcome(onStart: () -> Unit, onHaveAccount: () -> Unit) {
             ) {
                 Box(
                     Modifier.size(mark)
-                        .shadow(14.dp, RoundedCornerShape(24.dp), spotColor = cs.primary, ambientColor = cs.primary)
-                        .clip(RoundedCornerShape(24.dp))
+                        .shadow(14.dp, YapShapes.dialog)
+                        .clip(YapShapes.dialog)
                         .background(Brush.linearGradient(listOf(Color(0xFF2E7BEF), Color(0xFF1A63D8), Color(0xFF104BAE)))),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -239,7 +239,7 @@ private fun OnbAbout(onContinue: () -> Unit, onBack: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Box(Modifier.size(72.dp).clip(RoundedCornerShape(20.dp)).background(cs.primaryContainer),
+            Box(Modifier.size(72.dp).clip(YapShapes.xl).background(cs.primaryContainer),
                 contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.Bolt, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(36.dp))
             }
@@ -248,7 +248,7 @@ private fun OnbAbout(onContinue: () -> Unit, onBack: () -> Unit) {
                 fontSize = 28.sp, lineHeight = 32.sp, letterSpacing = (-0.4).sp,
                 color = cs.onSurface, textAlign = TextAlign.Center)
             Spacer(Modifier.height(14.dp))
-            Text("Yap turns rambles into clean, organized notes. Speak — it drafts instantly on your phone, polishes itself in the cloud, and files itself away.",
+            Text("Yap turns rambles into clean, organized notes. Start talking and a draft appears on your phone straight away, then tidies and files itself once it uploads.",
                 fontSize = 15.sp, lineHeight = 23.sp, color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
         }
         Button(onClick = onContinue, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(56.dp)) {
@@ -291,13 +291,13 @@ private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone:
             fontSize = 26.sp, lineHeight = 30.sp, letterSpacing = (-0.3).sp, color = cs.onSurface)
         Spacer(Modifier.height(10.dp))
         Text(if (login) "Log in to pick up right where you left off."
-            else "Or skip — everything works offline as a guest.",
+            else "Or skip. Everything works offline as a guest.",
             fontSize = 14.sp, color = cs.onSurfaceVariant)
 
         Spacer(Modifier.height(26.dp))
         if (error != null) {
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(cs.errorContainer)
+                Modifier.fillMaxWidth().clip(YapShapes.card).background(cs.errorContainer)
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -310,7 +310,7 @@ private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone:
         OutlinedTextField(
             value = email, onValueChange = { email = it; error = null },
             label = { Text("Email address") }, singleLine = true, isError = error != null,
-            shape = RoundedCornerShape(14.dp),
+            shape = YapShapes.card,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -318,7 +318,7 @@ private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone:
         OutlinedTextField(
             value = password, onValueChange = { password = it; error = null },
             label = { Text("Password") }, singleLine = true, isError = error != null,
-            shape = RoundedCornerShape(14.dp),
+            shape = YapShapes.card,
             visualTransformation = if (showPassword) androidx.compose.ui.text.input.VisualTransformation.None
                 else PasswordVisualTransformation(),
             trailingIcon = { PeekabooToggle(showPassword) { showPassword = !showPassword } },
@@ -426,7 +426,7 @@ private fun OnbPermission(onGranted: () -> Unit, onSkip: () -> Unit, onBack: () 
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Box(Modifier.size(72.dp).clip(RoundedCornerShape(20.dp)).background(cs.primaryContainer),
+            Box(Modifier.size(72.dp).clip(YapShapes.xl).background(cs.primaryContainer),
                 contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Mic, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(36.dp))
             }
@@ -473,17 +473,15 @@ private fun OnbFirstNote(onSkip: () -> Unit, onBack: () -> Unit) {
                 fontSize = 26.sp, lineHeight = 30.sp, letterSpacing = (-0.3).sp,
                 color = cs.onSurface, textAlign = TextAlign.Center)
             Spacer(Modifier.height(10.dp))
-            Text("Ramble for a few seconds — we'll handle the rest.",
+            Text("Ramble for a few seconds. We'll handle the rest.",
                 fontSize = 14.sp, color = cs.onSurfaceVariant, textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 32.dp))
 
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                 Box(contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(dia).offset(y = 9.dp).blur(36.dp, BlurredEdgeTreatment.Unbounded)
-                        .clip(CircleShape).background(cs.primary.copy(alpha = 0.42f)))
                     Box(
                         Modifier.size(dia)
-                            .shadow(10.dp, CircleShape, spotColor = cs.primary, ambientColor = cs.primary)
+                            .shadow(12.dp, CircleShape)
                             .clip(CircleShape).background(cs.primary)
                             .clickable {
                                 if (hasMicPermission(context)) RecordingController.start(context)
@@ -552,7 +550,7 @@ private fun OnbRecording(
             val draft by com.mehdiacho.yap.audio.LiveDraftEngine.draftText.collectAsState()
             Spacer(Modifier.height(14.dp))
             Column(
-                Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp))
+                Modifier.fillMaxWidth().weight(1f).clip(YapShapes.panel)
                     .background(cs.surfaceContainer).padding(16.dp)
             ) {
                 Text("LIVE DRAFT", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
@@ -622,7 +620,7 @@ private fun OnbSaved(viewModel: MainViewModel, onContinue: () -> Unit) {
                 fontSize = 15.sp, lineHeight = 22.sp, color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
             if (latest != null) {
                 Spacer(Modifier.height(24.dp))
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainer)
+                Column(Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainer)
                     .padding(horizontal = 16.dp, vertical = 14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         StatusChip(latest.status)
@@ -672,10 +670,10 @@ private fun OnbHowItWorks(onNext: () -> Unit, onBack: () -> Unit) {
 private fun FeatureCard(icon: ImageVector, title: String, body: String) {
     val cs = MaterialTheme.colorScheme
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surfaceContainerLow).padding(18.dp),
+        Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainerLow).padding(18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(cs.primaryContainer),
+        Box(Modifier.size(48.dp).clip(YapShapes.card).background(cs.primaryContainer),
             contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(26.dp))
         }
@@ -708,11 +706,11 @@ private fun OnbAiKey(onNext: () -> Unit, onBack: () -> Unit) {
         Spacer(Modifier.height(22.dp))
 
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surfaceContainerLow)
-                .border(2.dp, cs.primary, RoundedCornerShape(18.dp)).padding(18.dp),
+            Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainerLow)
+                .border(2.dp, cs.primary, YapShapes.panel).padding(18.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(cs.primary),
+            Box(Modifier.size(44.dp).clip(YapShapes.lg).background(cs.primary),
                 contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.AutoAwesome, null, tint = cs.onPrimary, modifier = Modifier.size(24.dp))
             }
@@ -725,11 +723,11 @@ private fun OnbAiKey(onNext: () -> Unit, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(14.dp))
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surface)
-                .border(1.dp, cs.outlineVariant, RoundedCornerShape(18.dp)).padding(18.dp),
+            Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surface)
+                .border(1.dp, cs.outlineVariant, YapShapes.panel).padding(18.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(cs.surfaceContainerHigh),
+            Box(Modifier.size(44.dp).clip(YapShapes.lg).background(cs.surfaceContainerHigh),
                 contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Key, null, tint = ext.subdued, modifier = Modifier.size(24.dp))
             }
@@ -801,7 +799,7 @@ private fun OnbSuggestedSetup(onFinish: () -> Unit, onBack: () -> Unit) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             SetupRow(
                 tile = {
-                    Box(Modifier.size(56.dp).clip(RoundedCornerShape(16.dp))
+                    Box(Modifier.size(56.dp).clip(YapShapes.panel)
                         .background(Brush.linearGradient(listOf(Color(0xFF2E7BEF), Color(0xFF1A63D8)))),
                         contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.Mic, null, tint = Color.White, modifier = Modifier.size(30.dp))
@@ -812,7 +810,7 @@ private fun OnbSuggestedSetup(onFinish: () -> Unit, onBack: () -> Unit) {
             )
             SetupRow(
                 tile = {
-                    Box(Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)).background(cs.primaryContainer),
+                    Box(Modifier.size(56.dp).clip(YapShapes.panel).background(cs.primaryContainer),
                         contentAlignment = Alignment.Center) {
                         Icon(Icons.Outlined.Tune, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(30.dp))
                     }
@@ -834,7 +832,7 @@ private fun OnbSuggestedSetup(onFinish: () -> Unit, onBack: () -> Unit) {
 private fun SetupRow(tile: @Composable () -> Unit, title: String, body: String, onAdd: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surfaceContainerLow).padding(18.dp),
+        Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainerLow).padding(18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tile()

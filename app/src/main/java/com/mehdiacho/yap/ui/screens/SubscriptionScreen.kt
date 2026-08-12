@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.data.AccountClient
 import com.mehdiacho.yap.data.AccountStatus
 import com.mehdiacho.yap.ui.theme.Outfit
@@ -102,7 +103,7 @@ fun SubscriptionScreen(onBack: () -> Unit, onOpenPlans: () -> Unit = {}) {
             // and whatever usage we last knew are still true and still worth showing.
             loadError?.let {
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                    Modifier.fillMaxWidth().clip(YapShapes.lg)
                         .background(cs.errorContainer).padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -132,7 +133,7 @@ fun SubscriptionScreen(onBack: () -> Unit, onOpenPlans: () -> Unit = {}) {
                 OutlinedTextField(
                     value = code, onValueChange = { code = it.uppercase(); redeemError = null },
                     placeholder = { Text("Promo code") }, singleLine = true,
-                    shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f),
+                    shape = YapShapes.card, modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(10.dp))
                 Button(
@@ -195,7 +196,7 @@ private fun UsagePanel(s: AccountStatus?) {
         else "%.1f / %d min".format(usedMin, capMin)
     }
 
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainer).padding(14.dp)) {
+    Column(Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainer).padding(14.dp)) {
         Text("THIS CYCLE · RESETS $resetLabel", fontSize = 11.sp, fontWeight = FontWeight.Bold,
             letterSpacing = 0.5.sp, color = ext.subdued)
         Spacer(Modifier.height(10.dp))
@@ -208,7 +209,7 @@ private fun UsagePanel(s: AccountStatus?) {
         LinearProgressIndicator(
             progress = { if (s == null) 0f else (s.secondsUsed.toFloat() / s.secondsCap).coerceIn(0f, 1f) },
             trackColor = cs.surfaceVariant,
-            modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)),
+            modifier = Modifier.fillMaxWidth().height(7.dp).clip(CircleShape),
         )
         Spacer(Modifier.height(12.dp))
         Row {
@@ -220,7 +221,7 @@ private fun UsagePanel(s: AccountStatus?) {
         LinearProgressIndicator(
             progress = { ((storageBytes ?: 0L).toFloat() / storageCap).coerceIn(0f, 1f) },
             color = cs.tertiary, trackColor = cs.surfaceVariant,
-            modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)),
+            modifier = Modifier.fillMaxWidth().height(7.dp).clip(YapShapes.xs),
         )
     }
 }
@@ -250,7 +251,7 @@ private fun CurrentPlanRow(plan: String?, onOpenPlans: () -> Unit) {
         else -> plan.replaceFirstChar { it.uppercase() }
     }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+        Modifier.fillMaxWidth().clip(YapShapes.panel)
             .background(cs.surfaceContainer).padding(16.dp)
     ) {
         Text("YOUR PLAN", fontSize = 11.sp, fontWeight = FontWeight.Bold,

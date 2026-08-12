@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.data.OrphanRecordings
 import com.mehdiacho.yap.ui.MainViewModel
 import com.mehdiacho.yap.ui.theme.Outfit
@@ -113,7 +114,7 @@ fun RescueRecordingsScreen(
     pendingDelete?.let { target ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            shape = RoundedCornerShape(28.dp),
+            shape = YapShapes.dialog,
             icon = {
                 Icon(
                     Icons.Default.Warning, null, tint = ext.onOfflineContainer,
@@ -157,7 +158,7 @@ private fun OrphanRow(
 
     Column(
         Modifier.fillMaxWidth().padding(bottom = 12.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(YapShapes.panel)
             .background(cs.surfaceContainer)
             .padding(14.dp)
     ) {

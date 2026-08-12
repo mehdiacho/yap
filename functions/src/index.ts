@@ -29,6 +29,8 @@ export {
 } from "./lifecycle";
 export { verifyPlayPurchase } from "./billing";
 export { setByokKey, clearByokKey, getByokStatus } from "./byok";
+export { getProfile, setProfileName, setProfilePhoto } from "./profile";
+export { getUsagePersona } from "./persona";
 import { getEntitlement, capForPlan } from "./accounts";
 import { BYOK_ENC_KEY, resolveGeminiKey } from "./byok";
 import { classifyProviderError } from "./providerErrors";

@@ -73,7 +73,11 @@ import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.ui.LibraryChrome
 import com.mehdiacho.yap.ui.MainViewModel
 import com.mehdiacho.yap.ui.rememberOfflineState
+import com.mehdiacho.yap.ui.components.Pill
+import com.mehdiacho.yap.ui.components.PillSize
 import com.mehdiacho.yap.ui.theme.Outfit
+import com.mehdiacho.yap.ui.theme.YapDims
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.YapTheme
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -145,8 +149,13 @@ fun LibraryScreen(
                 android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Search your notes")
         }
-        runCatching { voiceLauncher.launch(intent) }
-            .onFailure { stub("Voice search isn't available on this device —") }
+        runCatching { voiceLauncher.launch(intent) }.onFailure {
+            android.widget.Toast.makeText(
+                context,
+                "Voice search isn't available on this device.",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        }
     }
 
     val categories = remember(sessions) {
@@ -215,18 +224,16 @@ fun LibraryScreen(
                             ))
                         // Pending-sync pill (design · offline): cloud_sync + count. Tap → Sync sheet.
                         if (offline && pendingCount > 0) {
-                            Row(
-                                Modifier.clip(RoundedCornerShape(50)).background(ext.offlineContainer)
-                                    .clickable { showSyncSheet = true }
-                                    .padding(horizontal = 11.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(Icons.Outlined.CloudSync, null, tint = ext.onOfflineContainer,
-                                    modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(5.dp))
-                                Text("$pendingCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                                    color = ext.onOfflineContainer)
-                            }
+                            Pill(
+                                label = "$pendingCount",
+                                background = ext.offlineContainer,
+                                contentColor = ext.onOfflineContainer,
+                                leading = {
+                                    Icon(Icons.Outlined.CloudSync, null, tint = ext.onOfflineContainer,
+                                        modifier = Modifier.size(13.dp))
+                                },
+                                onClick = { showSyncSheet = true },
+                            )
                             Spacer(Modifier.width(10.dp))
                         }
                         Icon(Icons.Outlined.Delete, "Trash", tint = cs.onSurfaceVariant,
@@ -244,7 +251,7 @@ fun LibraryScreen(
                     if (offline) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = edge).padding(top = 12.dp)
-                                .clip(RoundedCornerShape(12.dp)).background(ext.warningSoft)
+                                .clip(YapShapes.lg).background(ext.warningSoft)
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -479,8 +486,13 @@ fun LibraryScreen(
             Box(
                 Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 16.dp)
                     .size(fab)
-                    .shadow(10.dp, RoundedCornerShape(20.dp), spotColor = cs.primary, ambientColor = cs.primary)
-                    .clip(RoundedCornerShape(20.dp))
+                    // Neutral elevation, not a coloured glow. A shadow tinted with the accent
+                    // is light that no object casts; it reads as a sticker rather than a
+                    // control sitting above the page, and it is one of the most recognisable
+                    // marks of generated UI. Height above the surface is the only thing a
+                    // shadow should be saying.
+                    .shadow(8.dp, YapShapes.xl)
+                    .clip(YapShapes.xl)
                     .background(com.mehdiacho.yap.ui.theme.brandBrush(seed = 5))
                     .clickable { onRecordNew() },
                 contentAlignment = Alignment.Center,
@@ -497,7 +509,7 @@ fun LibraryScreen(
     if (confirmTrash) {
         AlertDialog(
             onDismissRequest = { confirmTrash = false },
-            shape = RoundedCornerShape(28.dp),
+            shape = YapShapes.dialog,
             title = { Text("Move ${selection.size} note${if (selection.size == 1) "" else "s"} to trash?") },
             text = { Text("They can be restored from the trash for 30 days.") },
             confirmButton = {
@@ -514,7 +526,7 @@ fun LibraryScreen(
 private fun SelectionAction(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { onClick() }
+        modifier = Modifier.clip(YapShapes.lg).clickable { onClick() }
             .padding(horizontal = 10.dp, vertical = 2.dp),
     ) {
         Icon(icon, label, tint = tint, modifier = Modifier.size(23.dp))
@@ -583,9 +595,9 @@ private fun TaskFilterChip(value: String?, onChange: (String?) -> Unit) {
     val cs = MaterialTheme.colorScheme
     val on = value != null
     val openOnly = value == "open"
-    val shape = RoundedCornerShape(10.dp)
+    val shape = YapShapes.md
     Row(
-        Modifier.height(34.dp).clip(shape)
+        Modifier.height(YapDims.chipHeight).clip(shape)
             .then(
                 if (on) Modifier.background(cs.primary)
                 else Modifier.border(1.dp, cs.outlineVariant, shape)
@@ -630,29 +642,32 @@ private fun TaskFilterChip(value: String?, onChange: (String?) -> Unit) {
     }
 }
 
+/**
+ * Category chip.
+ *
+ * Two things here are load-bearing. It is the same fixed height as the Tasks chip beside it —
+ * they were 34dp and ~28dp before, which looked like a mistake because it was one. And the
+ * label is capped and ellipsized: categories are user-named, and a long one used to wrap,
+ * making this chip taller than its neighbours and pushing the entire note list down the
+ * screen. The row scrolls horizontally; length should cost horizontal space, never vertical.
+ */
 @Composable
 private fun FilterChipSquare(label: String, active: Boolean, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Row(
-        Modifier.clip(RoundedCornerShape(10.dp))
-            .then(
-                if (active) Modifier.background(
-                    androidx.compose.ui.graphics.SolidColor(cs.primary)
-                ) else Modifier.background(cs.surface)
-                    .border(1.dp, cs.outlineVariant, RoundedCornerShape(10.dp))
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 11.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (active) {
-            Icon(Icons.Default.Check, null, tint = cs.onPrimary, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(5.dp))
-        }
-        Text(label, fontSize = 12.sp,
-            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (active) cs.onPrimary else cs.onSurfaceVariant)
-    }
+    Pill(
+        label = label,
+        size = PillSize.Medium,
+        shape = YapShapes.md,
+        background = if (active) cs.primary else cs.surface,
+        contentColor = if (active) cs.onPrimary else cs.onSurfaceVariant,
+        borderColor = if (active) null else cs.outlineVariant,
+        bold = active,
+        maxWidth = YapDims.chipMaxWidth,
+        leading = if (!active) null else {
+            { Icon(Icons.Default.Check, null, tint = cs.onPrimary, modifier = Modifier.size(15.dp)) }
+        },
+        onClick = onClick,
+    )
 }
 
 /** Library · loading — skeleton search bar, chips, and cards with a slow pulse. */
@@ -664,24 +679,27 @@ private fun LibrarySkeleton(edge: androidx.compose.ui.unit.Dp) {
     val bar = cs.surfaceContainerHigh.copy(alpha = alpha)
     Column(Modifier.padding(horizontal = edge)) {
         Spacer(Modifier.height(14.dp))
-        Box(Modifier.fillMaxWidth().height(46.dp).clip(RoundedCornerShape(26.dp)).background(bar))
+        // Geometry copied from the real thing, not eyeballed: same 46dp field, same chip
+        // height, same card radius and padding. A skeleton whose blocks land somewhere other
+        // than the content does is a visible reflow the moment the data arrives.
+        Box(Modifier.fillMaxWidth().height(46.dp).clip(CircleShape).background(bar))
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(80, 64, 70).forEach { w ->
-                Box(Modifier.width(w.dp).height(30.dp).clip(RoundedCornerShape(10.dp)).background(bar))
+                Box(Modifier.width(w.dp).height(YapDims.chipHeight).clip(YapShapes.md).background(bar))
             }
         }
         Spacer(Modifier.height(18.dp))
         repeat(3) { i ->
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-                    .border(1.dp, bar, RoundedCornerShape(18.dp)).padding(14.dp)
+                Modifier.fillMaxWidth().clip(YapShapes.card)
+                    .border(1.dp, bar, YapShapes.card).padding(horizontal = 15.dp, vertical = 13.dp)
             ) {
-                Box(Modifier.width((60 - i * 5).dp).height(18.dp).clip(RoundedCornerShape(6.dp)).background(bar))
+                Box(Modifier.width((60 - i * 5).dp).height(18.dp).clip(YapShapes.sm).background(bar))
                 Spacer(Modifier.height(10.dp))
-                Box(Modifier.fillMaxWidth(0.9f - i * 0.05f).height(16.dp).clip(RoundedCornerShape(6.dp)).background(bar))
+                Box(Modifier.fillMaxWidth(0.9f - i * 0.05f).height(16.dp).clip(YapShapes.sm).background(bar))
                 if (i < 2) {
                     Spacer(Modifier.height(8.dp))
-                    Box(Modifier.fillMaxWidth(0.75f - i * 0.07f).height(13.dp).clip(RoundedCornerShape(6.dp)).background(bar))
+                    Box(Modifier.fillMaxWidth(0.75f - i * 0.07f).height(13.dp).clip(YapShapes.sm).background(bar))
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -704,7 +722,7 @@ fun SessionCard(
 ) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
-    val shape = RoundedCornerShape(14.dp)
+    val shape = YapShapes.card
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -762,11 +780,20 @@ fun SessionCard(
                 }
 
                 Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Fixed height: this row carries a status chip that comes and goes, and both
+                // labels are user data. Letting it size to content meant the card grew a few
+                // pixels taller whenever a note was polished or had a long category, and a
+                // list of cards that don't line up is the thing you notice without knowing why.
+                Row(
+                    Modifier.height(YapDims.pillHeight),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
                         session.category.ifBlank { "Note" },
                         fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.3.sp,
                         color = cs.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                     if (session.topicCluster.isNotBlank() && session.topicCluster != "General") {
                         Text("  ·  ", fontSize = 11.sp, color = cs.outlineVariant)
@@ -835,38 +862,39 @@ private fun TaskStrip(
     val allDone = done == total
 
     Column {
+        // The two states of this strip — a progress rail, or the "all done" badge — used to
+        // measure differently, so ticking the last task made the card jump. Pinning the row
+        // to the badge's height means the card is the same size before and after, and the
+        // only thing that changes is what it says.
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp))
-                .clickable { onExpandToggle() }
-                .padding(vertical = 2.dp),
+            Modifier.fillMaxWidth().height(YapDims.pillHeight).clip(YapShapes.md)
+                .clickable { onExpandToggle() },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (allDone) {
                 // Finished is a different KIND of state, not merely 100% of the same one. A
                 // full bar and a cleared list look alike at a glance, so say it outright.
-                Row(
-                    Modifier.clip(RoundedCornerShape(50)).background(ext.refinedContainer)
-                        .padding(start = 6.dp, end = 9.dp, top = 3.dp, bottom = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.CheckCircle, null, tint = ext.onRefinedContainer,
-                        modifier = Modifier.size(13.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("All $total done", fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                        color = ext.onRefinedContainer)
-                }
+                Pill(
+                    label = "All $total done",
+                    background = ext.refinedContainer,
+                    contentColor = ext.onRefinedContainer,
+                    leading = {
+                        Icon(Icons.Default.CheckCircle, null, tint = ext.onRefinedContainer,
+                            modifier = Modifier.size(13.dp))
+                    },
+                )
                 Spacer(Modifier.weight(1f))
             } else {
                 Icon(Icons.Outlined.Checklist, null, tint = ext.subdued, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(7.dp))
                 Box(
-                    Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(3.dp))
+                    Modifier.weight(1f).height(5.dp).clip(CircleShape)
                         .background(cs.surfaceContainerHighest)
                 ) {
                     if (done > 0) {
                         Box(
                             Modifier.fillMaxWidth(done.toFloat() / total).fillMaxHeight()
-                                .clip(RoundedCornerShape(3.dp))
+                                .clip(CircleShape)
                                 .background(cs.primary)
                         )
                     }
@@ -887,16 +915,16 @@ private fun TaskStrip(
             Spacer(Modifier.height(4.dp))
             session.actionItems.forEach { item ->
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp))
+                    Modifier.fillMaxWidth().clip(YapShapes.md)
                         .clickable { onToggleTask(item, !item.done) }
                         .padding(vertical = 6.dp, horizontal = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
-                        Modifier.size(17.dp).clip(RoundedCornerShape(6.dp))
+                        Modifier.size(17.dp).clip(YapShapes.sm)
                             .then(
                                 if (item.done) Modifier.background(cs.primary)
-                                else Modifier.border(2.dp, cs.outlineVariant, RoundedCornerShape(6.dp))
+                                else Modifier.border(2.dp, cs.outlineVariant, YapShapes.sm)
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -946,7 +974,7 @@ private fun snippetAround(session: Session, query: String?): String {
     return (if (start > 0) "…" else "") + body.substring(start, (start + 100).coerceAtMost(body.length))
 }
 
-/** §2.5 status chip. */
+/** §2.5 status chip. Fixed height, so a card doesn't resize as its note changes state. */
 @Composable
 fun StatusChip(status: String) {
     val cs = MaterialTheme.colorScheme
@@ -957,44 +985,38 @@ fun StatusChip(status: String) {
     val (bg, fg) = when {
         refined -> ext.refinedContainer to ext.onRefinedContainer
         pending -> ext.warningSoft to cs.onSurfaceVariant
-        // Polishing is the one live, in-progress state, so it gets the moving gradient —
-        // the motion says "working" without needing a spinner. The settled states stay flat
-        // on purpose: if every chip animated, none of them would signal anything.
-        polishing -> null to cs.onPrimary
+        // Polishing is the one live, in-progress state, so it's the one that gets the filled
+        // accent. The settled states stay quiet on purpose: if every chip shouted, none of
+        // them would signal anything.
+        polishing -> cs.primary to cs.onPrimary
         else -> ext.draftNeutral to cs.onSurfaceVariant
     }
-    val brand = androidx.compose.ui.graphics.SolidColor(cs.primary)
-    Row(
-        Modifier.clip(RoundedCornerShape(50))
-            .then(if (bg != null) Modifier.background(bg) else Modifier.background(brand))
-            .padding(horizontal = 10.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        when {
-            refined -> {
-                Icon(Icons.Default.CheckCircle, null, tint = fg, modifier = Modifier.size(12.dp))
-                Spacer(Modifier.width(4.dp))
-            }
-            pending -> {
-                Icon(Icons.Outlined.CloudOff, null, tint = fg, modifier = Modifier.size(12.dp))
-                Spacer(Modifier.width(4.dp))
-            }
-            !polishing -> {
-                // Draft variant — small filled dot, no glyph (§2.5).
-                Box(Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF7A7886)))
-                Spacer(Modifier.width(5.dp))
-            }
-        }
-        val label = when {
-            refined -> "Refined"; pending -> "Pending"
-            status == "TRANSCRIBING" -> "Polishing"; polishing -> "Polishing"
+    Pill(
+        label = when {
+            refined -> "Refined"
+            pending -> "Pending"
+            polishing -> "Polishing"
             // "Quota" describes our accounting, not the note. What the user has is a
             // recording that still needs transcribing.
             status == "QUOTA" -> "Waiting"
             else -> status.lowercase().replaceFirstChar { it.uppercase() }
-        }
-        Text(label, color = fg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-    }
+        },
+        background = bg,
+        contentColor = fg,
+        leading = when {
+            refined -> {
+                { Icon(Icons.Default.CheckCircle, null, tint = fg, modifier = Modifier.size(12.dp)) }
+            }
+            pending -> {
+                { Icon(Icons.Outlined.CloudOff, null, tint = fg, modifier = Modifier.size(12.dp)) }
+            }
+            polishing -> null
+            // Draft variant — small filled dot, no glyph (§2.5).
+            else -> {
+                { Box(Modifier.size(6.dp).clip(CircleShape).background(cs.outline)) }
+            }
+        },
+    )
 }
 
 /**
@@ -1014,7 +1036,7 @@ private fun WaitingOnQuotaBanner(
     val ext = YapTheme.extended
     val running = progress != null
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(ext.warningSoft)
+        Modifier.fillMaxWidth().clip(YapShapes.panel).background(ext.warningSoft)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1076,7 +1098,7 @@ private fun SyncSheet(sessions: List<Session>, onSyncNow: () -> Unit, onDismiss:
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), // YapShapes.dialog, top corners only
         containerColor = cs.surface,
     ) {
         Column(Modifier.padding(start = 22.dp, end = 22.dp, bottom = 30.dp)) {
@@ -1086,11 +1108,11 @@ private fun SyncSheet(sessions: List<Session>, onSyncNow: () -> Unit, onDismiss:
                 Text("Sync status", fontSize = 16.sp, fontWeight = FontWeight.Bold,
                     color = cs.onSurface, modifier = Modifier.weight(1f))
                 if (pending.isNotEmpty()) {
-                    Box(Modifier.clip(RoundedCornerShape(50)).background(ext.offlineContainer)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)) {
-                        Text("${pending.size} pending", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-                            color = ext.onOfflineContainer)
-                    }
+                    Pill(
+                        label = "${pending.size} pending",
+                        background = ext.offlineContainer,
+                        contentColor = ext.onOfflineContainer,
+                    )
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -1099,7 +1121,7 @@ private fun SyncSheet(sessions: List<Session>, onSyncNow: () -> Unit, onDismiss:
             fun syncRow(tileBg: Color, icon: androidx.compose.ui.graphics.vector.ImageVector, iconTint: Color,
                         title: String, subtitle: String, trailing: String? = null, divider: Boolean = true) {
                 Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(tileBg),
+                    Box(Modifier.size(34.dp).clip(YapShapes.md).background(tileBg),
                         contentAlignment = Alignment.Center) {
                         Icon(icon, null, tint = iconTint, modifier = Modifier.size(19.dp))
                     }

@@ -207,7 +207,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Turn a stranded recording into a real note (transcribe + save), then reopen the list. */
     fun recoverOrphan(orphan: OrphanRecordings.Orphan) {
         viewModelScope.launch {
-            _notice.value = "Recovering “${orphan.file.name}” — transcribing now."
+            _notice.value = "Recovering “${orphan.file.name}”. Transcribing now."
             try {
                 startTranscription(orphan.path, orphan.durationMs, "audio/wav")
             } catch (e: Exception) {
@@ -443,14 +443,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     statusMessage = null,
                 )
             )
-            // Heads-up "Your note is polished ✨" — skipped while the app is on screen.
+            // Heads-up "Your note is ready" — skipped while the app is on screen.
             com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
         } catch (e: Exception) {
             Log.e("Yap", "transcription failed for $audioPath ($mimeType): ${e.message}", e)
             if (isClientGaveUp(e)) {
                 // Leave it TRANSCRIBING: the server finishes and writes the note itself,
                 // and the Firestore listener will surface it.
-                _notice.value = "Still transcribing — this one's long. It'll appear shortly."
+                _notice.value = "This one's long, so it's still transcribing. It'll appear shortly."
                 return
             }
             val quotaHit = (e as? com.google.firebase.functions.FirebaseFunctionsException)?.code ==
@@ -718,7 +718,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _notice.value = when {
                     stoppedOnQuota && done > 0 ->
                         "Transcribed $done. $remaining still over the monthly limit."
-                    stoppedOnQuota -> "Still over the monthly limit — nothing was transcribed."
+                    stoppedOnQuota -> "Still over the monthly limit, so nothing was transcribed."
                     done > 0 && failed > 0 ->
                         "Transcribed $done. $failed couldn't be recovered."
                     done > 0 -> "Transcribed $done waiting recording${if (done == 1) "" else "s"}."

@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.brandBrush
 import com.mehdiacho.yap.ui.theme.brandTint
 import kotlinx.coroutines.launch
@@ -144,7 +145,7 @@ fun CaptureSettingsScreen(onBack: () -> Unit) {
     SettingsSubScaffold("Capture", onBack) {
         // Auto-stop slider card (design · Settings Capture)
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surfaceContainer).padding(16.dp)
+            Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainer).padding(16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Auto-stop after silence", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
@@ -280,7 +281,7 @@ fun PrivacySettingsScreen(onBack: () -> Unit) {
         }
 
         SubEyebrow("AUDIO RETENTION")
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainer)) {
+        Column(Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainer)) {
             listOf(
                 "keep" to "Keep audio",
                 "discard" to "Discard after transcribe",
@@ -330,7 +331,7 @@ private fun DeleteAccountRow() {
     if (confirmStep == 1) {
         AlertDialog(
             onDismissRequest = { confirmStep = 0 },
-            shape = RoundedCornerShape(28.dp),
+            shape = YapShapes.dialog,
             title = { Text("Delete your account?") },
             text = { Text("This permanently removes your notes, recordings, and account from Yap's servers. This cannot be undone.") },
             confirmButton = { TextButton(onClick = { confirmStep = 2 }) { Text("Continue", color = cs.error) } },
@@ -340,10 +341,10 @@ private fun DeleteAccountRow() {
     if (confirmStep == 2) {
         AlertDialog(
             onDismissRequest = { confirmStep = 0 },
-            shape = RoundedCornerShape(28.dp),
+            shape = YapShapes.dialog,
             icon = { Icon(Icons.Outlined.DeleteForever, null, tint = cs.error, modifier = Modifier.size(30.dp)) },
             title = { Text("Last chance") },
-            text = { Text("Everything will be gone — notes, audio, subscription state. Export your data first if you want a copy.") },
+            text = { Text("Everything will be gone: notes, audio, subscription state. Export your data first if you want a copy.") },
             confirmButton = {
                 Button(
                     colors = ButtonDefaults.buttonColors(containerColor = cs.error),
@@ -418,7 +419,7 @@ private fun ClearDownloadsSubRow() {
                 val freed = com.mehdiacho.yap.data.AudioCache.clear(context)
                 cacheBytes = com.mehdiacho.yap.data.AudioCache.totalBytes(context)
                 android.widget.Toast.makeText(context,
-                    "Freed %.1f MB — cloud copies are untouched".format(freed / 1_048_576.0),
+                    "Freed %.1f MB. Cloud copies are untouched.".format(freed / 1_048_576.0),
                     android.widget.Toast.LENGTH_SHORT).show()
             }
         },
@@ -469,12 +470,12 @@ private fun RowScope.ThemeSwatch(
     val isSel = key == selected
     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            Modifier.fillMaxWidth().height(84.dp).clip(RoundedCornerShape(14.dp)).background(swatchBg)
-                .border(2.dp, if (isSel) cs.primary else cs.outlineVariant, RoundedCornerShape(14.dp))
+            Modifier.fillMaxWidth().height(84.dp).clip(YapShapes.card).background(swatchBg)
+                .border(2.dp, if (isSel) cs.primary else cs.outlineVariant, YapShapes.card)
                 .clickable { onSelect(key) },
             contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(dot))
+            Box(Modifier.size(30.dp).clip(YapShapes.sm).background(dot))
             if (isSel) {
                 Icon(
                     Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary,
@@ -536,7 +537,7 @@ fun TranscriptionSettingsScreen(onBack: () -> Unit, viewModel: com.mehdiacho.yap
         }
 
         SubEyebrow("ON-DEVICE MODEL")
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainer).padding(16.dp)) {
+        Column(Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainer).padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Standard (Fast)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
@@ -552,7 +553,7 @@ fun TranscriptionSettingsScreen(onBack: () -> Unit, viewModel: com.mehdiacho.yap
             }
             Spacer(Modifier.height(8.dp))
             LinearProgressIndicator(progress = { 0.42f }, trackColor = cs.surfaceVariant,
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)))
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(YapShapes.xs))
         }
         Spacer(Modifier.height(4.dp))
 
@@ -592,7 +593,7 @@ fun AboutSettingsScreen(onBack: () -> Unit) {
         // App identity row — gradient icon tile + version.
         Row(Modifier.padding(horizontal = 4.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(40.dp).clip(RoundedCornerShape(12.dp))
+                Modifier.size(40.dp).clip(YapShapes.lg)
                     .background(Brush.linearGradient(listOf(Color(0xFF2E7BEF), Color(0xFF1A63D8)))),
                 contentAlignment = Alignment.Center,
             ) {
@@ -608,7 +609,7 @@ fun AboutSettingsScreen(onBack: () -> Unit) {
 
         // Build-number row — Developer-Options-style gesture: tap 7× to unlock Advanced.
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(cs.surfaceContainer)
+            Modifier.fillMaxWidth().clip(YapShapes.card).background(cs.surfaceContainer)
                 .clickable(enabled = !advancedUnlocked) {
                     taps++
                     if (taps >= 7) showUnlockDialog = true
@@ -628,12 +629,16 @@ fun AboutSettingsScreen(onBack: () -> Unit) {
         if (taps in 3..6 && !advancedUnlocked) {
             Spacer(Modifier.height(18.dp))
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                // inverseSurface/onInverseSurface is the snackbar pair: dark in the light
+                // theme, light in the dark one. Hardcoded #1B1B21 + white was only the
+                // light-theme half of that, so in dark mode this pill was a near-invisible
+                // dark blob on a dark page.
                 Box(
-                    Modifier.clip(RoundedCornerShape(50)).background(Color(0xFF1B1B21))
+                    Modifier.clip(CircleShape).background(cs.inverseSurface)
                         .padding(horizontal = 18.dp, vertical = 10.dp),
                 ) {
                     Text("Tap $remaining more time${if (remaining == 1) "" else "s"} to unlock Advanced",
-                        fontSize = 13.sp, color = Color.White)
+                        fontSize = 13.sp, color = cs.inverseOnSurface)
                 }
             }
         }
@@ -641,7 +646,9 @@ fun AboutSettingsScreen(onBack: () -> Unit) {
         // ADVANCED UNLOCKED panel — dark card with power-user toggles.
         if (advancedUnlocked) {
             Spacer(Modifier.height(10.dp))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF1B1B21)).padding(16.dp)) {
+            // Same inversion as the pill above: this panel is deliberately the opposite of
+            // the page it sits on, which is a relationship, not a fixed colour.
+            Column(Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.inverseSurface).padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Bolt, null, tint = ext.offline, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
@@ -649,19 +656,19 @@ fun AboutSettingsScreen(onBack: () -> Unit) {
                         letterSpacing = 0.5.sp, color = ext.offline)
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("Power-user controls. These can affect stability — change with care.",
-                    fontSize = 12.sp, lineHeight = 17.sp, color = Color(0xFFC8C5D0))
+                Text("Power-user controls. These can affect stability, so change with care.",
+                    fontSize = 12.sp, lineHeight = 17.sp, color = cs.inverseOnSurface.copy(alpha = 0.75f))
                 Spacer(Modifier.height(4.dp))
                 Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Science, null, tint = Color(0xFFA9C7FF), modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Science, null, tint = cs.inversePrimary, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
-                    Text("Experimental refine model", fontSize = 13.sp, color = Color.White, modifier = Modifier.weight(1f))
+                    Text("Experimental refine model", fontSize = 13.sp, color = cs.inverseOnSurface, modifier = Modifier.weight(1f))
                     Switch(checked = experimental, onCheckedChange = { store.setExperimentalModel(it) })
                 }
                 Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.BugReport, null, tint = Color(0xFFA9C7FF), modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.BugReport, null, tint = cs.inversePrimary, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
-                    Text("Verbose debug logs", fontSize = 13.sp, color = Color.White, modifier = Modifier.weight(1f))
+                    Text("Verbose debug logs", fontSize = 13.sp, color = cs.inverseOnSurface, modifier = Modifier.weight(1f))
                     Switch(checked = verboseLogs, onCheckedChange = { store.setVerboseLogs(it) })
                 }
             }
@@ -672,7 +679,7 @@ fun AboutSettingsScreen(onBack: () -> Unit) {
     if (showUnlockDialog) {
         AlertDialog(
             onDismissRequest = { showUnlockDialog = false; taps = 0 },
-            shape = RoundedCornerShape(28.dp),
+            shape = YapShapes.dialog,
             icon = { Icon(Icons.Default.Warning, null, tint = ext.onOfflineContainer, modifier = Modifier.size(30.dp)) },
             title = { Text("Unlock Advanced?", fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 19.sp) },
             text = {

@@ -16,6 +16,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -84,24 +86,25 @@ fun PasswordChecklist(password: String, modifier: Modifier = Modifier) {
 // ---------------------------------------------------------------- visibility toggle
 
 /**
- * Peek-a-boo password toggle: the see-no-evil monkey uncovers its eyes (with a springy
- * spin) when the password is shown. Pass as trailingIcon of the password field.
+ * Show/hide toggle for a password field.
+ *
+ * Was a see-no-evil monkey emoji that spun 360° on tap. Emoji standing in for an icon is one
+ * of the loudest tells that a UI was generated rather than drawn — the glyph renders at a
+ * different weight and baseline from every real icon around it, and it can't take a tint, so
+ * it ignores the theme entirely. The spin was decoration on top: motion that told the user
+ * nothing the changed glyph didn't already say.
  */
 @Composable
 fun PeekabooToggle(visible: Boolean, onToggle: () -> Unit) {
-    val spin by animateFloatAsState(
-        if (visible) 360f else 0f,
-        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "peekSpin",
-    )
-    Text(
-        if (visible) "🐵" else "🙈",
-        fontSize = 20.sp,
+    Icon(
+        if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+        if (visible) "Hide password" else "Show password",
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
-            .graphicsLayer { rotationZ = spin }
             .clip(CircleShape)
             .clickable { onToggle() }
-            .padding(8.dp),
+            .padding(8.dp)
+            .size(21.dp),
     )
 }
 

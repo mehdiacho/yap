@@ -24,8 +24,11 @@ import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.data.ActionItem
 import com.mehdiacho.yap.data.Session
 import com.mehdiacho.yap.ui.theme.Outfit
+import com.mehdiacho.yap.ui.components.Pill
+import com.mehdiacho.yap.ui.components.PillSize
+import com.mehdiacho.yap.ui.theme.YapDims
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.YapTheme
-import com.mehdiacho.yap.ui.theme.brandBrush
 
 /**
  * The tasks buried in a note, lifted out where they can be ticked off.
@@ -68,13 +71,13 @@ fun ActionItemsSection(
         Spacer(Modifier.height(4.dp))
         // Thin progress rail — reading "2/5" is slower than seeing it.
         Box(
-            Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp))
+            Modifier.fillMaxWidth().height(4.dp).clip(YapShapes.xs)
                 .background(cs.surfaceContainerHigh)
         ) {
             if (doneCount > 0) {
                 Box(
                     Modifier.fillMaxWidth(doneCount.toFloat() / total).fillMaxHeight()
-                        .clip(RoundedCornerShape(2.dp))
+                        .clip(YapShapes.xs)
                         .background(cs.primary)
                 )
             }
@@ -98,17 +101,17 @@ private fun ActionItemRow(
     val ext = YapTheme.extended
     Row(
         Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(13.dp))
+            .clip(YapShapes.lg)
             .background(if (item.done) cs.surfaceContainerLow else cs.surfaceContainer)
             .clickable { onToggle(!item.done) }
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(21.dp).clip(RoundedCornerShape(7.dp))
+            Modifier.size(21.dp).clip(YapShapes.sm)
                 .then(
                     if (item.done) Modifier.background(cs.primary)
-                    else Modifier.border(2.dp, cs.outlineVariant, RoundedCornerShape(7.dp))
+                    else Modifier.border(2.dp, cs.outlineVariant, YapShapes.sm)
                 ),
             contentAlignment = Alignment.Center,
         ) {
@@ -167,40 +170,31 @@ fun CategoryPicker(
         CategoryChip(
             label = selected ?: "No category",
             active = selected != null,
-            seed = 23,
             onClick = { if (selected != null) onSelect(null) },
         )
         categories.filter { it != selected }.take(8).forEach { c ->
-            CategoryChip(label = c, active = false, seed = c.hashCode(), onClick = { onSelect(c) })
+            CategoryChip(label = c, active = false, onClick = { onSelect(c) })
         }
-        Row(
-            Modifier.clip(RoundedCornerShape(50)).background(cs.surfaceContainer)
-                .clickable { onCreate() }.padding(horizontal = 12.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.Bolt, null, tint = ext.subdued, modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(5.dp))
-            Text("New", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ext.subdued)
-        }
+        Pill(
+            label = "New",
+            size = PillSize.Medium,
+            background = cs.surfaceContainer,
+            contentColor = ext.subdued,
+            leading = { Icon(Icons.Outlined.Bolt, null, tint = ext.subdued, modifier = Modifier.size(14.dp)) },
+            onClick = onCreate,
+        )
     }
 }
 
 @Composable
-private fun CategoryChip(label: String, active: Boolean, seed: Int, onClick: () -> Unit) {
+private fun CategoryChip(label: String, active: Boolean, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Row(
-        Modifier.clip(RoundedCornerShape(50))
-            .then(
-                if (active) Modifier.background(cs.primary)
-                else Modifier.background(cs.surfaceContainer)
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-            color = if (active) cs.onPrimary else cs.onSurfaceVariant,
-        )
-    }
+    Pill(
+        label = label,
+        size = PillSize.Medium,
+        background = if (active) cs.primary else cs.surfaceContainer,
+        contentColor = if (active) cs.onPrimary else cs.onSurfaceVariant,
+        maxWidth = YapDims.chipMaxWidth,
+        onClick = onClick,
+    )
 }

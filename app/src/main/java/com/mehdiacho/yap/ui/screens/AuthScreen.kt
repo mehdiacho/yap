@@ -13,10 +13,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.data.AuthManager
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
@@ -29,6 +32,7 @@ fun AuthScreen(onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     // login = returning user (no policy, no checklist); !login = new account (policy + checklist).
     var login by remember { mutableStateOf(true) }
+    var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
@@ -66,16 +70,31 @@ fun AuthScreen(onBack: () -> Unit) {
                 fontSize = 14.sp, color = cs.onSurfaceVariant, lineHeight = 20.sp)
 
             Spacer(Modifier.height(24.dp))
+            // Asked at signup, not later. It's the difference between the app greeting you
+            // by name from the first launch and greeting you by your email prefix forever,
+            // because a "complete your profile" prompt is one nobody comes back to.
+            if (!login) {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it }, label = { Text("Your name") },
+                    singleLine = true, shape = YapShapes.card,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Words,
+                        imeAction = ImeAction.Next,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+            }
             OutlinedTextField(
                 value = email, onValueChange = { email = it; error = null }, label = { Text("Email") }, singleLine = true,
-                isError = error != null, shape = RoundedCornerShape(14.dp),
+                isError = error != null, shape = YapShapes.card,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = password, onValueChange = { password = it; error = null }, label = { Text("Password") },
-                singleLine = true, isError = error != null, shape = RoundedCornerShape(14.dp),
+                singleLine = true, isError = error != null, shape = YapShapes.card,
                 visualTransformation = if (showPassword) androidx.compose.ui.text.input.VisualTransformation.None
                     else PasswordVisualTransformation(),
                 trailingIcon = { PeekabooToggle(showPassword) { showPassword = !showPassword } },
@@ -90,6 +109,10 @@ fun AuthScreen(onBack: () -> Unit) {
                     run {
                         val r = AuthManager.signInWithEmail(email.trim(), password)
                         if (!login && !r.existingAccount) {
+                            // Best-effort: the account exists and the user is in. Failing to
+                            // record the name must not turn a successful signup into an error
+                            // screen — the profile screen can set it later.
+                            runCatching { com.mehdiacho.yap.data.ProfileClient.setName(name.trim()) }
                             runCatching { AuthManager.sendEmailVerification() }
                             android.widget.Toast.makeText(context,
                                 "Verification email sent to ${email.trim()}",
@@ -98,7 +121,8 @@ fun AuthScreen(onBack: () -> Unit) {
                     }
                 },
                 enabled = !busy && email.isNotBlank() &&
-                    (if (login) password.length >= 6 else passwordMeetsPolicy(password)),
+                    (if (login) password.length >= 6
+                     else name.isNotBlank() && passwordMeetsPolicy(password)),
                 shape = RoundedCornerShape(50),
                 modifier = Modifier.fillMaxWidth().height(54.dp),
             ) { Text(if (login) "Sign in" else "Create account", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }

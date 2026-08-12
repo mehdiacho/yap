@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Mic
@@ -28,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.data.AuthManager
+import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapTheme
 import com.mehdiacho.yap.ui.theme.brandBrush
@@ -40,6 +42,8 @@ import com.mehdiacho.yap.ui.theme.brandTint
 @Composable
 fun SettingsScreen(
     onSignInClick: () -> Unit = {},
+    onOpenProfile: () -> Unit = {},
+    onOpenInsights: () -> Unit = {},
     onOpenSubscription: () -> Unit = {},
     onOpenCapture: () -> Unit = {},
     onOpenByok: () -> Unit = {},
@@ -51,6 +55,10 @@ fun SettingsScreen(
 ) {
     val user by AuthManager.authState().collectAsState(initial = AuthManager.currentUser)
     val signedIn = user != null && user?.isAnonymous == false
+    // Cached, so the row is complete on arrival; the auth user is the fallback because a
+    // fresh install has no cache until the profile screen has been opened once.
+    val profile = com.mehdiacho.yap.data.ProfileClient.lastKnown
+    val name = (profile?.displayName ?: user?.displayName)?.takeIf { it.isNotBlank() }
     val cs = MaterialTheme.colorScheme
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -66,30 +74,46 @@ fun SettingsScreen(
 
             // Account summary panel
             Spacer(Modifier.height(16.dp))
+            // Opens the profile either way. It used to be the sign-in button when signed
+            // out and inert when signed in, which meant a signed-in user had nowhere to go
+            // to set a name or a picture — there was no profile screen to go to.
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cs.surfaceContainer)
-                    .clickable(enabled = !signedIn) { onSignInClick() }.padding(14.dp),
+                Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainer)
+                    .clickable { onOpenProfile() }.padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val photo = profile?.photoUrl
                 Box(
                     Modifier.size(44.dp).clip(CircleShape)
                         .background(com.mehdiacho.yap.ui.theme.brandBrush(forSmallText = true, seed = 6)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    val label = user?.displayName?.takeIf { it.isNotBlank() } ?: user?.email?.takeIf { it.isNotBlank() }
-                    val initial = if (signedIn) (label?.firstOrNull()?.uppercaseChar() ?: 'U').toString() else "G"
-                    Text(initial, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    if (photo != null) {
+                        coil.compose.AsyncImage(
+                            model = photo,
+                            contentDescription = null,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        )
+                    } else {
+                        val label = name ?: user?.email?.takeIf { it.isNotBlank() }
+                        val initial = if (signedIn) (label?.firstOrNull()?.uppercaseChar() ?: 'U').toString() else "G"
+                        Text(initial, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    }
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     if (signedIn) {
-                        Text(user?.displayName?.takeIf { it.isNotBlank() } ?: "Account",
-                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                        Text(name ?: "Add your name",
+                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                            color = if (name != null) cs.onSurface else cs.primary,
+                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         Text(user?.email?.takeIf { it.isNotBlank() } ?: "Synced across devices",
-                            fontSize = 12.sp, color = cs.onSurfaceVariant)
+                            fontSize = 12.sp, color = cs.onSurfaceVariant,
+                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     } else {
                         Text("Guest", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
-                        Text("Tap to sign in — keeps all your notes", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                        Text("Sign in to back up your notes", fontSize = 12.sp, color = cs.onSurfaceVariant)
                     }
                 }
                 if (signedIn) TextButton(onClick = { AuthManager.signOut() }) { Text("Sign out") }
@@ -99,6 +123,7 @@ fun SettingsScreen(
             // GENERAL — design order: Subscription · Transcription · API key (BYOK) · Capture
             MainEyebrow("GENERAL")
             MainRow(Icons.Outlined.WorkspacePremium, "Subscription & Usage", first = true, onClick = onOpenSubscription)
+            MainRow(Icons.Outlined.Insights, "Insights", onClick = onOpenInsights)
             MainRow(Icons.Outlined.GraphicEq, "Transcription", onClick = onOpenTranscription)
             MainRow(Icons.Outlined.Key, "API key (BYOK)", locked = true, onClick = onOpenByok)
             MainRow(Icons.Outlined.Mic, "Capture", onClick = onOpenCapture)
@@ -141,9 +166,6 @@ private fun MainRow(
             Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 6.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Seeded off the row's own title, so each settings row runs its sweep at a
-            // different phase and angle — a column of identical icons all showing the exact
-            // same colour at the same instant is the uncanny case.
             Icon(icon, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(23.dp))
             Spacer(Modifier.width(14.dp))
             Text(title, fontSize = 15.sp, color = cs.onSurface, modifier = Modifier.weight(1f))
