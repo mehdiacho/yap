@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import com.mehdiacho.yap.BuildConfig
 import com.mehdiacho.yap.ui.MainViewModel
 import com.mehdiacho.yap.ui.components.Pill
+import com.mehdiacho.yap.ui.note.NoteBody
 import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapDims
 import com.mehdiacho.yap.ui.theme.YapShapes
@@ -122,6 +123,17 @@ fun SessionDetailScreen(
     fun currentText(): String =
         if (viewMode == NOTE_VIEW) currentSession.formattedText ?: currentSession.draftText
         else currentSession.draftText
+
+    /**
+     * The note as text for copying and sharing.
+     *
+     * Only the Note view has markup to strip. The transcript is already verbatim speech, and
+     * running it through the block parser would be a no-op at best and could reflow it at
+     * worst — the one view whose whole value is being unaltered.
+     */
+    fun shareableText(): String =
+        if (viewMode == NOTE_VIEW) com.mehdiacho.yap.ui.note.NoteExport.asPlainText(currentText())
+        else currentText()
 
     val hasFormatted = currentSession.formattedText != null
     val draftOnly = !hasFormatted && currentSession.draftText.isNotBlank() &&
@@ -207,9 +219,31 @@ fun SessionDetailScreen(
                             val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(android.content.Intent.EXTRA_SUBJECT, currentSession.title)
-                                putExtra(android.content.Intent.EXTRA_TEXT, currentText())
+                                putExtra(android.content.Intent.EXTRA_TEXT, shareableText())
                             }
                             context.startActivity(android.content.Intent.createChooser(send, "Share note"))
+                        })
+                    // Markdown as a file you take away, which is what it's good for: the
+                    // structure survives into an editor or a repo. Sent as text/markdown with
+                    // a .md extension rather than pasted, because pasted Markdown arrives as
+                    // a paragraph of literal asterisks in every app that receives it.
+                    DropdownMenuItem(text = { Text("Export as Markdown") },
+                        onClick = {
+                            menuOpen = false
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent.createChooser(
+                                        com.mehdiacho.yap.ui.note.NoteExport.shareMarkdown(
+                                            context, currentSession.title, currentText(),
+                                        ),
+                                        "Export note",
+                                    )
+                                )
+                            }.onFailure {
+                                android.widget.Toast.makeText(
+                                    context, "Couldn't create the file", android.widget.Toast.LENGTH_LONG,
+                                ).show()
+                            }
                         })
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text("Delete", color = cs.error) },
@@ -430,10 +464,13 @@ fun SessionDetailScreen(
                 }
                 content.isBlank() -> Text("No transcription available.", fontSize = 15.sp, color = cs.onSurfaceVariant)
                 viewMode == NOTE_VIEW && hasFormatted -> {
-                    // Dialogue renderer when the note reads as speaker-labelled lines; markdown otherwise.
+                    // Dialogue renderer when the note reads as speaker-labelled lines; the
+                    // app's own block renderer otherwise. Neither one is a Markdown renderer
+                    // any more — the source is still Markdown, but what you read is Yap's
+                    // layout, and the raw form is a deliberate export rather than the default.
                     val dialogue = remember(content) { parseDialogue(content) }
                     if (dialogue != null) DialogueBody(dialogue)
-                    else com.mikepenz.markdown.m3.Markdown(content = content)
+                    else NoteBody(content)
                 }
                 else -> Text(content, fontSize = 15.sp, lineHeight = 24.sp, color = cs.onSurface)
             }
@@ -478,7 +515,10 @@ fun SessionDetailScreen(
                 editingBody = true
             }
             ActionPill(Icons.Default.ContentCopy, "Copy") {
-                clipboard.setText(androidx.compose.ui.text.AnnotatedString(currentText()))
+                // What lands on the clipboard is what's on screen. Pasting "## Decisions"
+                // and rows of asterisks into a message is nobody's intent when they tap
+                // Copy on a note they are looking at. Markdown has its own export.
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(shareableText()))
                 android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
             }
             ActionPill(Icons.Default.Mic, "Add recording") { onAppendRecording(currentSession) }
@@ -486,7 +526,7 @@ fun SessionDetailScreen(
                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(android.content.Intent.EXTRA_SUBJECT, currentSession.title)
-                    putExtra(android.content.Intent.EXTRA_TEXT, currentText())
+                    putExtra(android.content.Intent.EXTRA_TEXT, shareableText())
                 }
                 context.startActivity(android.content.Intent.createChooser(send, "Share note"))
             }
