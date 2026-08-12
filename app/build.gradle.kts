@@ -110,6 +110,10 @@ dependencies {
   implementation(libs.androidx.biometric)
   // Play Billing scaffold — flows work once products exist in Play Console.
   implementation(libs.billing.ktx)
+  // Referral attribution: a Play listing URL carries its "referrer" parameter through
+  // the store and the install, which is the only path that reaches someone who does not
+  // have the app yet — see data/InstallReferral.kt.
+  implementation("com.android.installreferrer:installreferrer:2.2")
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)

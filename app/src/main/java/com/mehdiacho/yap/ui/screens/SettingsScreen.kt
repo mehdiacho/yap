@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Mic
@@ -42,6 +43,7 @@ import com.mehdiacho.yap.ui.theme.brandTint
 fun SettingsScreen(
     onSignInClick: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
+    onOpenInsights: () -> Unit = {},
     onOpenSubscription: () -> Unit = {},
     onOpenCapture: () -> Unit = {},
     onOpenByok: () -> Unit = {},
@@ -121,6 +123,7 @@ fun SettingsScreen(
             // GENERAL — design order: Subscription · Transcription · API key (BYOK) · Capture
             MainEyebrow("GENERAL")
             MainRow(Icons.Outlined.WorkspacePremium, "Subscription & Usage", first = true, onClick = onOpenSubscription)
+            MainRow(Icons.Outlined.Insights, "Insights", onClick = onOpenInsights)
             MainRow(Icons.Outlined.GraphicEq, "Transcription", onClick = onOpenTranscription)
             MainRow(Icons.Outlined.Key, "API key (BYOK)", locked = true, onClick = onOpenByok)
             MainRow(Icons.Outlined.Mic, "Capture", onClick = onOpenCapture)

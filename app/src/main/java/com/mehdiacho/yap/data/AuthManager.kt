@@ -74,6 +74,7 @@ object AuthManager {
         // profile we saw" — so leaving it means the guest who lands here a moment later
         // wears the previous account's name and picture until a fetch corrects it.
         ProfileClient.clearCache()
+        PersonaClient.clearCache()
         auth.signOut() // next ensureSignedIn() creates a fresh guest
     }
 

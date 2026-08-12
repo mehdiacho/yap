@@ -45,6 +45,7 @@ import com.mehdiacho.yap.ui.screens.AboutSettingsScreen
 import com.mehdiacho.yap.ui.screens.AppearanceSettingsScreen
 import com.mehdiacho.yap.ui.screens.AuthScreen
 import com.mehdiacho.yap.ui.screens.ByokKeyScreen
+import com.mehdiacho.yap.ui.screens.InsightsScreen
 import com.mehdiacho.yap.ui.screens.ProfileScreen
 import com.mehdiacho.yap.ui.screens.CaptureScreen
 import com.mehdiacho.yap.ui.screens.CaptureSettingsScreen
@@ -116,7 +117,10 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         com.mehdiacho.yap.data.SettingsStore.init(this)
         com.mehdiacho.yap.data.AccountClient.initCache(this)
         com.mehdiacho.yap.data.ProfileClient.initCache(this)
+        com.mehdiacho.yap.data.PersonaClient.initCache(this)
         warmProfileCache()
+        // One-shot: turns an invite link install into an attributed referral.
+        com.mehdiacho.yap.data.InstallReferral.applyIfPresent(this)
         com.mehdiacho.yap.data.BillingManager.init(this)
         com.mehdiacho.yap.data.BillingManager.reconcilePending()
         com.mehdiacho.yap.overlay.FloatingBubble.startIfEnabled(this)
@@ -406,6 +410,7 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                 SettingsScreen(
                     onSignInClick = { navController.navigate(Routes.AUTH) },
                     onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                    onOpenInsights = { navController.navigate(Routes.INSIGHTS) },
                     onOpenSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
                     onOpenCapture = { navController.navigate(Routes.SETTINGS_CAPTURE) },
                     onOpenByok = { navController.navigate(Routes.BYOK_KEY) },
@@ -436,6 +441,9 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
             }
             composable(Routes.AUTH) {
                 AuthScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.INSIGHTS) {
+                InsightsScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
             }
             composable(Routes.PROFILE) {
                 ProfileScreen(

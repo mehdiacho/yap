@@ -7,6 +7,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val AUTH = "auth"
     const val PROFILE = "profile"
+    const val INSIGHTS = "insights"
     const val SUBSCRIPTION = "subscription"
     const val PLANS = "subscription/plans"
     const val TRASH = "trash"

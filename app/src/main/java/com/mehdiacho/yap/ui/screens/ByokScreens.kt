@@ -64,7 +64,13 @@ fun UnlockByokScreen(onBack: () -> Unit) {
     val needed = referral?.needed ?: 5
     val refCode = referral?.code
         ?: (AuthManager.currentUser?.uid ?: "YOU").filter { it.isLetterOrDigit() }.take(6).uppercase()
-    val refLink = "yap.app/r/$refCode"
+    // A real link now. It used to be "yap.app/r/CODE" — a domain nobody owns, pointing at
+    // nothing, so every invite ever sent was a dead end. See data/InstallReferral.kt.
+    val refLink = com.mehdiacho.yap.data.InstallReferral.inviteLink(refCode)
+    var enteredCode by remember { mutableStateOf("") }
+    var applying by remember { mutableStateOf(false) }
+    var applyResult by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize().background(cs.background).statusBarsPadding()) {
         Row(
@@ -146,14 +152,19 @@ fun UnlockByokScreen(onBack: () -> Unit) {
                 Row(
                     Modifier.fillMaxWidth().clip(YapShapes.lg).background(cs.surfaceContainer)
                         .clickable {
-                            clipboard.setText(androidx.compose.ui.text.AnnotatedString("https://$refLink"))
+                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(refLink))
                             android.widget.Toast.makeText(context, "Link copied", android.widget.Toast.LENGTH_SHORT).show()
                         }
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(refLink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp,
-                        color = cs.onSurface, modifier = Modifier.weight(1f))
+                    // The code, not the URL: the full Play link with its encoded referrer is
+                    // far too long to read, and the code is the part worth recognising.
+                    Text(com.mehdiacho.yap.data.InstallReferral.inviteLabel(refCode),
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp,
+                        color = cs.onSurface, maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f))
                     Icon(Icons.Outlined.ContentCopy, "Copy link", tint = cs.primary, modifier = Modifier.size(20.dp))
                 }
                 Spacer(Modifier.height(12.dp))
@@ -162,7 +173,7 @@ fun UnlockByokScreen(onBack: () -> Unit) {
                         val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(android.content.Intent.EXTRA_TEXT,
-                                "Catch every idea before it slips away. Try Yap: https://$refLink")
+                                "Catch every idea before it slips away. Try Yap: $refLink")
                         }
                         context.startActivity(android.content.Intent.createChooser(send, "Share invite"))
                     },
@@ -176,6 +187,52 @@ fun UnlockByokScreen(onBack: () -> Unit) {
                 Spacer(Modifier.height(10.dp))
                 Text("Counts when a friend signs up and saves 3 notes, or subscribes.",
                     fontSize = 11.sp, lineHeight = 16.sp, color = ext.subdued)
+            }
+            Spacer(Modifier.height(14.dp))
+
+            // Someone who installed the app first, then heard about the code, has no way in
+            // through the install referrer — it was already read (and empty) on their first
+            // launch. This is that path, and it's also the only one that works for a sideload.
+            Column(
+                Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surface)
+                    .border(1.dp, cs.outlineVariant, YapShapes.panel).padding(16.dp)
+            ) {
+                Text("Were you invited?", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = cs.onSurface)
+                Spacer(Modifier.height(4.dp))
+                Text("Enter a friend's code to credit them. Only works in your first week.",
+                    fontSize = 12.sp, lineHeight = 17.sp, color = ext.subdued)
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = enteredCode,
+                        onValueChange = { enteredCode = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(12) },
+                        placeholder = { Text("CODE") },
+                        singleLine = true, shape = YapShapes.card,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                applying = true
+                                applyResult = try {
+                                    AccountClient.applyReferral(enteredCode)
+                                    enteredCode = ""
+                                    "Thanks — your friend has been credited."
+                                } catch (e: Exception) {
+                                    e.message ?: "That code didn't work."
+                                } finally { applying = false }
+                            }
+                        },
+                        enabled = !applying && enteredCode.length >= 4,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.height(52.dp),
+                    ) { Text("Apply", fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+                }
+                applyResult?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, fontSize = 12.sp, lineHeight = 17.sp, color = cs.onSurfaceVariant)
+                }
             }
             Spacer(Modifier.height(24.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
