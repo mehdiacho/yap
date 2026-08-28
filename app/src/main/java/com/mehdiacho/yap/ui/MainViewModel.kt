@@ -336,8 +336,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val ctx = getApplication<Application>()
+                val isVideo = com.mehdiacho.yap.audio.MediaExtraction.isVideo(mimeType)
                 val ext = mimeType.substringAfter('/', "bin").take(5)
-                val dir = File(ctx.filesDir, "recordings").apply { mkdirs() }
+                // Videos are kept apart from recordings. The orphan-recovery scan walks
+                // recordings/ looking for audio no note claims, and a video sitting there
+                // is claimed by `videoPath` rather than `audioPath` — so it would be read
+                // as stranded and the user invited to "recover" a note that is perfectly
+                // intact.
+                val dir = File(ctx.filesDir, if (isVideo) "videos" else "recordings").apply { mkdirs() }
                 val file = File(dir, "shared_${System.currentTimeMillis()}.$ext")
                 val input = ctx.contentResolver.openInputStream(uri)
                 if (input == null) {
@@ -353,7 +359,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     mmr.release()
                     d
                 }.getOrDefault(0L)
-                startTranscription(file.absolutePath, durationMs, mimeType)
+
+                // A shared video is two things at once: a soundtrack to transcribe and a
+                // picture to watch afterwards. Split them — upload the audio track alone
+                // (a fraction of the bytes), keep the video for playback, and ask for word
+                // timings so the transcript can be laid over it as captions.
+                if (isVideo) {
+                    val extracted = com.mehdiacho.yap.audio.MediaExtraction.extractAudio(
+                        ctx, Uri.fromFile(file), File(ctx.filesDir, "recordings")
+                    )
+                    if (extracted != null) {
+                        startTranscription(
+                            extracted.file.absolutePath,
+                            extracted.durationMs.takeIf { it > 0 } ?: durationMs,
+                            extracted.mimeType,
+                            videoPath = file.absolutePath,
+                            wantWordTimings = true,
+                        )
+                    } else {
+                        // Couldn't split it — send the video as-is, which still transcribes.
+                        // No timings: they need an audio-only source.
+                        startTranscription(
+                            file.absolutePath, durationMs, mimeType,
+                            videoPath = file.absolutePath,
+                        )
+                    }
+                } else {
+                    startTranscription(file.absolutePath, durationMs, mimeType)
+                }
             } catch (e: Exception) {
                 Log.e("YapShare", "import failed: ${e.message}", e)
             }
@@ -380,6 +413,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         durationMs: Long,
         mimeType: String,
         bookmarks: List<Long> = emptyList(),
+        /** The video this note was made from, when it arrived through the share sheet. */
+        videoPath: String? = null,
+        /** Ask for word timings so the video can be captioned. See MediaExtraction.kt. */
+        wantWordTimings: Boolean = false,
     ) {
         // Live draft from the fed-stream recognizer (recordings only; empty for imports).
         val isOwnRecording = mimeType == "audio/wav"
@@ -388,6 +425,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             title = "Transcribing…",
             draftText = if (isOwnRecording) com.mehdiacho.yap.audio.LiveDraftEngine.currentDraft() else "",
             audioPath = audioPath,
+            videoPath = videoPath,
             durationMs = durationMs,
             status = "TRANSCRIBING",
             bookmarks = bookmarks,
@@ -425,6 +463,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // refused — a note stopped at the monthly cap is transcribed later, and
                 // that should be a re-run, not a second upload of the whole recording.
                 onUploaded = { path -> session = session.copy(storagePath = path) },
+                wantWordTimings = wantWordTimings,
             )
             val title = r.name.ifBlank { "Recording" }
             repository.upsert(
@@ -436,6 +475,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     category = chosenCategory ?: r.category.ifBlank { "Memo" },
                     topicCluster = r.topicCluster.ifBlank { "General" },
                     storagePath = r.storagePath,
+                    wordTimings = r.wordTimings,
                     actionItems = mergeTasks(emptyList(), r.actionItems, session.id),
                     enrichVersion = CURRENT_ENRICH_VERSION,
                     status = "DONE",
@@ -466,7 +506,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     statusMessage = e.message?.takeIf { it.isNotBlank() },
                 )
             )
+        } finally {
+            // Deliberately in `finally`: the video is worth keeping however the transcription
+            // turned out. A note that failed can be retried, and one whose client gave up
+            // early (that path returns straight out of the catch) is still being finished by
+            // the server — in both cases the video is the half we'd have no way to recover.
+            uploadVideoIfAny(session.id, videoPath)
         }
+    }
+
+    /**
+     * Put the note's video in Cloud Storage so it survives a reinstall and plays on other
+     * devices.
+     *
+     * Runs after transcription rather than alongside it. The audio upload gates the whole
+     * pipeline — nothing happens until it lands — but nobody is waiting on the video, and
+     * pushing tens of megabytes up a phone connection while the model is working would slow
+     * the thing the user IS waiting for. Failure is silent by design: the local copy still
+     * plays, and a note is not worth failing over an upload nobody asked for yet.
+     */
+    private suspend fun uploadVideoIfAny(sessionId: String, videoPath: String?) {
+        val file = videoPath?.let { File(it) }?.takeIf { it.exists() && it.length() > 0 } ?: return
+        runCatching {
+            val path = TranscriptionClient.uploadVideo(file)
+            repository.setVideoStoragePath(sessionId, path)
+            Log.d("YapShare", "video uploaded to $path")
+        }.onFailure { Log.w("YapShare", "video upload failed (non-fatal): ${it.message}") }
     }
 
     fun updateSession(session: Session) {

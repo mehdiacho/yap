@@ -52,6 +52,10 @@ object OrphanRecordings {
         val referenced = buildSet {
             sessions.forEach { s ->
                 s.audioPath?.let { add(File(it).name) }
+                // Videos live in their own directory and shouldn't reach this scan at all,
+                // but claim them anyway: a note's own video is never a stranded recording,
+                // and being wrong here means offering to duplicate an intact note.
+                s.videoPath?.let { add(File(it).name) }
                 s.extraRecordings.forEach { extra -> extra.audioPath?.let { add(File(it).name) } }
             }
         }

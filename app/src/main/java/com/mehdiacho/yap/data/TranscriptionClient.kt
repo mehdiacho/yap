@@ -23,6 +23,8 @@ data class TranscriptionResult(
     val formattedText: String,
     val storagePath: String? = null, // where the audio landed in Cloud Storage (null if inline fallback)
     val actionItems: List<String> = emptyList(), // tasks the server pulled out of the text
+    /** Word timings for captioning. Empty unless they were asked for AND the model had them. */
+    val wordTimings: List<WordTiming> = emptyList(),
 )
 
 /**
@@ -54,6 +56,20 @@ object TranscriptionClient {
         ensureSignedIn()
         val uid = auth.currentUser!!.uid
         val path = "users/$uid/audio/${file.name}"
+        awaitTask(FirebaseStorage.getInstance().reference.child(path).putFile(Uri.fromFile(file)))
+        return path
+    }
+
+    /**
+     * Upload the source video of a note, so it still plays after a reinstall or on another
+     * device. Kept apart from [uploadAudio] by path (`video/` not `audio/`) because the two
+     * are wanted at different moments: the audio has to be up before transcription can start,
+     * the video only has to be up before someone tries to watch it.
+     */
+    suspend fun uploadVideo(file: File): String {
+        ensureSignedIn()
+        val uid = auth.currentUser!!.uid
+        val path = "users/$uid/video/${file.name}"
         awaitTask(FirebaseStorage.getInstance().reference.child(path).putFile(Uri.fromFile(file)))
         return path
     }
@@ -93,6 +109,11 @@ object TranscriptionClient {
          * or, after a reinstall, finding the local copy gone and the cloud copy orphaned.
          */
         onUploaded: ((String) -> Unit)? = null,
+        /**
+         * Ask for word-level timings. Only set for a note that has a video to caption —
+         * they cost a preview model and a slower request, and nothing else can show them.
+         */
+        wantWordTimings: Boolean = false,
     ): TranscriptionResult {
         ensureSignedIn()
         // Preferred: upload to Cloud Storage, pass the path (no inline size ceiling).
@@ -116,6 +137,7 @@ object TranscriptionClient {
         }
         sessionId?.let { payload["sessionId"] = it }
         category?.takeIf { it.isNotBlank() }?.let { payload["category"] = it }
+        if (wantWordTimings) payload["wantWordTimings"] = true
         val result = awaitTask(callable("transcribeSession").call(payload))
         return parseTranscription(result.getData(), uploadedPath)
     }
@@ -156,6 +178,14 @@ object TranscriptionClient {
             formattedText = map["formattedText"] as? String ?: "",
             storagePath = storagePath,
             actionItems = (map["actionItems"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
+            wordTimings = (map["words"] as? List<*>)?.mapNotNull { raw ->
+                val m = raw as? Map<*, *> ?: return@mapNotNull null
+                WordTiming(
+                    text = m["text"] as? String ?: return@mapNotNull null,
+                    startMs = (m["startMs"] as? Number)?.toLong() ?: return@mapNotNull null,
+                    endMs = (m["endMs"] as? Number)?.toLong() ?: return@mapNotNull null,
+                )
+            } ?: emptyList(),
         )
     }
 

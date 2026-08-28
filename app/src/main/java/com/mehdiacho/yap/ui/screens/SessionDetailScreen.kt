@@ -383,6 +383,19 @@ fun SessionDetailScreen(
 
         // 4 · Flexible scrolling body
         Column(Modifier.weight(1f).padding(horizontal = 22.dp).verticalScroll(rememberScrollState())) {
+            // A note made from a shared video leads with the video. It is the source the
+            // rest of the note was derived from, and captions only mean anything next to
+            // the picture they belong to — so it heads the note rather than being docked
+            // at the bottom like an audio recording.
+            if (currentSession.hasVideo) {
+                com.mehdiacho.yap.ui.components.VideoNotePlayer(
+                    videoPath = currentSession.videoPath,
+                    videoStoragePath = currentSession.videoStoragePath,
+                    words = currentSession.wordTimings,
+                    fallbackDurationMs = currentSession.durationMs,
+                )
+                Spacer(Modifier.height(18.dp))
+            }
             val content = currentText()
             when {
                 currentSession.status == "QUOTA" -> {
@@ -532,7 +545,11 @@ fun SessionDetailScreen(
             }
         }
 
-        if (currentSession.audioPath == null && currentSession.storagePath == null &&
+        if (currentSession.hasVideo) {
+            // Nothing docked here. The player at the top of the note already plays this
+            // note's audio — it is the same performance with the picture attached — and a
+            // second transport for it would be two controls for one thing.
+        } else if (currentSession.audioPath == null && currentSession.storagePath == null &&
             currentSession.extraRecordings.isEmpty()) {
             // Detail · no-audio — muted row replaces the player.
             Column {

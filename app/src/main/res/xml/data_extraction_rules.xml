@@ -1,19 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+   API 31+ backup and transfer rules. See backup_rules.xml for the older equivalent.
+
+   cloud-backup excludes media for the quota reason described there. device-transfer is left
+   alone on purpose: a direct phone-to-phone move has no 25 MB ceiling, and carrying the
+   recordings across means the new device isn't re-downloading a library it could simply
+   have been handed.
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="file" path="videos" />
+        <exclude domain="file" path="recordings" />
+        <exclude domain="file" path="audiocache" />
     </cloud-backup>
-    <!--
-    <device-transfer>
-        <include .../>
-        <exclude .../>
-    </device-transfer>
-    -->
 </data-extraction-rules>

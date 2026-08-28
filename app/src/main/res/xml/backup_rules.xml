@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+   Auto Backup rules for API 30 and below. The API 31+ equivalent lives in
+   data_extraction_rules.xml and has to say the same thing separately.
+
+   Media is excluded deliberately. Android gives an app a 25 MB backup quota and silently
+   stops backing it up AT ALL once it is exceeded — so leaving recordings and videos in
+   would trade the settings and preferences that actually benefit from backup for media
+   that does not: notes live in Firestore and their audio and video are already in Cloud
+   Storage, so a restored install pulls them back down on its own.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="file" path="videos" />
+    <exclude domain="file" path="recordings" />
+    <exclude domain="file" path="audiocache" />
 </full-backup-content>

@@ -1,4 +1,5 @@
 import { createPartFromUri, FileState, GoogleGenAI, Part, Type } from "@google/genai";
+import { TimedTranscript, transcribeTimed, WordTiming } from "./transcribeWords";
 
 // Swap here if you prefer a different tier (e.g. gemini-2.5-pro for accuracy).
 const MODEL = "gemini-2.5-flash";
@@ -100,6 +101,11 @@ export interface TranscriptionResult {
   category: string;
   topicCluster: string;
   formattedText: string;
+  /**
+   * Word-level timings, present only for a note that asked for them and got them (a shared
+   * video). Absent everywhere else — see transcribeWords.ts for why this never blocks.
+   */
+  words?: WordTiming[];
 }
 
 /**
@@ -111,30 +117,44 @@ export interface TranscriptionResult {
 export async function transcribeAndFormalize(
   audio: Buffer,
   mimeType: string,
-  apiKey: string
+  apiKey: string,
+  opts: { wordTimings?: boolean; durationSec?: number } = {}
 ): Promise<TranscriptionResult> {
   const ai = new GoogleGenAI({ apiKey });
-  const { part, cleanup } = await audioPart(ai, audio, mimeType);
 
-  // 1) Transcription
+  // 1) Transcription.
+  //
+  // A note that will be played back as video asks for word timings so the transcript can be
+  // captioned against the picture. That runs on a different, preview model, so it is tried
+  // first and allowed to decline: a null answer drops through to the ordinary path below —
+  // the same one every other note in the app takes.
+  const timed: TimedTranscript | null = opts.wordTimings
+    ? await transcribeTimed(audio, mimeType, apiKey, { durationSec: opts.durationSec })
+    : null;
+
   let rawText: string;
-  try {
-    const transcription = await ai.models.generateContent({
-      model: MODEL,
-      contents: {
-        parts: [
-          part,
-          {
-            text:
-              "Precisely transcribe this audio. Return only the transcription text. " +
-              "No metadata, no speaker labels, just the words spoken.",
-          },
-        ],
-      },
-    });
-    rawText = (transcription.text || "").trim();
-  } finally {
-    await cleanup();
+  if (timed) {
+    rawText = timed.rawText;
+  } else {
+    const { part, cleanup } = await audioPart(ai, audio, mimeType);
+    try {
+      const transcription = await ai.models.generateContent({
+        model: MODEL,
+        contents: {
+          parts: [
+            part,
+            {
+              text:
+                "Precisely transcribe this audio. Return only the transcription text. " +
+                "No metadata, no speaker labels, just the words spoken.",
+            },
+          ],
+        },
+      });
+      rawText = (transcription.text || "").trim();
+    } finally {
+      await cleanup();
+    }
   }
   if (!rawText) {
     return {
@@ -150,7 +170,7 @@ export async function transcribeAndFormalize(
 
   // 2) Formalization (name / description / tags / category / topicCluster / formatted markdown)
   const meta = await formalize(ai, rawText);
-  return { rawText, ...meta };
+  return { rawText, ...meta, ...(timed ? { words: timed.words } : {}) };
 }
 
 /**

@@ -24,6 +24,19 @@ data class ActionItem(
     val doneAt: Long? = null,
 )
 
+/**
+ * One spoken word and where it falls in the recording.
+ *
+ * Only present on notes made from a shared video, where there is a picture to caption. The
+ * timings come from the transcription model, not from anything we measure locally — see
+ * functions/src/transcribeWords.ts.
+ */
+data class WordTiming(
+    val text: String,
+    val startMs: Long,
+    val endMs: Long,
+)
+
 data class Session(
     val id: String,
     val title: String,
@@ -31,6 +44,17 @@ data class Session(
     val formattedText: String? = null,
     val audioPath: String? = null,     // local file on this device (may not exist on others)
     val storagePath: String? = null,   // canonical copy in Cloud Storage (users/{uid}/audio/…)
+    /**
+     * The shared video this note was made from, kept so it can be played back with captions.
+     *
+     * Separate from [audioPath] on purpose: what we transcribe is the extracted audio track,
+     * which is a fraction of the size (see MediaExtraction.kt). The video is the thing the
+     * user watches; the audio is the thing we upload to the model.
+     */
+    val videoPath: String? = null,        // local file on this device
+    val videoStoragePath: String? = null, // cloud copy (users/{uid}/video/…)
+    /** Word-level timings for the caption track. Empty for every note without a video. */
+    val wordTimings: List<WordTiming> = emptyList(),
     val status: String = "DRAFT",      // TRANSCRIBING, DONE, FAILED, QUOTA, POLISHING
     // Why a FAILED note failed. The server sets these (see functions/src/providerErrors.ts)
     // so "the AI account needs topping up" doesn't read the same as "that audio was bad".
@@ -62,6 +86,9 @@ data class Session(
 ) {
     /** True once every task in the note is ticked (and there was at least one). */
     val allDone: Boolean get() = actionItems.isNotEmpty() && actionItems.all { it.done }
+
+    /** True when this note has a video to play — locally or in the cloud. */
+    val hasVideo: Boolean get() = videoPath != null || videoStoragePath != null
 
     val hasTasks: Boolean get() = actionItems.isNotEmpty()
     val tasksDone: Int get() = actionItems.count { it.done }

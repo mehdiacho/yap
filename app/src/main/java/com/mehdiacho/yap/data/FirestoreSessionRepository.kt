@@ -4,6 +4,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -71,12 +72,31 @@ class FirestoreSessionRepository {
         awaitTask(col().document(id).delete())
     }
 
+    /**
+     * Record where a note's video landed in Cloud Storage.
+     *
+     * A merge write of one field rather than [upsert], because the upload finishes long after
+     * transcription did and the note has moved on by then — it may be DONE, it may have
+     * failed, the user may have edited it. Writing the whole object back from a stale copy
+     * would undo whatever happened in between.
+     */
+    suspend fun setVideoStoragePath(sessionId: String, path: String) {
+        awaitTask(
+            col().document(sessionId).set(mapOf("videoStoragePath" to path), SetOptions.merge())
+        )
+    }
+
     private fun Session.toMap(): Map<String, Any?> = mapOf(
         "title" to title,
         "draftText" to draftText,
         "formattedText" to formattedText,
         "audioPath" to audioPath,
         "storagePath" to storagePath,
+        "videoPath" to videoPath,
+        "videoStoragePath" to videoStoragePath,
+        "wordTimings" to wordTimings.map {
+            mapOf("text" to it.text, "startMs" to it.startMs, "endMs" to it.endMs)
+        },
         "status" to status,
         "statusReason" to statusReason,
         "statusMessage" to statusMessage,
@@ -110,6 +130,18 @@ class FirestoreSessionRepository {
             formattedText = getString("formattedText"),
             audioPath = getString("audioPath"),
             storagePath = getString("storagePath"),
+            videoPath = getString("videoPath"),
+            videoStoragePath = getString("videoStoragePath"),
+            wordTimings = (get("wordTimings") as? List<*>)?.mapNotNull { raw ->
+                (raw as? Map<*, *>)?.let { m ->
+                    val text = m["text"] as? String ?: return@mapNotNull null
+                    WordTiming(
+                        text = text,
+                        startMs = (m["startMs"] as? Number)?.toLong() ?: return@mapNotNull null,
+                        endMs = (m["endMs"] as? Number)?.toLong() ?: return@mapNotNull null,
+                    )
+                }
+            } ?: emptyList(),
             status = getString("status") ?: "DONE",
             statusReason = getString("statusReason"),
             statusMessage = getString("statusMessage"),

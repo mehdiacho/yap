@@ -156,7 +156,15 @@ export const transcribeSession = onCall(
     const seconds =
       mimeType === "audio/wav"
         ? wavExactSec
-        : Math.max(claimedSec, audio.length / 32000);
+        : mimeType.startsWith("video/")
+          // The size floor exists to stop a client under-reporting the length of a
+          // compressed audio file. Applied to video it is nonsense: picture dominates the
+          // byte count, so a one-minute 1080p clip at 5 Mbps measures as 37 MB and would be
+          // billed as nineteen minutes. Video only reaches here when the audio track could
+          // not be split out on the device (see MediaExtraction.kt), which is rare — take
+          // the client's duration, which it read from the file's own metadata.
+          ? Math.max(claimedSec, 1)
+          : Math.max(claimedSec, audio.length / 32000);
     const quotaSec = Math.ceil(Math.max(1, Math.min(seconds, 3 * 3600)));
 
     // Optional: when the client tells us which note this is for, Firestore becomes the
@@ -222,7 +230,14 @@ export const transcribeSession = onCall(
     );
 
     try {
-      const result = await transcribeAndFormalize(audio, mimeType, apiKey);
+      // Word timings are only asked for by a note that has a video to play them against
+      // (see MediaExtraction.kt on the client). Opt-in, so the preview model never sits on
+      // the path an ordinary recording takes.
+      const wantWordTimings = data.wantWordTimings === true;
+      const result = await transcribeAndFormalize(audio, mimeType, apiKey, {
+        wordTimings: wantWordTimings,
+        durationSec: seconds,
+      });
 
       // The user can pick a category before they hit record ("this one's an app update").
       // Their choice wins over the model's guess — they said it deliberately, and having the
@@ -261,13 +276,17 @@ export const transcribeSession = onCall(
               doneAt: null,
             })),
             enrichVersion: 1,
+            // Only written when we actually have timings — an empty write here would clear
+            // captions off a note that is being re-transcribed after a failure.
+            ...(result.words?.length ? { wordTimings: result.words } : {}),
             statusReason: admin.firestore.FieldValue.delete(),
             statusMessage: admin.firestore.FieldValue.delete(),
           },
           { merge: true }
         );
         console.log(
-          `transcribeSession: wrote result to session ${sessionId} (${tasks.length} tasks)`
+          `transcribeSession: wrote result to session ${sessionId} (${tasks.length} tasks` +
+            `${result.words?.length ? `, ${result.words.length} timed words` : ""})`
         );
       }
       return { ...result, category: chosenCategory || result.category, actionItems: tasks };
