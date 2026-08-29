@@ -1,4 +1,5 @@
 import { FileState, GoogleGenAI } from "@google/genai";
+import { recordModelUsage } from "./costMeter";
 
 /**
  * Word-level timed transcription, used to caption a shared video.
@@ -31,6 +32,9 @@ export interface TimedTranscript {
 
 const MODEL = "gemini-3.5-transcribe";
 const INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
+
+/** Gemini bills audio at a flat 32 tokens per second of input. */
+const AUDIO_TOKENS_PER_SEC = 32;
 
 /**
  * Word timestamps are documented as supported up to 30 minutes (plain transcription goes to
@@ -125,6 +129,25 @@ export async function transcribeTimed(
     }
 
     const body: any = await res.json();
+
+    // Metered here rather than after the parse below, because the call is billed the moment
+    // it succeeds — including the case where it comes back with text but no timings and we
+    // throw the result away. An unbilled-looking failure is exactly the kind of spend that
+    // goes unnoticed, and this model is the expensive one ($2/1M audio in, $12/1M out).
+    const usage = body?.usageMetadata ?? body?.usage_metadata;
+    const estAudioTokens = Math.round((opts.durationSec ?? 0) * AUDIO_TOKENS_PER_SEC);
+    await recordModelUsage(
+      // A distinct op name when the response carried no usage block, so a reading built on
+      // an estimate is never mistaken in the breakdown for one that was measured.
+      usage ? "timedTranscribe" : "timedTranscribeEstimated",
+      MODEL,
+      usage ?? {
+        promptTokenCount: estAudioTokens,
+        promptTokensDetails: [{ modality: "AUDIO", tokenCount: estAudioTokens }],
+        candidatesTokenCount: 0,
+      },
+    );
+
     const content = body?.steps?.[0]?.content?.[0];
     const rawText = typeof content?.text === "string" ? content.text.trim() : "";
     if (!rawText) {

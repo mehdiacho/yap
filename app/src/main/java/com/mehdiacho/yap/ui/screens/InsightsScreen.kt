@@ -24,6 +24,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mehdiacho.yap.BuildConfig
+import com.mehdiacho.yap.data.CostMeter
+import com.mehdiacho.yap.data.CostMeterClient
+import com.mehdiacho.yap.data.CostMeterFormat
 import com.mehdiacho.yap.data.Insights
 import com.mehdiacho.yap.data.PersonaClient
 import com.mehdiacho.yap.data.UsageInsights
@@ -32,6 +36,7 @@ import com.mehdiacho.yap.ui.theme.Outfit
 import com.mehdiacho.yap.ui.theme.YapDims
 import com.mehdiacho.yap.ui.theme.YapShapes
 import com.mehdiacho.yap.ui.theme.YapTheme
+import com.mehdiacho.yap.ui.components.CostMeterCard
 import com.mehdiacho.yap.ui.components.Pill
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -71,6 +76,30 @@ fun InsightsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         }
     }
     LaunchedEffect(insights.totalNotes) { if (persona == null) loadPersona(false) }
+
+    // Spend meter: development builds only, and admin-only again on the server. Left null
+    // when either gate says no, which is also what makes the card disappear rather than
+    // announce itself to someone who cannot see it.
+    var meter by remember { mutableStateOf<CostMeter?>(null) }
+    var meterLoading by remember { mutableStateOf(false) }
+    var meterError by remember { mutableStateOf<String?>(null) }
+    var meterAllowed by remember { mutableStateOf(BuildConfig.DEBUG) }
+
+    fun loadMeter() {
+        if (!meterAllowed) return
+        scope.launch {
+            meterLoading = true
+            meterError = null
+            try {
+                meter = CostMeterClient.fetch()
+            } catch (e: CostMeterClient.NotPermitted) {
+                meterAllowed = false
+            } catch (e: Exception) {
+                meterError = e.message ?: "Couldn't read the meter."
+            } finally { meterLoading = false }
+        }
+    }
+    LaunchedEffect(Unit) { loadMeter() }
 
     Column(Modifier.fillMaxSize().background(cs.background).statusBarsPadding()) {
         Row(
@@ -189,6 +218,18 @@ fun InsightsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 error = personaError,
                 onRefresh = { loadPersona(true) },
             )
+
+            if (meterAllowed) {
+                Spacer(Modifier.height(26.dp))
+                SectionHeading("SPEND THIS MONTH", meter?.cycle)
+                Spacer(Modifier.height(10.dp))
+                CostMeterCard(
+                    meter = meter,
+                    loading = meterLoading,
+                    error = meterError,
+                    onRefresh = { loadMeter() },
+                )
+            }
 
             Spacer(Modifier.height(20.dp))
             insights.firstNoteAt?.let {

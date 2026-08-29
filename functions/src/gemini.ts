@@ -1,8 +1,35 @@
-import { createPartFromUri, FileState, GoogleGenAI, Part, Type } from "@google/genai";
+import {
+  createPartFromUri,
+  FileState,
+  GenerateContentParameters,
+  GoogleGenAI,
+  Part,
+  Type,
+} from "@google/genai";
 import { TimedTranscript, transcribeTimed, WordTiming } from "./transcribeWords";
+import { recordModelUsage } from "./costMeter";
 
 // Swap here if you prefer a different tier (e.g. gemini-2.5-pro for accuracy).
 const MODEL = "gemini-2.5-flash";
+
+/**
+ * Every model call in this file goes through here, so none of them can be billed without the
+ * cost meter seeing it.
+ *
+ * The indirection is about coverage, not convenience. A note costs three or four calls, only
+ * one of which is the transcription, so an estimate built from audio length alone misses most
+ * of the bill. Adding a bare generateContent call somewhere in this file would silently
+ * reopen exactly that gap — so there is one door, and it is this one.
+ *
+ * The meter write is awaited. It costs tens of milliseconds against a model call measured in
+ * seconds, and leaving it dangling past the response risks the runtime freezing the instance
+ * before it lands; a meter that quietly drops calls is worse than no meter at all.
+ */
+async function callModel(ai: GoogleGenAI, op: string, params: GenerateContentParameters) {
+  const res = await ai.models.generateContent(params);
+  await recordModelUsage(op, String(params.model), (res as any)?.usageMetadata);
+  return res;
+}
 
 /**
  * Above this, audio goes through the Files API instead of being inlined.
@@ -138,7 +165,7 @@ export async function transcribeAndFormalize(
   } else {
     const { part, cleanup } = await audioPart(ai, audio, mimeType);
     try {
-      const transcription = await ai.models.generateContent({
+      const transcription = await callModel(ai, "transcribe", {
         model: MODEL,
         contents: {
           parts: [
@@ -190,7 +217,7 @@ export async function transcribeAndAppend(
 
   let rawText: string;
   try {
-    const transcription = await ai.models.generateContent({
+    const transcription = await callModel(ai, "appendTranscribe", {
       model: MODEL,
       contents: {
         parts: [
@@ -232,7 +259,7 @@ ${rawText}
 
 Return ONLY a JSON object: {"name": string, "formattedText": string (the FULL updated note)}.`;
 
-  const res = await ai.models.generateContent({
+  const res = await callModel(ai, "appendFormalize", {
     model: MODEL,
     contents: prompt,
     config: {
@@ -317,7 +344,7 @@ Your assignment:
 Return a JSON object: {"updatedBlocks":[{"blockIndex":number,"newText":"string (full corrected block text, markdown preserved)","flagged":boolean,"reason":"string (optional)"}]}
 Only pure JSON, no commentary.`;
 
-  const res = await ai.models.generateContent({
+  const res = await callModel(ai, "review", {
     model: MODEL,
     contents: prompt,
     config: {
@@ -398,7 +425,7 @@ Rules:
 
 Return ONLY JSON: {"verdicts":[{"index":number,"intentional":boolean,"reason":string}]}`;
 
-  const res = await ai.models.generateContent({
+  const res = await callModel(ai, "correctionJudge", {
     model: MODEL,
     contents: prompt,
     config: {
@@ -463,7 +490,7 @@ ${rawText}
 
 Return ONLY a valid JSON object matching the schema. No markdown fences, no commentary.`;
 
-  const res = await ai.models.generateContent({
+  const res = await callModel(ai, "formalize", {
     model: MODEL,
     contents: prompt,
     config: {
@@ -490,7 +517,7 @@ Return ONLY a valid JSON object matching the schema. No markdown fences, no comm
   if (markdownLooksBroken(first.formattedText)) {
     console.warn("formalize: broken markdown detected, running repair pass");
     try {
-      const repair = await ai.models.generateContent({
+      const repair = await callModel(ai, "formalizeRepair", {
         model: MODEL,
         contents:
           `The following Markdown misuses headings (body text inside '#' lines, or nearly ` +
@@ -591,7 +618,7 @@ Rules:
 
 Return ONLY JSON: {"tasks":["...", "..."]}`;
 
-  const res = await ai.models.generateContent({
+  const res = await callModel(ai, "actionItems", {
     model: MODEL,
     contents: prompt,
     config: {

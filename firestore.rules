@@ -15,6 +15,10 @@ service cloud.firestore {
     }
     // promos/* has no client rule at all → fully server-side.
 
+    // costMeter/* has no rule either, and must not get one: it is whole-project model spend,
+    // from which anyone could read our unit economics and total traffic. It is written by the
+    // admin SDK and read only through the admin-gated getCostMeter callable.
+
     // byokKeys/{uid} likewise has NO rule, deliberately: it holds users' own provider API
     // keys (encrypted), and not even the owner may read one back. The readable summary
     // (byokActive / byokKeyHint) lives on entitlements/{uid} above. Do not add a rule here.
