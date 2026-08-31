@@ -6,6 +6,13 @@ struct NoteDetailView: View {
     @State private var player: AVAudioPlayer?
     @State private var loadingAudio = false
     @State private var audioError: String?
+    /// Mirrors the player's own state.
+    ///
+    /// AVAudioPlayer is a class and is not observable, so reading `player?.isPlaying` in the
+    /// body gives SwiftUI nothing to react to - and reassigning the same instance to @State
+    /// changes no identity, so it does not redraw either. The button icon has to be driven by
+    /// a value the view actually owns.
+    @State private var isPlaying = false
 
     var body: some View {
         ZStack {
@@ -83,7 +90,7 @@ struct NoteDetailView: View {
             Button {
                 Task { await togglePlay() }
             } label: {
-                Image(systemName: player?.isPlaying == true ? "pause.fill" : "play.fill")
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 44, height: 44)
                     .background(Palette.panel, in: Circle())
                     .foregroundStyle(.white)
@@ -103,9 +110,14 @@ struct NoteDetailView: View {
 
     private func togglePlay() async {
         if let p = player {
-            p.isPlaying ? p.pause() : p.play()
-            // Nudge SwiftUI: AVAudioPlayer isn't observable, so the icon won't flip on its own.
-            player = p
+            // Not a ternary: play() returns Bool and pause() returns Void, which do not
+            // unify - and this has to update `isPlaying` either way.
+            if p.isPlaying {
+                p.pause()
+                isPlaying = false
+            } else {
+                isPlaying = p.play()
+            }
             return
         }
         guard let path = session.storagePath else { return }
@@ -116,7 +128,7 @@ struct NoteDetailView: View {
             try AVAudioSession.sharedInstance().setCategory(.playback)
             try AVAudioSession.sharedInstance().setActive(true)
             let p = try AVAudioPlayer(contentsOf: url)
-            p.play()
+            isPlaying = p.play()
             player = p
         } catch {
             audioError = "Couldn't play this recording."
