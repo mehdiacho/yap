@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Feedback
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Key
@@ -51,6 +52,7 @@ fun SettingsScreen(
     onOpenAppearance: () -> Unit = {},
     onOpenTranscription: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
+    onOpenFeedback: () -> Unit = {},
     onOpenRescue: () -> Unit = {},
 ) {
     val user by AuthManager.authState().collectAsState(initial = AuthManager.currentUser)
@@ -136,7 +138,11 @@ fun SettingsScreen(
 
             // ABOUT
             MainEyebrow("ABOUT")
-            MainRow(Icons.Outlined.Info, "About", first = true, onClick = onOpenAbout)
+            // Above About on purpose. Feedback is the row that has to be found by someone who
+            // is mildly annoyed and about to give up, not one to be discovered by a person
+            // already browsing.
+            MainRow(Icons.Outlined.Feedback, "Send feedback", first = true, onClick = onOpenFeedback)
+            MainRow(Icons.Outlined.Info, "About", onClick = onOpenAbout)
 
             Spacer(Modifier.height(24.dp))
         }

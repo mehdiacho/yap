@@ -24,6 +24,7 @@ object Routes {
     const val SETTINGS_APPEARANCE = "settings/appearance"
     const val SETTINGS_TRANSCRIPTION = "settings/transcription"
     const val SETTINGS_ABOUT = "settings/about"
+    const val SETTINGS_FEEDBACK = "settings/feedback"
     const val SETTINGS_RESCUE = "settings/rescue"
     
     fun createSessionDetailRoute(sessionId: String): String {

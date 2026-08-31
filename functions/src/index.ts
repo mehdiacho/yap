@@ -32,6 +32,7 @@ export { setByokKey, clearByokKey, getByokStatus } from "./byok";
 export { getProfile, setProfileName, setProfilePhoto } from "./profile";
 export { getUsagePersona } from "./persona";
 export { getCostMeter } from "./costMeter";
+export { submitFeedback } from "./feedback";
 import { getEntitlement, capForPlan } from "./accounts";
 import { BYOK_ENC_KEY, resolveGeminiKey } from "./byok";
 import { classifyProviderError } from "./providerErrors";

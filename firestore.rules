@@ -19,6 +19,11 @@ service cloud.firestore {
     // from which anyone could read our unit economics and total traffic. It is written by the
     // admin SDK and read only through the admin-gated getCostMeter callable.
 
+    // feedback/* has no rule either. Reports are written by the submitFeedback callable and
+    // read only by the admin dashboard: one person's complaint about billing or a bug is not
+    // something the next user should be able to page through, and the collection is flat, so
+    // any client read rule would expose all of it.
+
     // byokKeys/{uid} likewise has NO rule, deliberately: it holds users' own provider API
     // keys (encrypted), and not even the owner may read one back. The readable summary
     // (byokActive / byokKeyHint) lives on entitlements/{uid} above. Do not add a rule here.
