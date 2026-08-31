@@ -53,7 +53,8 @@ address goes anywhere public.
 ## Sending as help@ — Resend
 
 Registered in Resend 2026-09-01 (team Green Forrest), region **eu-west-1**, domain id
-`66818463-749b-4210-9c61-b2c9040934ea`. Status: **awaiting DNS**.
+`66818463-749b-4210-9c61-b2c9040934ea`. DNS records added to Cloudflare the same day; verification
+is asynchronous on Resend's side.
 
 Deliberately **sending only, receiving disabled**. Inbound stays with Cloudflare Email Routing,
 which already works; letting Resend take receiving too would put two services in a fight over the
@@ -63,13 +64,17 @@ apex MX records.
 nearest of the four Resend regions that traffic actually passes near. Not `us-east-1`, which is the
 default and the furthest.
 
-### The three records to add in Cloudflare DNS
+### The records (added 2026-09-01)
 
 | Type | Name | Value | Priority |
 | --- | --- | --- | --- |
 | TXT | `resend._domainkey` | `p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDCP4suI38Xn9Nfl6Z5vh4QuZQ3xBo8qv3T6+vO4bWWrkhp58QYCa1pOdGivZz+LwaAmcaGLhEwYNrvjE1aeXVbLK3hBzETtr3k3cEMMUZMK/Dda84dN73GzZdJ9i2SBtuC8ndcjcXvvYxLzkltxAEVgk2tfica9m+akth8k8G4YQIDAQAB` | — |
 | MX | `send` | `feedback-smtp.eu-west-1.amazonses.com` | 10 |
 | TXT | `send` | `v=spf1 include:amazonses.com ~all` | — |
+| TXT | `_dmarc` | `v=DMARC1; p=none; rua=mailto:dev@greenforrest.app` | — |
+
+DMARC is `p=none` — it reports and rejects nothing, which is the only sane opening position on a
+domain that has never sent mail. Tighten to `quarantine` once the reports show only Resend.
 
 **None of these touch the apex**, which is the point. The SPF and MX sit on the `send` subdomain
 (Resend's default Return-Path), so the apex keeps Cloudflare Email Routing's own
@@ -79,8 +84,10 @@ outbound sending are separate paths and each wants its own.
 
 Nothing here is proxied; TXT and MX have no proxy toggle.
 
-They have to be added by hand: the Wrangler OAuth token has no `dns_records` scope, and
-`CF_API_KEY` in `~/.secrets/cloudflare.env` is empty. Once they are in, `verify-domain` finishes it.
+Added with the Cloudflare Global API Key, which authenticates as `X-Auth-Email` + `X-Auth-Key` —
+**not** as a Bearer token, which returns 401 and reads like an invalid credential rather than a
+wrong header. The `cfk_` prefix is part of the value and must not be stripped. Wrangler's OAuth
+token cannot do this: it has no `dns_records` scope.
 
 ### Then: Gmail "Send mail as"
 
@@ -105,6 +112,21 @@ the same inbox, so the loop closes without any extra setup.
 Worth adding once sending works: a **DMARC** record at `_dmarc`, starting at
 `v=DMARC1; p=none; rua=mailto:dev@greenforrest.app`. `p=none` observes without rejecting anything,
 which is the right first move on a domain that has never sent mail.
+
+## The apex 525, explained
+
+Unrelated to mail, but found while reading the zone. The apex, `www` and a **wildcard** `*` are all
+proxied A records pointing at `91.195.240.94` — a Sedo domain-parking address. Cloudflare accepts
+the request at its edge, tries to reach that origin over TLS, and the handshake fails. Hence 525 on
+`greenforrest.app`, `www.` and `app.` — the last one only because the wildcard catches it.
+
+That closes Finding 6 in `X:i.tools\SECURITY-FINDINGS.md`: leftover registrar parking, not an
+attack. Nothing to fix until the domain actually serves something.
+
+One thing worth deciding separately: a **proxied wildcard** means every conceivable hostname under
+the domain answers on Cloudflare's edge. That is not hostile, but it is what let the earlier hijack
+serve redirects on `app.` and `www.` without either name ever being created deliberately. Narrowing
+it to the hostnames actually in use would be a cheap improvement.
 
 ## Related
 
