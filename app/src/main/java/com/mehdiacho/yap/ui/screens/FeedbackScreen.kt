@@ -2,6 +2,7 @@ package com.mehdiacho.yap.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.media.MediaPlayer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -13,6 +14,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -58,6 +61,18 @@ fun FeedbackScreen(onBack: () -> Unit) {
     var clip by remember { mutableStateOf<File?>(null) }
     var clipMs by remember { mutableStateOf(0L) }
 
+    // Playback of the clip just recorded. Nobody should have to send a voice message they
+    // haven't heard — a recording that caught the wrong half of a sentence, or nothing at
+    // all because the mic was covered, is worse than no recording, and the sender is the
+    // only person who can tell before it's sent.
+    val player = remember { MediaPlayer() }
+    var playing by remember { mutableStateOf(false) }
+    var playedMs by remember { mutableStateOf(0L) }
+    // Whether `player` currently holds the clip, prepared and ready. Cleared on completion
+    // as well as on discard, so the next tap starts again from the beginning rather than
+    // from the end of the last play.
+    var prepared by remember { mutableStateOf(false) }
+
     // Ticks only while recording, so the elapsed counter moves without a timer running for
     // the whole life of the screen.
     var elapsed by remember { mutableStateOf(0L) }
@@ -69,7 +84,48 @@ fun FeedbackScreen(onBack: () -> Unit) {
         }
     }
 
+    LaunchedEffect(playing) {
+        while (playing) {
+            playedMs = runCatching { player.currentPosition.toLong() }.getOrDefault(playedMs)
+            kotlinx.coroutines.delay(100)
+        }
+    }
+
+    fun stopPlayback() {
+        runCatching { player.reset() }
+        playing = false
+        prepared = false
+        playedMs = 0L
+    }
+
+    fun togglePlayback() {
+        val f = clip ?: return
+        if (playing) {
+            runCatching { player.pause() }
+            playing = false
+            return
+        }
+        val started = runCatching {
+            if (!prepared) {
+                player.reset()
+                player.setDataSource(f.absolutePath)
+                player.prepare()
+                player.setOnCompletionListener {
+                    playing = false
+                    playedMs = 0L
+                    // Forces a fresh prepare next time, which is the cheapest correct rewind.
+                    prepared = false
+                }
+                prepared = true
+            }
+            player.start()
+        }.isSuccess
+        error = if (started) null else "Couldn't play that back."
+        playing = started
+    }
+
     fun beginRecording() {
+        stopPlayback()
         if (recorder.start()) {
             recording = true
             error = null
@@ -85,9 +141,15 @@ fun FeedbackScreen(onBack: () -> Unit) {
         else error = "Yap needs microphone access to record a message."
     }
 
-    // The screen owns the recorder, so an abandoned recording is stopped and deleted when the
-    // user navigates away rather than left running with the mic held open.
-    DisposableEffect(Unit) { onDispose { if (recorder.isRecording) recorder.cancel() } }
+    // The screen owns both the recorder and the player, so an abandoned recording is stopped
+    // and deleted when the user navigates away rather than left running with the mic held
+    // open — and the player is released rather than left holding a decoder.
+    DisposableEffect(Unit) {
+        onDispose {
+            if (recorder.isRecording) recorder.cancel()
+            runCatching { player.release() }
+        }
+    }
 
     SettingsSubScaffold("Feedback", onBack) {
         if (sent) {
@@ -106,7 +168,7 @@ fun FeedbackScreen(onBack: () -> Unit) {
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "It goes straight to the person building this.",
+                    "It goes straight to the people building this.",
                     fontSize = 13.sp, color = ext.subdued,
                 )
                 Spacer(Modifier.height(22.dp))
@@ -166,6 +228,10 @@ fun FeedbackScreen(onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val existing = clip
+            // One circle, three jobs: record, stop, then play back what was captured. Making
+            // playback the same button rather than a second one keeps the row honest about
+            // what it is — there is only ever one clip here, and the obvious thing to do with
+            // a finished recording is listen to it.
             Box(
                 Modifier.size(44.dp).clip(CircleShape)
                     .background(if (recording) cs.errorContainer else cs.primaryContainer)
@@ -181,6 +247,7 @@ fun FeedbackScreen(onBack: () -> Unit) {
                                 }
                                 recording = false
                             }
+                            existing != null -> togglePlayback()
                             ContextCompat.checkSelfPermission(
                                 context, Manifest.permission.RECORD_AUDIO
                             ) == PackageManager.PERMISSION_GRANTED -> beginRecording()
@@ -190,8 +257,18 @@ fun FeedbackScreen(onBack: () -> Unit) {
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    if (recording) Icons.Default.Stop else Icons.Default.Mic,
-                    if (recording) "Stop recording" else "Record a message",
+                    when {
+                        recording -> Icons.Default.Stop
+                        existing == null -> Icons.Default.Mic
+                        playing -> Icons.Default.Pause
+                        else -> Icons.Default.PlayArrow
+                    },
+                    when {
+                        recording -> "Stop recording"
+                        existing == null -> "Record a message"
+                        playing -> "Pause"
+                        else -> "Play back your message"
+                    },
                     tint = if (recording) cs.onErrorContainer else cs.onPrimaryContainer,
                 )
             }
@@ -200,22 +277,26 @@ fun FeedbackScreen(onBack: () -> Unit) {
                 Text(
                     when {
                         recording -> "Recording… ${elapsed / 1000}s"
-                        existing != null -> "Message recorded · ${clipMs / 1000}s"
-                        else -> "Record a voice message"
+                        existing == null -> "Record a voice message"
+                        playing -> "Playing… ${playedMs / 1000}s of ${clipMs / 1000}s"
+                        else -> "Message recorded · ${clipMs / 1000}s"
                     },
                     fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface,
                 )
                 if (existing != null && !recording) {
                     Text(
-                        "Sent along with anything you typed.",
+                        "Have a listen before you send it. It goes with anything you typed.",
                         fontSize = 12.sp, color = ext.subdued,
                     )
                 }
             }
             if (existing != null && !recording) {
                 Icon(
-                    Icons.Default.Close, "Discard recording", tint = ext.subdued,
+                    Icons.Default.Close, "Discard recording and record again", tint = ext.subdued,
                     modifier = Modifier.clickable {
+                        // Stop first: deleting the file out from under a playing MediaPlayer
+                        // leaves it holding a handle to something that no longer exists.
+                        stopPlayback()
                         runCatching { existing.delete() }
                         clip = null
                         clipMs = 0L
@@ -239,6 +320,7 @@ fun FeedbackScreen(onBack: () -> Unit) {
                     sending = true
                     error = null
                     try {
+                        stopPlayback()
                         FeedbackClient.submit(topic.id, message.trim(), clip, clipMs)
                         // The recording has done its job; it lives in the cache and there is
                         // no reason to leave a copy of the user's voice on the device.
