@@ -42,8 +42,18 @@ admin.initializeApp({ projectId: process.env.GCLOUD_PROJECT || "yap-mehdiacho" }
       ? await admin.auth().getUserByEmail(target)
       : await admin.auth().getUser(target);
   } catch (e) {
-    console.error(`No such user: ${target}`);
-    console.error(e.message);
+    // Distinguished on purpose. Both failures land in the same catch, and reporting a
+    // missing credential as "no such user" sends you hunting for a typo in an email address
+    // that was correct all along.
+    if (e.code === "auth/user-not-found") {
+      console.error(`No such user: ${target}`);
+    } else {
+      console.error("Could not reach Firebase Auth. Usually missing credentials:");
+      console.error("  gcloud auth application-default login");
+      console.error("  gcloud auth application-default set-quota-project yap-mehdiacho");
+      console.error("");
+      console.error(e.message);
+    }
     process.exit(1);
   }
 

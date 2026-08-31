@@ -9,13 +9,15 @@ promo codes. Everything else on this list had no interface at all.
 
 ## Getting in
 
-Every function behind this dashboard is gated on the `admin` custom claim, and **nothing in
-the codebase ever sets it** — so a fresh project has no admins and the whole console is
-unreachable until you grant yourself the claim once:
+Every function behind this dashboard is gated on the `admin` custom claim, and nothing in the
+codebase sets it — so a fresh project has no admins and the whole console is unreachable
+until somebody grants the claim. `mehdiacho@gmail.com` already has it. For anyone else:
 
 ```bash
+gcloud auth application-default login
+gcloud auth application-default set-quota-project yap-mehdiacho
 cd functions
-node scripts/grant-admin.js you@example.com
+node scripts/grant-admin.js them@example.com
 ```
 
 That script deliberately does not exist as a callable. A function that can make somebody an
