@@ -249,8 +249,15 @@ class RecordingService : Service() {
   )
 
   private fun buildNotification(paused: Boolean): Notification {
+    // The flags matter. A bare Intent launched from a Service could open a SECOND
+    // MainActivity in its own task, and each one brought a MainViewModel that collected
+    // RecordingBus — so tapping this notification was enough to make the next recording
+    // transcribe twice. MainActivity is singleTask now, and these flags say the same
+    // thing at the call site: come back to the instance that is already running.
     val contentIntent = PendingIntent.getActivity(
-      this, 0, Intent(this, MainActivity::class.java),
+      this, 0,
+      Intent(this, MainActivity::class.java)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
     val builder = NotificationCompat.Builder(this, CHANNEL_ID)

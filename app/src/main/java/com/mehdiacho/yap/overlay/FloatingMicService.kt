@@ -156,7 +156,10 @@ class FloatingMicService : Service() {
         if (!granted) {
             // Can't request a runtime permission from an overlay — bounce into the app.
             startActivity(Intent(this, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // CLEAR_TOP as well as NEW_TASK: NEW_TASK on its own was enough, on some
+                // OEM builds, to stand up a second MainActivity beside the running one —
+                // and two of those meant one recording transcribed (and billed) twice.
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 putExtra(MainActivity.EXTRA_START_RECORDING, true)
             })
             return
