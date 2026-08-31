@@ -33,6 +33,7 @@ export { getProfile, setProfileName, setProfilePhoto } from "./profile";
 export { getUsagePersona } from "./persona";
 export { getCostMeter } from "./costMeter";
 export { submitFeedback } from "./feedback";
+export { onFeedbackCreated } from "./notify";
 export {
   adminOverview,
   adminListFeedback,
