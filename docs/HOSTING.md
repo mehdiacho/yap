@@ -55,13 +55,14 @@ at a login screen for a dashboard nobody but the developer can enter. `yap.green
 right home for both, but the pages would have to move to the desktop repo and the Play listing edited
 to match — a change to make deliberately, not in the middle of a review.
 
-## Moving `yap.mehdiacho.tech`
+## `yap.mehdiacho.tech` is retired
 
 `yap.mehdiacho.tech` was the desktop app's original custom domain, attached to `yap-desktop` on
-2026-07-29. `yap.greenforrest.app` now points at the same site.
+2026-07-29. It was detached and its CNAME deleted on 2026-09-01, once `yap.greenforrest.app` was
+confirmed serving the same site over HTTPS. `yap-desktop` now has exactly one custom domain.
 
-Nothing in either repository links to the old hostname, so retiring it costs nothing that can be
-found by searching. If it turns out to be linked from somewhere external, the recovery is a
-Cloudflare redirect rule on the `mehdiacho.tech` zone — which requires turning that record's proxy
-**on**, the opposite of the rule above, because a redirect rule only runs on traffic that passes
-through Cloudflare's edge.
+Nothing in either repository referenced the old hostname, so retiring it cost nothing findable by
+searching. If it turns out to be linked from somewhere external, the fix is a Cloudflare redirect
+rule on the `mehdiacho.tech` zone — which needs that record's proxy turned **on**, the opposite of
+the rule above, because a redirect rule only runs on traffic that reaches Cloudflare's edge. Putting
+the record back is a two-minute job either way.
