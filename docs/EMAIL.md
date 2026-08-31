@@ -50,22 +50,61 @@ suspicious of.
 Send a message from an unrelated address to `help@greenforrest.app` to confirm before the
 address goes anywhere public.
 
-## What this does not give you
+## Sending as help@ — Resend
 
-**Sending.** Email Routing is inbound only. Reply to a `help@` message from Gmail and it goes out
-as `mehdiacho@gmail.com` — which rather undoes the point of a support address, because the person
-wrote to `help@greenforrest.app` and hears back from a stranger's Gmail.
+Registered in Resend 2026-09-01 (team Green Forrest), region **eu-west-1**, domain id
+`66818463-749b-4210-9c61-b2c9040934ea`. Status: **awaiting DNS**.
 
-Making Gmail send as the address needs an SMTP relay for "Send mail as" to authenticate against.
-Free tiers that work: Brevo (a few hundred a day), Resend, MailerSend. Configure once in Gmail →
-Settings → Accounts → Send mail as → Add another email address.
+Deliberately **sending only, receiving disabled**. Inbound stays with Cloudflare Email Routing,
+which already works; letting Resend take receiving too would put two services in a fight over the
+apex MX records.
 
-**Do this before the address appears on the Play listing.** For a handful of tester emails,
-replies from a Gmail address are survivable. On a published support address they are not.
+`eu-west-1` because mail from Southern Africa routes through Europe in practice — Ireland is the
+nearest of the four Resend regions that traffic actually passes near. Not `us-east-1`, which is the
+default and the furthest.
 
-Cloudflare Email *Sending* is a separate product and the Wrangler token has `email_sending:write`
-too, but it sends from Workers — it is not an SMTP relay Gmail can authenticate against, so it
-does not solve this.
+### The three records to add in Cloudflare DNS
+
+| Type | Name | Value | Priority |
+| --- | --- | --- | --- |
+| TXT | `resend._domainkey` | `p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDCP4suI38Xn9Nfl6Z5vh4QuZQ3xBo8qv3T6+vO4bWWrkhp58QYCa1pOdGivZz+LwaAmcaGLhEwYNrvjE1aeXVbLK3hBzETtr3k3cEMMUZMK/Dda84dN73GzZdJ9i2SBtuC8ndcjcXvvYxLzkltxAEVgk2tfica9m+akth8k8G4YQIDAQAB` | — |
+| MX | `send` | `feedback-smtp.eu-west-1.amazonses.com` | 10 |
+| TXT | `send` | `v=spf1 include:amazonses.com ~all` | — |
+
+**None of these touch the apex**, which is the point. The SPF and MX sit on the `send` subdomain
+(Resend's default Return-Path), so the apex keeps Cloudflare Email Routing's own
+`v=spf1 include:_spf.mx.cloudflare.net ~all` and its `route1/2/3.mx.cloudflare.net` records
+untouched. Do **not** merge the two SPF records or put Resend's on the apex — inbound forwarding and
+outbound sending are separate paths and each wants its own.
+
+Nothing here is proxied; TXT and MX have no proxy toggle.
+
+They have to be added by hand: the Wrangler OAuth token has no `dns_records` scope, and
+`CF_API_KEY` in `~/.secrets/cloudflare.env` is empty. Once they are in, `verify-domain` finishes it.
+
+### Then: Gmail "Send mail as"
+
+Create an **API key in the Resend dashboard** — not via a tool, so the secret never lands in a chat
+transcript. That is not a hypothetical worry here: the Cloudflare Global API Key is already sitting
+in one, and it is the reason that key is being rolled.
+
+Gmail → Settings → Accounts and Import → Send mail as → Add another email address:
+
+| | |
+| --- | --- |
+| Address | `help@greenforrest.app` |
+| Treat as an alias | unticked |
+| SMTP server | `smtp.resend.com` |
+| Port | `587` (TLS) |
+| Username | `resend` |
+| Password | the Resend API key |
+
+Gmail sends a confirmation code to `help@greenforrest.app` — which Cloudflare forwards straight to
+the same inbox, so the loop closes without any extra setup.
+
+Worth adding once sending works: a **DMARC** record at `_dmarc`, starting at
+`v=DMARC1; p=none; rua=mailto:dev@greenforrest.app`. `p=none` observes without rejecting anything,
+which is the right first move on a domain that has never sent mail.
 
 ## Related
 
