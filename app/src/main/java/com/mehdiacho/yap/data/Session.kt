@@ -37,6 +37,36 @@ data class WordTiming(
     val endMs: Long,
 )
 
+/**
+ * Where a note came from.
+ *
+ * Kept because the app genuinely cannot tell afterwards, and guessing was doing harm: a note
+ * made from shared text has no audio, and the no-audio row told people their "audio was
+ * discarded after transcription" — inviting them to go looking for a recording that never
+ * existed, or to conclude their data had been mishandled. What a note is made of is part of
+ * what the note IS, and it is also the first thing the grouped view and any agent reading
+ * these notes will want to filter on.
+ */
+object SessionSource {
+    /** Captured live, in the app, through RecordingService. */
+    const val RECORDING = "RECORDING"
+    const val SHARED_AUDIO = "SHARED_AUDIO"
+    const val SHARED_VIDEO = "SHARED_VIDEO"
+    /** Text sent in through the share sheet. Has no recording and never did. */
+    const val SHARED_TEXT = "SHARED_TEXT"
+    /** Rescued from disk by the orphan scan; the original context is gone. */
+    const val RECOVERED = "RECOVERED"
+    /**
+     * Written before this field existed.
+     *
+     * Deliberately its own value rather than defaulting old notes to RECORDING: most of them
+     * were recordings, but some were not, and quietly asserting a provenance we never
+     * captured is the same class of mistake this field exists to fix. Readers treat UNKNOWN
+     * as "don't claim anything".
+     */
+    const val UNKNOWN = "UNKNOWN"
+}
+
 data class Session(
     val id: String,
     val title: String,
@@ -83,12 +113,35 @@ data class Session(
      * 0 = never enriched. 1 = action items extracted.
      */
     val enrichVersion: Int = 0,
+    /** One of [SessionSource]. New notes always carry a real value. */
+    val source: String = SessionSource.RECORDING,
+    /**
+     * The app this note was shared from, as a display name ("TikTok", "Files") — resolved at
+     * import time from the sharing package, because the label is what a person recognises and
+     * the package name is what survives an uninstall. Null for anything not shared in.
+     */
+    val sourceApp: String? = null,
+    /**
+     * Whatever the share carried alongside the file — usually the source URL. Apps like
+     * TikTok put the link in EXTRA_TEXT next to the video, and it is the only durable pointer
+     * back to where a clip actually came from.
+     */
+    val sourceRef: String? = null,
 ) {
     /** True once every task in the note is ticked (and there was at least one). */
     val allDone: Boolean get() = actionItems.isNotEmpty() && actionItems.all { it.done }
 
     /** True when this note has a video to play — locally or in the cloud. */
     val hasVideo: Boolean get() = videoPath != null || videoStoragePath != null
+
+    /**
+     * True when this note is known never to have had a recording.
+     *
+     * Only SHARED_TEXT qualifies. UNKNOWN deliberately does not: an old note might have had
+     * audio that has since been cleaned up, and saying "there was never a recording" about
+     * one that had one is the same false claim in the other direction.
+     */
+    val neverHadAudio: Boolean get() = source == SessionSource.SHARED_TEXT
 
     val hasTasks: Boolean get() = actionItems.isNotEmpty()
     val tasksDone: Int get() = actionItems.count { it.done }

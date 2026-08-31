@@ -119,6 +119,9 @@ class FirestoreSessionRepository {
             mapOf("id" to it.id, "text" to it.text, "done" to it.done, "doneAt" to it.doneAt)
         },
         "enrichVersion" to enrichVersion,
+        "source" to source,
+        "sourceApp" to sourceApp,
+        "sourceRef" to sourceRef,
     )
 
     private fun DocumentSnapshot.toSession(): Session? {
@@ -177,6 +180,11 @@ class FirestoreSessionRepository {
                 }
             } ?: emptyList(),
             enrichVersion = (get("enrichVersion") as? Number)?.toInt() ?: 0,
+            // Absent on every note written before provenance was recorded. UNKNOWN, not
+            // RECORDING — see SessionSource.UNKNOWN for why the difference matters.
+            source = getString("source") ?: SessionSource.UNKNOWN,
+            sourceApp = getString("sourceApp"),
+            sourceRef = getString("sourceRef"),
         )
     }
 

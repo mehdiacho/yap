@@ -45,6 +45,7 @@ import com.mehdiacho.yap.ui.screens.AboutSettingsScreen
 import com.mehdiacho.yap.ui.screens.AppearanceSettingsScreen
 import com.mehdiacho.yap.ui.screens.AuthScreen
 import com.mehdiacho.yap.ui.screens.ByokKeyScreen
+import com.mehdiacho.yap.ui.screens.FeedbackScreen
 import com.mehdiacho.yap.ui.screens.InsightsScreen
 import com.mehdiacho.yap.ui.screens.ProfileScreen
 import com.mehdiacho.yap.ui.screens.CaptureScreen
@@ -112,7 +113,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             window.isNavigationBarContrastEnforced = false
             window.isStatusBarContrastEnforced = false
         }
-        if (intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true) autoStart.value = true
+        // Consumed, for the same reason handleShare stamps its intent: getIntent() outlives
+        // the instance, so without this a rotation re-armed the recorder from a tile tap the
+        // user made minutes ago.
+        if (intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true) {
+            intent.removeExtra(EXTRA_START_RECORDING)
+            autoStart.value = true
+        }
         intent?.let { handleShare(it) }
         com.mehdiacho.yap.data.SettingsStore.init(this)
         com.mehdiacho.yap.data.AccountClient.initCache(this)
@@ -173,16 +180,49 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         }
     }
 
+    /**
+     * The app that shared into Yap, as a name a person would recognise.
+     *
+     * `referrer` is what the platform will tell us — an `android-app://package` URI naming the
+     * app that launched this activity. The package alone ("com.zhiliaoapp.musically") is not
+     * something to show anyone, so it is resolved to its label ("TikTok") while that app is
+     * still installed. Null when the platform declines to say, which it is entitled to do.
+     */
+    private fun sharingAppLabel(): String? {
+        val pkg = referrer?.takeIf { it.scheme == "android-app" }?.host ?: return null
+        if (pkg == packageName) return null
+        return runCatching {
+            val pm = packageManager
+            pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+        }.getOrNull() ?: pkg
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra(EXTRA_START_RECORDING, false)) autoStart.value = true
+        if (intent.getBooleanExtra(EXTRA_START_RECORDING, false)) {
+            intent.removeExtra(EXTRA_START_RECORDING)
+            autoStart.value = true
+        }
         handleShare(intent)
     }
 
     /** Handle audio/video/text shared into Yap from another app. */
     private fun handleShare(intent: Intent) {
         if (intent.action != Intent.ACTION_SEND) return
+        // A share is imported exactly once.
+        //
+        // onCreate reads getIntent(), and getIntent() keeps returning the SEND intent for as
+        // long as the activity lives — so every recreation (rotation, theme change, the
+        // system rebuilding the activity after reclaiming memory) imported and transcribed
+        // the shared file all over again. Stamping the intent itself is what makes the guard
+        // survive that recreation: the extra travels with the intent, not with the instance
+        // that is about to be thrown away.
+        if (intent.getBooleanExtra(EXTRA_SHARE_HANDLED, false)) {
+            android.util.Log.d("YapShare", "share already imported, ignoring")
+            return
+        }
+        intent.putExtra(EXTRA_SHARE_HANDLED, true)
         val declared = intent.type ?: "*/*"
         val stream = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
             ?: intent.clipData?.getItemAt(0)?.uri
@@ -194,21 +234,32 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             stream != null -> contentResolver.getType(stream) ?: guessMimeFromUri(stream) ?: declared
             else -> declared
         }
-        android.util.Log.d("YapShare", "declared=$declared resolved=$mime stream=$stream")
+        val fromApp = sharingAppLabel()
+        // Apps that share a video usually put its link in EXTRA_TEXT beside it — that link is
+        // the only durable record of where a clip came from, and it is thrown away the moment
+        // we copy the bytes into our own storage.
+        val ref = intent.getStringExtra(Intent.EXTRA_TEXT)
+            ?.takeIf { it.isNotBlank() && stream != null }
+            ?.trim()
+            ?.take(500)
+        android.util.Log.d(
+            "YapShare",
+            "declared=$declared resolved=$mime stream=$stream from=$fromApp ref=$ref"
+        )
 
         when {
             (mime.startsWith("audio/") || mime.startsWith("video/")) && stream != null ->
-                viewModel.importSharedAudio(stream, mime)
+                viewModel.importSharedAudio(stream, mime, fromApp, ref)
             mime.startsWith("text/") -> {
                 val text = intent.getStringExtra(Intent.EXTRA_TEXT)
                     ?: intent.clipData?.getItemAt(0)?.coerceToText(this)?.toString()
-                text?.takeIf { it.isNotBlank() }?.let { viewModel.importSharedText(it) }
+                text?.takeIf { it.isNotBlank() }?.let { viewModel.importSharedText(it, fromApp) }
             }
             stream != null -> {
                 // Generic type but we have a file — fall back to an extension guess.
                 val guessed = guessMimeFromUri(stream)
                 if (guessed != null && (guessed.startsWith("audio/") || guessed.startsWith("video/"))) {
-                    viewModel.importSharedAudio(stream, guessed)
+                    viewModel.importSharedAudio(stream, guessed, fromApp, ref)
                 } else {
                     android.util.Log.w("YapShare", "unhandled share: mime=$mime stream=$stream")
                 }
@@ -259,6 +310,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     companion object {
         const val EXTRA_START_RECORDING = "start_recording"
+
+        /** Set on a SEND intent once it has been imported. See handleShare. */
+        private const val EXTRA_SHARE_HANDLED = "yap_share_handled"
 
         // App-lock gate. Process-level (not per-activity) so recreation — rotation, theme
         // change — doesn't re-lock; onStart + the persisted background timestamp decide.
@@ -418,6 +472,7 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
                     onOpenAppearance = { navController.navigate(Routes.SETTINGS_APPEARANCE) },
                     onOpenTranscription = { navController.navigate(Routes.SETTINGS_TRANSCRIPTION) },
                     onOpenAbout = { navController.navigate(Routes.SETTINGS_ABOUT) },
+                    onOpenFeedback = { navController.navigate(Routes.SETTINGS_FEEDBACK) },
                     onOpenRescue = { navController.navigate(Routes.SETTINGS_RESCUE) },
                 )
             }
@@ -433,6 +488,7 @@ fun MainScreen(viewModel: MainViewModel, autoStart: MutableState<Boolean> = muta
             composable(Routes.SETTINGS_APPEARANCE) { AppearanceSettingsScreen(onBack = { navController.popBackStack() }) }
             composable(Routes.SETTINGS_TRANSCRIPTION) { TranscriptionSettingsScreen(onBack = { navController.popBackStack() }, viewModel = viewModel) }
             composable(Routes.SETTINGS_ABOUT) { AboutSettingsScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.SETTINGS_FEEDBACK) { FeedbackScreen(onBack = { navController.popBackStack() }) }
             composable(Routes.SETTINGS_RESCUE) {
                 RescueRecordingsScreen(
                     viewModel = viewModel,

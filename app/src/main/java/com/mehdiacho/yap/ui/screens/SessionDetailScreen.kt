@@ -329,6 +329,12 @@ fun SessionDetailScreen(
                 MetaChip(currentSession.category.ifBlank { "Memo" }, cs.primaryContainer, cs.onPrimaryContainer, bold = true)
                 if (currentSession.topicCluster.isNotBlank() && currentSession.topicCluster != "General")
                     MetaChip(currentSession.topicCluster, cs.surfaceContainerHigh, cs.onSurfaceVariant)
+                // Where a shared note came in from. Only shown when the platform actually told
+                // us — an empty "From" chip on every note the user recorded themselves would
+                // be noise on the overwhelming majority of the library.
+                currentSession.sourceApp?.takeIf { it.isNotBlank() }?.let {
+                    MetaChip("From $it", cs.surfaceContainerHigh, cs.onSurfaceVariant)
+                }
             }
         }
 
@@ -561,7 +567,17 @@ fun SessionDetailScreen(
                 ) {
                     Icon(Icons.Default.MusicOff, null, tint = ext.subdued, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text("Audio was discarded after transcription", fontSize = 13.sp, color = ext.subdued)
+                    // "Audio was discarded" is a claim, and on a note made from shared text it
+                    // was a false one — it sent people hunting for a recording that never
+                    // existed, or left them thinking their audio had been mishandled. Say
+                    // which of the two actually happened.
+                    Text(
+                        if (currentSession.neverHadAudio)
+                            "Shared as text — there was no recording"
+                        else "Audio was discarded after transcription",
+                        fontSize = 13.sp,
+                        color = ext.subdued,
+                    )
                 }
             }
         } else {

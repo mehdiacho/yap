@@ -209,7 +209,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _notice.value = "Recovering “${orphan.file.name}”. Transcribing now."
             try {
-                startTranscription(orphan.path, orphan.durationMs, "audio/wav")
+                startTranscription(
+                    orphan.path, orphan.durationMs, "audio/wav",
+                    source = com.mehdiacho.yap.data.SessionSource.RECOVERED,
+                )
             } catch (e: Exception) {
                 Log.e("Yap", "orphan recovery failed: ${e.message}", e)
                 _notice.value = "Couldn't recover that recording: ${e.message}"
@@ -240,6 +243,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             RecordingBus.events.collect { event ->
                 when (event) {
                     is RecorderEvent.Finished -> {
+                        // One recording, one transcription — however many collectors this
+                        // bus turns out to have. See RecordingBus.claimRecording: a second
+                        // MainActivity used to mean a second ViewModel here, and the same
+                        // audio was billed twice under two different notes.
+                        if (!RecordingBus.claimRecording(event.filePath)) {
+                            Log.w("Yap", "duplicate Finished ignored for ${event.filePath}")
+                            return@collect
+                        }
                         val target = _appendTarget.value
                         _appendTarget.value = null
                         if (target != null) appendRecording(target, event.filePath, event.durationMs, event.bookmarks)
@@ -331,8 +342,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     }
 
-    /** Import an audio/video file shared into Yap from another app, then transcribe it. */
-    fun importSharedAudio(uri: Uri, mimeType: String) {
+    /**
+     * Import an audio/video file shared into Yap from another app, then transcribe it.
+     *
+     * [sourceApp] and [sourceRef] are what the share itself told us — the app that sent it and
+     * the link that came with it. Recorded now because nothing later can recover them: once
+     * the bytes are copied into our own storage, a clip from TikTok and a clip from the camera
+     * roll are indistinguishable.
+     */
+    fun importSharedAudio(
+        uri: Uri,
+        mimeType: String,
+        sourceApp: String? = null,
+        sourceRef: String? = null,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val ctx = getApplication<Application>()
@@ -375,6 +398,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             extracted.mimeType,
                             videoPath = file.absolutePath,
                             wantWordTimings = true,
+                            source = com.mehdiacho.yap.data.SessionSource.SHARED_VIDEO,
+                            sourceApp = sourceApp,
+                            sourceRef = sourceRef,
                         )
                     } else {
                         // Couldn't split it — send the video as-is, which still transcribes.
@@ -382,10 +408,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         startTranscription(
                             file.absolutePath, durationMs, mimeType,
                             videoPath = file.absolutePath,
+                            source = com.mehdiacho.yap.data.SessionSource.SHARED_VIDEO,
+                            sourceApp = sourceApp,
+                            sourceRef = sourceRef,
                         )
                     }
                 } else {
-                    startTranscription(file.absolutePath, durationMs, mimeType)
+                    startTranscription(
+                        file.absolutePath, durationMs, mimeType,
+                        source = com.mehdiacho.yap.data.SessionSource.SHARED_AUDIO,
+                        sourceApp = sourceApp,
+                        sourceRef = sourceRef,
+                    )
                 }
             } catch (e: Exception) {
                 Log.e("YapShare", "import failed: ${e.message}", e)
@@ -394,14 +428,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Import shared plain text as a note (no transcription). */
-    fun importSharedText(text: String) {
+    fun importSharedText(text: String, sourceApp: String? = null) {
         viewModelScope.launch {
             val session = Session(
                 id = UUID.randomUUID().toString(),
                 title = "Shared note",
                 draftText = text,
                 formattedText = text,
-                status = "DONE"
+                status = "DONE",
+                source = com.mehdiacho.yap.data.SessionSource.SHARED_TEXT,
+                sourceApp = sourceApp,
+                // The text IS the reference here — a shared link arrives as the body of the
+                // note, so duplicating it into sourceRef would say nothing new.
+                sourceRef = null
             )
             repository.upsert(session)
             _pendingOpen.value = session.id
@@ -417,6 +456,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         videoPath: String? = null,
         /** Ask for word timings so the video can be captioned. See MediaExtraction.kt. */
         wantWordTimings: Boolean = false,
+        /** Where this audio came from. One of [com.mehdiacho.yap.data.SessionSource]. */
+        source: String = com.mehdiacho.yap.data.SessionSource.RECORDING,
+        /** Display name of the app it was shared from, when it was shared. */
+        sourceApp: String? = null,
+        /** The link or hint that travelled with the share. */
+        sourceRef: String? = null,
     ) {
         // Live draft from the fed-stream recognizer (recordings only; empty for imports).
         val isOwnRecording = mimeType == "audio/wav"
@@ -432,6 +477,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Applied straight away so the note is filed correctly while it transcribes,
             // not only once the server answers.
             category = _pendingCategory.value ?: "Memo",
+            source = source,
+            sourceApp = sourceApp,
+            sourceRef = sourceRef,
         )
         try {
             repository.upsert(session)
