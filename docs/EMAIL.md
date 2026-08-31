@@ -1,77 +1,78 @@
 # help@ and dev@greenforrest.app
 
-Free inbound email on the domain, landing in Gmail, in labelled inboxes. No Google Workspace,
-no monthly fee.
+Free inbound email on the domain, forwarded to Gmail. No Google Workspace, no monthly fee.
 
-Note the spelling: **greenforrest**, two r's, matching the developer name Green Forrest and
-the Android package `app.greenforrest.yap`.
+Note the spelling: **greenforrest**, two r's — matching the Green Forrest developer name and the
+`app.greenforrest.yap` package. `greenforest.app` with one r is somebody else's domain.
 
-## What is true today
+## Status: live as of 2026-08-31
 
-The zone is already on Cloudflare — its authoritative nameservers are `jose.ns.cloudflare.com`
-and `dee.ns.cloudflare.com`. Nothing has to be migrated.
+Cloudflare Email Routing is enabled on the zone and both addresses forward. Set up over the API
+with Wrangler's own OAuth token, which carries `email_routing:write` — no Global API Key and no
+DNS scope needed.
 
-There are **no MX records and no TXT records**, so mail to anything `@greenforrest.app`
-currently bounces. Email Routing has not been switched on; that is the only thing missing.
+| | |
+| --- | --- |
+| Zone | `greenforrest.app` (`904728d053fe263a26fed17a2a5c237c`) |
+| Routing | `enabled: true`, `status: ready` |
+| Destination | `mehdiacho@gmail.com` — already verified, no confirmation click needed |
+| `help@greenforrest.app` | → forwards to Gmail (rule `328630fc…`) |
+| `dev@greenforrest.app` | → forwards to Gmail (rule `b212cba7…`) |
+| Catch-all | **off**, action `drop` |
 
-## Steps
+Cloudflare wrote the records it needs, and they are live in public DNS:
 
-Ten minutes, all of it in two dashboards.
+```
+MX   34 route1.mx.cloudflare.net
+MX   61 route2.mx.cloudflare.net
+MX   89 route3.mx.cloudflare.net
+TXT  v=spf1 include:_spf.mx.cloudflare.net ~all
+```
 
-**1. Enable Email Routing.**
-Cloudflare dashboard → `greenforrest.app` → **Email → Email Routing → Get started**. It offers
-to add the MX and SPF records it needs. Accept — that is what makes the domain able to receive
-mail at all, and it is why there are no MX records right now.
+Catch-all stays off deliberately. On a domain that ends up in a public Play listing it collects
+spam addressed to every name a scraper can invent, all of it landing in the same Gmail inbox as
+the real mail.
 
-**2. Verify the destination.**
-Add `mehdiacho@gmail.com` as a destination address. Cloudflare emails it a confirmation link.
-**Nothing forwards until that link is clicked** — this is the step that silently defeats people
-who assume the routes are live.
+## The one step left, and it is yours
 
-**3. Create the routes.**
-
-| Address | Action | Destination |
-| --- | --- | --- |
-| `help@greenforrest.app` | Send to an email | `mehdiacho@gmail.com` |
-| `dev@greenforrest.app` | Send to an email | `mehdiacho@gmail.com` |
-
-Leave **catch-all** off, or set it to Drop. A catch-all on a domain that appears in a public
-Play listing collects spam addressed to every name a scraper can invent, and all of it lands
-in the same Gmail inbox as the real mail.
-
-**4. Get the labelled-inbox behaviour in Gmail.**
-This is the part people assume needs Workspace. It does not. Cloudflare forwards the message
-with the original recipient intact, so Gmail can filter on it:
+**Gmail filters, for the labelled inboxes.** Cloudflare forwards each message with the original
+recipient intact, so Gmail can sort on it — this is the part people assume needs Workspace, and
+it does not.
 
 Gmail → Settings → Filters and Blocked Addresses → Create a new filter → **To:**
 `help@greenforrest.app` → Create filter → **Apply the label:** `help` (create it), and tick
 **Never send it to Spam**. Repeat for `dev@`.
 
-The "Never send it to Spam" tick is not optional in practice. Forwarded mail arrives with a
-mismatch between the envelope sender and the forwarding server, and Gmail's spam filter is
-suspicious of exactly that pattern.
+The spam tick is not optional in practice. Forwarded mail arrives with a mismatch between the
+envelope sender and the forwarding server, which is exactly the pattern Gmail's filter is
+suspicious of.
 
-**5. Send yourself a test** from an unrelated address to `help@greenforrest.app` before putting
-it anywhere public. MX propagation is quick but not instant.
+Send a message from an unrelated address to `help@greenforrest.app` to confirm before the
+address goes anywhere public.
 
 ## What this does not give you
 
-**Sending.** Email Routing is inbound only — Cloudflare will forward mail to you, and cannot
-send mail as you. Reply to a `help@` message from Gmail and it goes out as
-`mehdiacho@gmail.com`, which rather undoes the point of having a support address.
+**Sending.** Email Routing is inbound only. Reply to a `help@` message from Gmail and it goes out
+as `mehdiacho@gmail.com` — which rather undoes the point of a support address, because the person
+wrote to `help@greenforrest.app` and hears back from a stranger's Gmail.
 
-Making Gmail send as `help@greenforrest.app` needs an SMTP relay for Gmail's "Send mail as" to
-authenticate against. The free options are transactional-mail providers on their free tiers
-(Brevo allows a few hundred a day; Resend and MailerSend are comparable), configured once in
-Gmail → Settings → Accounts → Send mail as → Add another email address.
+Making Gmail send as the address needs an SMTP relay for "Send mail as" to authenticate against.
+Free tiers that work: Brevo (a few hundred a day), Resend, MailerSend. Configure once in Gmail →
+Settings → Accounts → Send mail as → Add another email address.
 
-Do that before the address goes on the Play listing. For a handful of tester emails, replies
-arriving from a Gmail address are survivable. On a published support address they are not —
-the person wrote to `help@greenforrest.app` and gets a reply from a stranger's Gmail.
+**Do this before the address appears on the Play listing.** For a handful of tester emails,
+replies from a Gmail address are survivable. On a published support address they are not.
 
-## Worth doing while you are in there
+Cloudflare Email *Sending* is a separate product and the Wrangler token has `email_sending:write`
+too, but it sends from Workers — it is not an SMTP relay Gmail can authenticate against, so it
+does not solve this.
 
-The zone is on Cloudflare and serving nothing. The admin console currently lives at
-`yap-mehdiacho.web.app`, which is a URL nobody can be told over the phone. Firebase Hosting
-takes a custom domain in a few minutes, and `admin.greenforrest.app` would also give the Play
-listing's privacy policy a permanent home that does not name the Firebase project.
+## Related
+
+- The apex still returns **525** (Cloudflare reaches the edge, origin TLS handshake fails). That
+  is unrelated to mail — MX routing does not touch the origin — and it is tracked as Finding 6 in
+  `X:\ai.tools\SECURITY-FINDINGS.md`. Diagnosing it needs DNS or zone-settings scope, which the
+  Wrangler token does not have.
+- The zone lives in the Cloudflare account covered by that same findings file. The compromise
+  there is contained and resolved; the outstanding item is rolling the Global API Key, due
+  2026-09-05.
