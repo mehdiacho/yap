@@ -10,6 +10,7 @@
     "rules": "firestore.rules"
   },
   "hosting": {
+    "site": "yap-mehdiacho",
     "public": "admin/dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "predeploy": ["npm --prefix admin ci", "npm --prefix admin run build"],
