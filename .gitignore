@@ -23,3 +23,7 @@ firebase-debug.log
 # Play upload key — NEVER commit (back up privately)
 upload-keystore.jks
 keystore.properties
+
+# Admin dashboard (Vite build output and deps)
+admin/node_modules/
+admin/dist/

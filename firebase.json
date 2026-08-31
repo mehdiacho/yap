@@ -10,8 +10,10 @@
     "rules": "firestore.rules"
   },
   "hosting": {
-    "public": "admin",
-    "ignore": ["firebase.json", "**/.*"]
+    "public": "admin/dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "predeploy": ["npm --prefix admin ci", "npm --prefix admin run build"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }]
   },
   "storage": {
     "rules": "storage.rules"
