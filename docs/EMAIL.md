@@ -5,7 +5,15 @@ Free inbound email on the domain, forwarded to Gmail. No Google Workspace, no mo
 Note the spelling: **greenforrest**, two r's — matching the Green Forrest developer name and the
 `app.greenforrest.yap` package. `greenforest.app` with one r is somebody else's domain.
 
-## Status: live as of 2026-08-31
+## Status: complete as of 2026-09-01
+
+```
+inbound   sender → route1/2/3.mx.cloudflare.net → Gmail → help/dev labels
+outbound  Gmail → smtp.resend.com (eu-west-1) → DKIM-signed, SPF via send.greenforrest.app
+```
+
+The apex carries Cloudflare's records and `send` carries Resend's, so neither service can break the
+other.
 
 Cloudflare Email Routing is enabled on the zone and both addresses forward. Set up over the API
 with Wrangler's own OAuth token, which carries `email_routing:write` — no Global API Key and no
@@ -52,9 +60,16 @@ address goes anywhere public.
 
 ## Sending as help@ — Resend
 
-Registered in Resend 2026-09-01 (team Green Forrest), region **eu-west-1**, domain id
-`66818463-749b-4210-9c61-b2c9040934ea`. DNS records added to Cloudflare the same day; verification
-is asynchronous on Resend's side.
+**Verified and sending as of 2026-09-01.** Resend team Green Forrest, region **eu-west-1**, domain
+id `66818463-749b-4210-9c61-b2c9040934ea`. All three records report `verified`.
+
+Both addresses are configured in Gmail under Send mail as — `smtp.resend.com`, port 587, TLS, not
+treated as aliases — with **"Reply from the same address the message was sent to"** selected, so a
+reply to `help@` leaves as `help@` rather than as the Gmail account.
+
+That Gmail accepted them is the end-to-end proof: Gmail only adds an address once it has relayed a
+confirmation code through the SMTP server you gave it, so each address has already made a full round
+trip — out through Resend, back in through Cloudflare Email Routing, into the filters.
 
 Deliberately **sending only, receiving disabled**. Inbound stays with Cloudflare Email Routing,
 which already works; letting Resend take receiving too would put two services in a fight over the
@@ -89,13 +104,13 @@ Added with the Cloudflare Global API Key, which authenticates as `X-Auth-Email` 
 wrong header. The `cfk_` prefix is part of the value and must not be stripped. Wrangler's OAuth
 token cannot do this: it has no `dns_records` scope.
 
-### Then: Gmail "Send mail as"
+### Gmail "Send mail as" — done
 
-Create an **API key in the Resend dashboard** — not via a tool, so the secret never lands in a chat
-transcript. That is not a hypothetical worry here: the Cloudflare Global API Key is already sitting
-in one, and it is the reason that key is being rolled.
+The API key was created in the Resend dashboard rather than through a tool, so the secret never
+entered a chat transcript. Not a hypothetical concern: the Cloudflare Global API Key is already in
+two, which is why it is being rolled on 2026-09-05.
 
-Gmail → Settings → Accounts and Import → Send mail as → Add another email address:
+Settings → Accounts and Import → Send mail as, for both `help@` and `dev@`:
 
 | | |
 | --- | --- |
@@ -106,12 +121,12 @@ Gmail → Settings → Accounts and Import → Send mail as → Add another emai
 | Username | `resend` |
 | Password | the Resend API key |
 
-Gmail sends a confirmation code to `help@greenforrest.app` — which Cloudflare forwards straight to
-the same inbox, so the loop closes without any extra setup.
+Gmail sends its confirmation code to the address itself, which Cloudflare forwards straight back to
+the same inbox — so the loop closed without any extra setup.
 
-Worth adding once sending works: a **DMARC** record at `_dmarc`, starting at
-`v=DMARC1; p=none; rua=mailto:dev@greenforrest.app`. `p=none` observes without rejecting anything,
-which is the right first move on a domain that has never sent mail.
+**Set "When replying to a message" to "Reply from the same address the message was sent to."**
+Without it every reply goes out as the default Gmail account, which defeats the point of the whole
+exercise.
 
 ## The apex 525, explained
 
