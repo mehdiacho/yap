@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { call } from "../firebase.js";
 import { useApi } from "../useApi.js";
 import { Err, Loading, Empty, Pill, when, ago } from "../ui.jsx";
@@ -18,6 +18,40 @@ export default function Users() {
   const [searchErr, setSearchErr] = useState(null);
   const [searching, setSearching] = useState(false);
   const { data, loading, error, reload } = useApi("adminListUsers");
+
+  // Pages after the first, kept here rather than refetched from the top. listUsers pages by
+  // an opaque token and cannot jump to an offset, so the only way to reach account 201 is to
+  // have walked there — which means holding what has already been walked.
+  const [extra, setExtra] = useState([]);
+  const [next, setNext] = useState(undefined); // undefined = "use the first page's token"
+  const [more, setMore] = useState(false);
+  const [moreErr, setMoreErr] = useState(null);
+
+  // A reload starts the walk again, so anything accumulated from the old walk is stale.
+  useEffect(() => {
+    setExtra([]);
+    setNext(undefined);
+    setMoreErr(null);
+  }, [data]);
+
+  const users = data ? [...data.users, ...extra] : [];
+  const token = next === undefined ? data?.pageToken : next;
+
+  async function loadMore() {
+    if (!token) return;
+    setMore(true);
+    setMoreErr(null);
+    try {
+      const res = await call("adminListUsers", { pageToken: token });
+      setExtra((e) => [...e, ...res.users]);
+      // null, not undefined — undefined would fall back to the first page's token and
+      // fetch page two forever.
+      setNext(res.pageToken ?? null);
+    } catch (e) {
+      setMoreErr(e.message);
+    }
+    setMore(false);
+  }
 
   async function search(e) {
     e.preventDefault();
@@ -64,8 +98,8 @@ export default function Users() {
       <h2>All accounts</h2>
       <Err>{error}</Err>
       {loading && <Loading what="Loading accounts" />}
-      {data && data.users.length === 0 && <Empty>No accounts yet.</Empty>}
-      {data && data.users.length > 0 && (
+      {data && users.length === 0 && <Empty>No accounts yet.</Empty>}
+      {data && users.length > 0 && (
         <div className="card" style={{ padding: "16px 4px" }}>
           <table>
             <thead>
@@ -77,7 +111,7 @@ export default function Users() {
               </tr>
             </thead>
             <tbody>
-              {data.users.map((u) => (
+              {users.map((u) => (
                 <tr key={u.uid}>
                   <td>
                     <div>
@@ -96,11 +130,17 @@ export default function Users() {
               ))}
             </tbody>
           </table>
-          {data.pageToken && (
-            <div className="empty" style={{ paddingLeft: 12 }}>
-              Showing the first {data.users.length}. Use the lookup above for anyone older.
-            </div>
-          )}
+          <div className="row" style={{ padding: "10px 12px 2px" }}>
+            <span className="mono" style={{ color: "var(--dim)" }}>
+              {users.length} shown{token ? "" : " · that's everyone"}
+            </span>
+            {token && (
+              <button className="small" onClick={loadMore} disabled={more}>
+                {more ? "Loading…" : "Load more"}
+              </button>
+            )}
+          </div>
+          <Err>{moreErr}</Err>
         </div>
       )}
     </>

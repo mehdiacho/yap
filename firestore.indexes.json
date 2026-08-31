@@ -1,0 +1,29 @@
+{
+  "//": "Deployed with `firebase deploy --only firestore:indexes`. Firestore indexes every field automatically, but only at COLLECTION scope and only one field at a time — so any query that filters on one field and sorts on another, or that runs across a collection GROUP, needs declaring here or it fails outright at call time rather than degrading.",
+
+  "indexes": [
+    {
+      "//": "adminListFeedback filtering by status. The dashboard opens on the 'new' filter, so without this the feedback inbox is empty on arrival — the one screen that has to work while testers are sending things in.",
+      "collectionGroup": "feedback",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+
+  "fieldOverrides": [
+    {
+      "//": "adminRecentActivity reads sessions across every account, which is a collection GROUP query — a scope the automatic index does not cover.",
+      "//1": "The two COLLECTION entries are load-bearing and must not be dropped. A fieldOverride REPLACES the automatic single-field indexes for this field rather than adding to them, and the app's own library listing sorts users/{uid}/sessions by createdAt. Declaring only the collection-group index here would fix the dashboard and break every user's notes list.",
+      "collectionGroup": "sessions",
+      "fieldPath": "createdAt",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
+}
