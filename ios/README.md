@@ -67,24 +67,64 @@ allowance; it just consumes it faster than a public one, which is free outright.
 ## Getting it onto a phone
 
 An `.ipa` is a zip with the `.app` inside a folder called `Payload`, which is why one can be
-built without ever being signed — and re-signed later by something else.
+built without ever being signed — and re-signed later by something else. The something else,
+with a free Apple ID, is a sideloader: it takes the unsigned bundle, signs it with a
+development certificate your Apple ID is allowed to issue, and installs it.
 
-With a **free Apple ID** (no $99 membership):
+### What you need
 
-1. Install [SideStore](https://sidestore.io) or [AltStore](https://altstore.io) on the iPhone,
-   following their own setup — both need a helper running on a computer, or SideStore's
-   on-device pairing, to refresh.
-2. Download the `Yap-unsigned-ipa` artifact from the CI run.
-3. Open it in SideStore/AltStore and let it re-sign with the Apple ID.
+- The **`Yap-unsigned-ipa` artifact** from the CI run, downloaded and unzipped. GitHub wraps
+  artifacts in a zip, so what you download is `Yap-unsigned-ipa.zip` and the `.ipa` is inside
+  it. Artifacts expire after 30 days; re-run the workflow to get a fresh one.
+- An **Apple ID**. The free one is fine — that is the whole point of this exercise.
+- The iPhone and the Windows machine on the **same Wi-Fi**, and a Lightning/USB-C cable for
+  the first pairing.
 
-The limits that come with a free Apple ID are the answer to the original question, and they
-are not negotiable:
+### The route that works on Windows: AltStore Classic
 
-- **Three sideloaded apps** on the device at once.
-- **Seven-day expiry.** The app stops launching after a week and has to be refreshed. Data is
-  not lost when it expires, and refreshing is a background job the sideloader can do on Wi-Fi —
-  but if the phone goes a week without it, the app is dead until it is refreshed.
+AltStore comes in two versions and picking the wrong one wastes an evening. **AltStore PAL**
+is the EU-only marketplace app and is not this. **AltStore Classic** is the sideloader, and
+it is what these steps mean.
+
+1. **Install Apple's iTunes and iCloud — from apple.com, not the Microsoft Store.** This is
+   the step everything else depends on and the one that most often goes wrong. AltServer
+   talks to the phone through the pairing and networking components those installers ship,
+   and the Microsoft Store editions are sandboxed such that AltServer cannot reach them. If
+   you already have the Store versions, uninstall them first.
+2. **Install AltServer** on the PC from altstore.io and let it run. It lives in the system
+   tray, not as a window.
+3. **Plug the phone in and trust the computer** when iOS asks.
+4. **Tray icon → Install AltStore → [your iPhone]**, and sign in with the Apple ID. This puts
+   the AltStore app itself on the phone; it is the thing that will install Yap.
+5. On the phone: **Settings → General → VPN & Device Management**, tap your Apple ID under
+   Developer App, and **Trust** it. iOS will not launch a sideloaded app until you do.
+6. **iOS 16 and later: Settings → Privacy & Security → Developer Mode → on**, then restart
+   the phone. The toggle does not appear until a development-signed app has been installed
+   once, which is why this comes after step 4 rather than before.
+7. Open **AltStore on the phone → My Apps → + → pick the `.ipa`**. Get the file onto the
+   phone however is easiest — AirDrop from a Mac, iCloud Drive, or just email it to yourself
+   and save it to Files.
+
+### Keeping it alive
+
+A free Apple ID signs for **seven days**. After that the app stops launching until it is
+re-signed. AltStore refreshes automatically when the phone is on the same Wi-Fi as the
+running AltServer, so in practice this is invisible — as long as the PC is on and AltServer
+is running at least once a week. Data is not lost when a build expires; only launching is
+blocked, and a refresh restores it.
+
+The other free-Apple-ID limits are not negotiable either:
+
+- **Three sideloaded apps** on the device at once. AltStore itself is one of them.
 - **No push notifications, no CloudKit, no App Groups** — none of which this build uses.
+
+### If AltStore will not cooperate
+
+**SideStore** is the alternative and refreshes on-device without a PC on the network, which
+is genuinely better once it is running. It is harder to set up now than it used to be: it
+needs a **pairing file** generated on a computer (iDevicePair or Jitterbug), and it needs
+**StosVPN**, which has been removed from the App Store — existing installs still work, but a
+fresh one cannot get it from the Store. Try AltStore first.
 
 The EU third-party app store ruling does not help here. It applies to iPhones in the EU, and it
 still requires the paid Developer Programme membership to distribute through one — it opens up
