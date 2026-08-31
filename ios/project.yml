@@ -1,0 +1,78 @@
+# XcodeGen project definition.
+#
+# The .xcodeproj is GENERATED, never committed. A pbxproj is a 2,000-line file of opaque
+# 24-hex-digit object ids that no one can review and every merge conflicts on; this file is
+# the same information in a form a person can read and a CI runner can rebuild from scratch.
+#
+#   brew install xcodegen && cd ios && xcodegen generate
+#
+# Deployment target is iOS 17: the Firebase SDK requires 15+, and 17 is what the test device
+# (an iPhone 15 Pro) shipped with, so nothing here is held back for hardware we do not have.
+
+name: Yap
+options:
+  bundleIdPrefix: app.greenforrest
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    minVersion: "11.0.0"
+    maxVersion: "13.0.0"
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    minVersion: "7.1.0"
+    maxVersion: "9.0.0"
+
+targets:
+  Yap:
+    type: application
+    platform: iOS
+    sources:
+      - path: Yap
+    info:
+      path: Yap/Info.plist
+      properties:
+        CFBundleDisplayName: Yap
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        # Both are required or the OS kills the app the instant it asks for the mic.
+        NSMicrophoneUsageDescription: Yap records your voice notes.
+        NSSpeechRecognitionUsageDescription: Yap sends recordings for transcription.
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              # Google Sign-In hands control to Safari and needs a scheme to come back
+              # through. This is the REVERSED_CLIENT_ID from GoogleService-Info.plist —
+              # if the two ever disagree, sign-in dead-ends in the browser.
+              - com.googleusercontent.apps.179392577570-21klmd0b5plh8fkjhhpcvrghs69599ot
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.greenforrest.yap
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO
+        # Signing is deliberately absent. CI builds unsigned and AltStore/SideStore re-signs
+        # with a personal Apple ID at install time — see ios/README.md. Setting a team here
+        # would make the CI build fail on a machine that has no such team.
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+    dependencies:
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseStorage
+      - package: Firebase
+        product: FirebaseFunctions
+      - package: GoogleSignIn
+        product: GoogleSignIn

@@ -1,0 +1,95 @@
+# Build the iOS app on a macOS runner and publish an UNSIGNED .ipa as an artifact.
+#
+# Why unsigned: signing an iOS app needs an Apple Developer team, and this project does not
+# have one. The .ipa this produces is re-signed on the way onto a phone by AltStore/SideStore
+# using a free personal Apple ID — see ios/README.md for the install steps and the 7-day
+# expiry that comes with a free account.
+#
+# This workflow is also the ONLY compiler this project has for the Swift code: it is written
+# on Windows, where no Swift toolchain or iOS SDK exists. A red run here is the first and only
+# signal that something does not build.
+#
+# Cost note: macOS minutes bill at 10x on GitHub Actions, so a ~4-minute build spends ~40
+# minutes of the 2,000/month Free allowance. That is roughly 40 builds a month, which is why
+# this runs only when iOS files actually change — not on every push.
+name: Build iOS (unsigned)
+
+on:
+  push:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The .xcodeproj is generated, not committed — project.yml is the source of truth.
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      # Firebase resolves to a large dependency graph; without this every run re-downloads and
+      # re-compiles it, which is most of the (10x-billed) macOS minutes this workflow spends.
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ios/build/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('ios/project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      # -sdk iphoneos builds for a real device (the point of the exercise); the CODE_SIGNING_*
+      # flags are what let that happen on a runner with no team, keystore, or provisioning
+      # profile. They duplicate the settings in project.yml deliberately — xcodebuild wins over
+      # the project file, so stating them here means a project.yml edit cannot silently break CI.
+      - name: Build
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Yap.xcodeproj \
+            -scheme Yap \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      # An .ipa is a zip with the .app inside a folder called Payload. Nothing more — which is
+      # why one can be built without ever signing it, and re-signed later by a sideloader.
+      - name: Package unsigned .ipa
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          app=build/Build/Products/Release-iphoneos/Yap.app
+          test -d "$app" || { echo "no Yap.app at $app"; exit 1; }
+          mkdir -p Payload
+          cp -R "$app" Payload/
+          zip -qry Yap-unsigned.ipa Payload
+          ls -lh Yap-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Yap-unsigned-ipa
+          path: ios/Yap-unsigned.ipa
+          # Long enough to still be there when someone gets to a machine that can sideload,
+          # short enough not to hoard storage on a repo that builds this often.
+          retention-days: 30
