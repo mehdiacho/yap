@@ -46,7 +46,11 @@ object PersonaClient {
      *   explicit refresh control — never automatically, or the cache buys nothing.
      */
     suspend fun fetch(insights: Insights, refresh: Boolean = false): Persona {
-        TranscriptionClient.ensureSignedIn()
+        // A persona is written from your notes. With no account there are no notes, and the
+        // same message the empty-response path uses is the honest one.
+        if (TranscriptionClient.signedInUid() == null) {
+            throw IllegalStateException("Record something first and I'll have a summary for you.")
+        }
         val payload = hashMapOf<String, Any>(
             "summary" to UsageInsights.personaSummary(insights),
             "refresh" to refresh,

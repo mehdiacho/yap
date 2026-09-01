@@ -82,8 +82,24 @@ object ProfileClient {
         prefs?.edit()?.clear()?.apply()
     }
 
+    /**
+     * Reading the profile must not mint one. `getProfile` allocates a Green Forrest ID on
+     * first call, so fetching for someone with no account both creates the account and burns
+     * an identity — for a person who has not yet recorded anything. They get both the moment
+     * they do.
+     */
     suspend fun fetch(): Profile {
-        TranscriptionClient.ensureSignedIn()
+        if (TranscriptionClient.signedInUid() == null) {
+            return Profile(
+                greenForrestId = "",
+                displayName = null,
+                photoUrl = null,
+                email = null,
+                emailVerified = false,
+                isGuest = true,
+                memberSince = null,
+            )
+        }
         val res = awaitTask(functions.getHttpsCallable("getProfile").call())
         @Suppress("UNCHECKED_CAST")
         val m = res.getData() as? Map<String, Any?> ?: emptyMap()

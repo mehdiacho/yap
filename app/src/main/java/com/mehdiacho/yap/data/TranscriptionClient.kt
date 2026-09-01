@@ -47,9 +47,25 @@ object TranscriptionClient {
     private val functions by lazy { FirebaseFunctions.getInstance("africa-south1") }
     private val auth by lazy { FirebaseAuth.getInstance() }
 
+    /**
+     * Signs in as a guest if nobody is signed in yet, creating the account.
+     *
+     * Call this only where the user is committing something of their own — a recording, a
+     * profile edit, a redeemed code, a purchase, a feedback report. Anything that merely
+     * *reads* must use [signedInUid] instead and cope with null, because an account created
+     * for a read is an account that exists for someone who never asked for one.
+     *
+     * That is not hypothetical. Every release triggers a Play pre-launch report, which
+     * installs the app on a rack of devices and taps through it; when browsing created
+     * accounts, each release minted a fresh batch, and 237 of 271 accounts were robots that
+     * had never recorded a thing.
+     */
     suspend fun ensureSignedIn() {
         if (auth.currentUser == null) awaitTask(auth.signInAnonymously())
     }
+
+    /** The signed-in uid, or null if nobody is. Never creates an account. */
+    fun signedInUid(): String? = auth.currentUser?.uid
 
     /** Upload a recording to the user's Cloud Storage area; returns the storage path. */
     suspend fun uploadAudio(file: File): String {

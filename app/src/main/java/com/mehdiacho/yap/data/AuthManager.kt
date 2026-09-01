@@ -75,7 +75,9 @@ object AuthManager {
         // wears the previous account's name and picture until a fetch corrects it.
         ProfileClient.clearCache()
         PersonaClient.clearCache()
-        auth.signOut() // next ensureSignedIn() creates a fresh guest
+        // Signing out leaves nobody signed in, and it stays that way until the user records
+        // or otherwise commits something — browsing an empty library does not mint a guest.
+        auth.signOut()
     }
 
     /** Sends Firebase's password-reset email. Throws with a readable message on failure. */

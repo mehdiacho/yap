@@ -63,6 +63,11 @@ object FeedbackClient {
         voice: File? = null,
         voiceDurationMs: Long = 0L,
     ) {
+        // Sending a report is the user committing something of their own, so this is one of
+        // the places allowed to create the guest account. Someone who installs the app,
+        // finds it broken before recording anything, and writes in about it is exactly the
+        // report worth having — it must not fail because they have no account yet.
+        TranscriptionClient.ensureSignedIn()
         val voicePath = voice?.takeIf { it.exists() && it.length() > 0 }?.let { uploadVoice(it) }
         val payload = hashMapOf<String, Any>(
             "topic" to topicId,

@@ -21,14 +21,31 @@ import kotlin.coroutines.resumeWithException
 class FirestoreSessionRepository {
     private val db get() = FirebaseFirestore.getInstance()
 
+    /** For writes: creates the guest account if there isn't one, because a write needs an owner. */
     private suspend fun col() = run {
         TranscriptionClient.ensureSignedIn()
         val uid = FirebaseAuth.getInstance().currentUser!!.uid
         db.collection("users").document(uid).collection("sessions")
     }
 
+    /**
+     * For reads: null when nobody is signed in. Opening the app to an empty library must not
+     * mint an account — that is the single busiest path in the app, and the one a Play
+     * pre-launch crawler walks on every release.
+     */
+    private fun colOrNull() = TranscriptionClient.signedInUid()?.let {
+        db.collection("users").document(it).collection("sessions")
+    }
+
     private fun rawSessions(): Flow<List<Session>> = callbackFlow {
-        val collection = col()
+        val collection = colOrNull()
+        if (collection == null) {
+            // No account yet: an empty library, which is the truth. The first recording
+            // creates the account and this flow is rebuilt with it.
+            trySend(emptyList())
+            awaitClose { }
+            return@callbackFlow
+        }
         val reg = collection.orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snap, err ->
                 if (err != null) { close(err); return@addSnapshotListener }
@@ -56,7 +73,13 @@ class FirestoreSessionRepository {
     }
 
     fun sessionById(id: String): Flow<Session?> = callbackFlow {
-        val collection = col()
+        val collection = colOrNull()
+        if (collection == null) {
+            // Signed out, so no note by this id belongs to anyone. Null, not an account.
+            trySend(null)
+            awaitClose { }
+            return@callbackFlow
+        }
         val reg = collection.document(id).addSnapshotListener { snap, err ->
             if (err != null) { close(err); return@addSnapshotListener }
             trySend(snap?.toSession())

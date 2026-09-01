@@ -79,8 +79,25 @@ object AccountClient {
             ?.apply()
     }
 
+    /**
+     * A guest who has not recorded yet has no account and therefore no plan to look up.
+     * The free tier's own defaults describe them exactly, so answer from those rather than
+     * creating an account to be told what we already know.
+     */
+    /** What a guest with no account looks like: the free tier, nothing used. */
+    private val SIGNED_OUT = AccountStatus(
+        plan = "free",
+        byokUnlocked = false,
+        byokActive = false,
+        byokKeyHint = null,
+        expiresAt = null,
+        cycle = "",
+        secondsUsed = 0L,
+        secondsCap = 1800L,
+    )
+
     suspend fun status(): AccountStatus {
-        TranscriptionClient.ensureSignedIn()
+        if (TranscriptionClient.signedInUid() == null) return SIGNED_OUT
         val res = awaitTask(functions.getHttpsCallable("getAccountStatus").call())
         @Suppress("UNCHECKED_CAST")
         val m = res.getData() as? Map<String, Any?> ?: emptyMap()
@@ -98,7 +115,9 @@ object AccountClient {
 
     /** Current BYOK state for the key screen. */
     suspend fun byokStatus(): ByokStatus {
-        TranscriptionClient.ensureSignedIn()
+        if (TranscriptionClient.signedInUid() == null) {
+            return ByokStatus(unlocked = false, active = false, provider = null, keyHint = null, updatedAt = null)
+        }
         val res = awaitTask(functions.getHttpsCallable("getByokStatus").call())
         @Suppress("UNCHECKED_CAST")
         val m = res.getData() as? Map<String, Any?> ?: emptyMap()
@@ -147,7 +166,9 @@ object AccountClient {
 
     /** The caller's referral code (server-created on first call) + progress toward BYOK. */
     suspend fun referralInfo(): ReferralInfo {
-        TranscriptionClient.ensureSignedIn()
+        // Minting a referral code for someone with no account would create the account as a
+        // side effect of them merely looking at the screen. They get a code once they exist.
+        if (TranscriptionClient.signedInUid() == null) return ReferralInfo(code = "", qualifiedCount = 0, needed = 5)
         val res = awaitTask(functions.getHttpsCallable("getReferralInfo").call())
         @Suppress("UNCHECKED_CAST")
         val m = res.getData() as? Map<String, Any?> ?: emptyMap()

@@ -21,7 +21,9 @@ object CostMeterClient {
     object NotPermitted : Exception("Not an admin account.")
 
     suspend fun fetch(cycle: String? = null): CostMeter {
-        TranscriptionClient.ensureSignedIn()
+        // No account is never an admin account, and this is the answer the screen already
+        // knows how to hide behind.
+        if (TranscriptionClient.signedInUid() == null) throw NotPermitted
         val payload = hashMapOf<String, Any>()
         if (cycle != null) payload["cycle"] = cycle
         val res = try {

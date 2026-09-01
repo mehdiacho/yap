@@ -278,7 +278,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
      *
      * Skipped for anonymous guests on purpose: the fetch mints a Green Forrest ID, and doing
      * that for every fresh install would fill the index with identities for people who never
-     * signed up. A guest who opens the profile screen gets one there, on demand.
+     * signed up. A guest gets one the moment they record, which is when the account itself
+     * is created — see [com.mehdiacho.yap.data.TranscriptionClient.ensureSignedIn].
      */
     private fun warmProfileCache() {
         val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
