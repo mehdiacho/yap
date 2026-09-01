@@ -3,6 +3,7 @@ package com.mehdiacho.yap.data
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.channels.awaitClose
@@ -28,30 +29,43 @@ class FirestoreSessionRepository {
         db.collection("users").document(uid).collection("sessions")
     }
 
-    /**
-     * For reads: null when nobody is signed in. Opening the app to an empty library must not
-     * mint an account — that is the single busiest path in the app, and the one a Play
-     * pre-launch crawler walks on every release.
-     */
-    private fun colOrNull() = TranscriptionClient.signedInUid()?.let {
-        db.collection("users").document(it).collection("sessions")
-    }
+    /** For reads: takes the uid rather than fetching one, so a read can never mint an account. */
+    private fun sessionsOf(uid: String) =
+        db.collection("users").document(uid).collection("sessions")
 
+    /**
+     * Follows the signed-in account rather than sampling it once.
+     *
+     * On a fresh install nobody is signed in — the library is empty and must not mint an
+     * account to prove it. But the account arrives moments later, the instant the user
+     * records, and a flow that only read the uid at subscribe time would sit on that empty
+     * list forever: the first note would land in Firestore and never appear on screen until
+     * the app was restarted. Listening to auth state means the query attaches the moment
+     * there is a user to attach it for.
+     */
     private fun rawSessions(): Flow<List<Session>> = callbackFlow {
-        val collection = colOrNull()
-        if (collection == null) {
-            // No account yet: an empty library, which is the truth. The first recording
-            // creates the account and this flow is rebuilt with it.
-            trySend(emptyList())
-            awaitClose { }
-            return@callbackFlow
-        }
-        val reg = collection.orderBy("createdAt", Query.Direction.DESCENDING)
-            .addSnapshotListener { snap, err ->
-                if (err != null) { close(err); return@addSnapshotListener }
-                if (snap != null) trySend(snap.documents.mapNotNull { it.toSession() })
+        var reg: ListenerRegistration? = null
+        val auth = FirebaseAuth.getInstance()
+        val onAuth = FirebaseAuth.AuthStateListener { a ->
+            reg?.remove()
+            val uid = a.currentUser?.uid
+            reg = if (uid == null) {
+                trySend(emptyList())
+                null
+            } else {
+                sessionsOf(uid).orderBy("createdAt", Query.Direction.DESCENDING)
+                    .addSnapshotListener { snap, err ->
+                        if (err != null) { close(err); return@addSnapshotListener }
+                        if (snap != null) trySend(snap.documents.mapNotNull { it.toSession() })
+                    }
             }
-        awaitClose { reg.remove() }
+        }
+        // Fires immediately with the current state, so this covers the first emission too.
+        auth.addAuthStateListener(onAuth)
+        awaitClose {
+            auth.removeAuthStateListener(onAuth)
+            reg?.remove()
+        }
     }
 
     /** Active notes (not in trash). */
@@ -72,19 +86,28 @@ class FirestoreSessionRepository {
         awaitTask(col().document(id).update("trashedAt", null))
     }
 
+    /** Follows auth state for the same reason [rawSessions] does. */
     fun sessionById(id: String): Flow<Session?> = callbackFlow {
-        val collection = colOrNull()
-        if (collection == null) {
-            // Signed out, so no note by this id belongs to anyone. Null, not an account.
-            trySend(null)
-            awaitClose { }
-            return@callbackFlow
+        var reg: ListenerRegistration? = null
+        val auth = FirebaseAuth.getInstance()
+        val onAuth = FirebaseAuth.AuthStateListener { a ->
+            reg?.remove()
+            val uid = a.currentUser?.uid
+            reg = if (uid == null) {
+                trySend(null)
+                null
+            } else {
+                sessionsOf(uid).document(id).addSnapshotListener { snap, err ->
+                    if (err != null) { close(err); return@addSnapshotListener }
+                    trySend(snap?.toSession())
+                }
+            }
         }
-        val reg = collection.document(id).addSnapshotListener { snap, err ->
-            if (err != null) { close(err); return@addSnapshotListener }
-            trySend(snap?.toSession())
+        auth.addAuthStateListener(onAuth)
+        awaitClose {
+            auth.removeAuthStateListener(onAuth)
+            reg?.remove()
         }
-        awaitClose { reg.remove() }
     }
 
     suspend fun upsert(session: Session) {
