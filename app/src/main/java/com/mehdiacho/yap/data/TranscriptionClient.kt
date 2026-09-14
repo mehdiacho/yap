@@ -8,6 +8,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -60,8 +62,18 @@ object TranscriptionClient {
      * accounts, each release minted a fresh batch, and 237 of 271 accounts were robots that
      * had never recorded a thing.
      */
+    private val signInLock = Mutex()
+
     suspend fun ensureSignedIn() {
-        if (auth.currentUser == null) awaitTask(auth.signInAnonymously())
+        if (auth.currentUser != null) return
+        // Check, sign in, re-check — under a lock, because the unguarded version minted an
+        // account per caller. A cold launch fires several of these at once (library, profile,
+        // billing), they all saw a null user, and each got its own anonymous account: the
+        // auth list shows guest accounts created in threes at the same millisecond, 262 of
+        // them by 2026-09-08 for a fraction of that many launches.
+        signInLock.withLock {
+            if (auth.currentUser == null) awaitTask(auth.signInAnonymously())
+        }
     }
 
     /** The signed-in uid, or null if nobody is. Never creates an account. */

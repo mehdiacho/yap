@@ -2,9 +2,15 @@ package com.mehdiacho.yap.data
 
 import android.content.Context
 import androidx.credentials.CredentialManager
+import androidx.credentials.CredentialOption
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetCredentialResponse
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.gms.tasks.Task
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.EmailAuthProvider
@@ -41,22 +47,71 @@ object AuthManager {
         awaitClose { auth.removeAuthStateListener(listener) }
     }
 
-    /** Google sign-in via Credential Manager. Call with an Activity context. */
+    /** The user backed out of the Google sheet. Not a failure — nothing to report. */
+    class SignInCancelled : Exception("cancelled")
+
+    /**
+     * Google sign-in via Credential Manager. Call with an Activity context.
+     *
+     * Two passes, because one is not enough. The first asks for a Google ID token from the
+     * credentials the device already holds: one tap, no picker, and the right experience for
+     * almost everyone. It fails with [NoCredentialException] when the device has nothing to
+     * hand over — and "nothing to hand over" is not the same as "no Google account here".
+     * Google Identity also reports it after the user dismisses the sheet (there is a
+     * ~24-hour cool-down before it will offer again), while Play services is updating, and
+     * on devices where the accounts present are filtered out.
+     *
+     * Answering that with a message was a dead end, and a tester hit exactly that on
+     * 2026-09-08: "Continue with Google is unavailable, but I confirmed with other apps work
+     * with that." So the second pass runs the explicit Sign in with Google flow, which shows
+     * the account picker, offers to add an account, and is not subject to the same
+     * filtering or cool-down. Only if that comes back empty too is there really nothing to
+     * sign in with, and only then does the user see an error.
+     */
     suspend fun signInWithGoogle(activityContext: Context): SignInResult {
         val cm = CredentialManager.create(activityContext)
-        val option = GetGoogleIdOption.Builder()
-            .setServerClientId(activityContext.getString(R.string.default_web_client_id))
-            .setFilterByAuthorizedAccounts(false)
-            .build()
-        val request = GetCredentialRequest.Builder().addCredentialOption(option).build()
+        val serverClientId = activityContext.getString(R.string.default_web_client_id)
+
+        suspend fun ask(option: CredentialOption): GetCredentialResponse =
+            cm.getCredential(
+                activityContext,
+                GetCredentialRequest.Builder().addCredentialOption(option).build(),
+            )
+
         val result = try {
-            cm.getCredential(activityContext, request)
-        } catch (e: androidx.credentials.exceptions.NoCredentialException) {
-            // Typically Play services still fetching its credentials module (fresh installs)
-            // or refreshing its verification cache — config-correct devices recover on retry.
-            throw Exception("Google sign-in isn't ready on this device yet. Wait a minute and try again, or use email.")
+            ask(
+                GetGoogleIdOption.Builder()
+                    .setServerClientId(serverClientId)
+                    .setFilterByAuthorizedAccounts(false)
+                    .build()
+            )
+        } catch (cancelled: GetCredentialCancellationException) {
+            throw SignInCancelled()
+        } catch (first: GetCredentialException) {
+            try {
+                ask(GetSignInWithGoogleOption.Builder(serverClientId).build())
+            } catch (cancelled: GetCredentialCancellationException) {
+                throw SignInCancelled()
+            } catch (none: NoCredentialException) {
+                throw Exception(
+                    "No Google account is available on this device. Add one in Settings → " +
+                        "Passwords & accounts, or sign in with an email address instead."
+                )
+            } catch (second: GetCredentialException) {
+                // Both flows refused. Name the type: it is the one thing that makes a bug
+                // report about this actionable instead of "it says unavailable".
+                throw Exception(
+                    "Google sign-in couldn't start on this device (${second.type}). " +
+                        "Try again in a minute, or sign in with an email address."
+                )
+            }
         }
-        val idToken = GoogleIdTokenCredential.createFrom(result.credential.data).idToken
+
+        val credential = result.credential
+        if (credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+            throw Exception("Google returned a credential Yap can't use. Try email sign-in.")
+        }
+        val idToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
         return linkOrSignIn(GoogleAuthProvider.getCredential(idToken, null))
     }
 

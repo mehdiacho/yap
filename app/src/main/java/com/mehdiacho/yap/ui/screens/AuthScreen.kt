@@ -42,7 +42,9 @@ fun AuthScreen(onBack: () -> Unit) {
     fun run(block: suspend () -> Unit) {
         scope.launch {
             busy = true; error = null
-            try { block(); onBack() } catch (e: Exception) {
+            try { block(); onBack() } catch (e: AuthManager.SignInCancelled) {
+                // Backed out of the Google sheet. Saying "sign-in failed" would be a lie.
+            } catch (e: Exception) {
                 error = e.message ?: "Sign-in failed"
             } finally { busy = false }
         }

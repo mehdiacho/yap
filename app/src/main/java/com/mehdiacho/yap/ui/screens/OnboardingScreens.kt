@@ -273,7 +273,9 @@ private fun OnbAccount(login: Boolean, onToggleLogin: (Boolean) -> Unit, onDone:
     fun run(block: suspend () -> AuthManager.SignInResult) {
         scope.launch {
             busy = true; error = null
-            try { onDone(block().existingAccount) } catch (e: Exception) {
+            try { onDone(block().existingAccount) } catch (e: AuthManager.SignInCancelled) {
+                // Backed out of the Google sheet. Not an error, so no banner.
+            } catch (e: Exception) {
                 error = e.message ?: "That email or password didn't match."
             } finally { busy = false }
         }
@@ -679,6 +681,11 @@ private fun FeatureCard(icon: ImageVector, title: String, body: String) {
 private fun OnbAiKey(onNext: () -> Unit, onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
+    // A padlock with no sentence next to it reads as a broken feature. A tester filed it as
+    // one on 2026-09-08: "Would be great to have instruction on why 'Use my own key' is
+    // locked." It is not broken and it is not the app behind a paywall - it is the one mode
+    // that costs Yap nothing to run, which is why it is bought once instead of monthly.
+    var whyLocked by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxSize().background(cs.background).statusBarsPadding().navigationBarsPadding()
             .padding(horizontal = 26.dp),
@@ -710,23 +717,38 @@ private fun OnbAiKey(onNext: () -> Unit, onBack: () -> Unit) {
             Icon(Icons.Default.RadioButtonChecked, null, tint = cs.primary, modifier = Modifier.size(24.dp))
         }
         Spacer(Modifier.height(14.dp))
-        Row(
+        Column(
             Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surface)
-                .border(1.dp, cs.outlineVariant, YapShapes.panel).padding(18.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .border(1.dp, cs.outlineVariant, YapShapes.panel)
+                .clickable { whyLocked = !whyLocked }
+                .padding(18.dp),
         ) {
-            Box(Modifier.size(44.dp).clip(YapShapes.lg).background(cs.surfaceContainerHigh),
-                contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.Key, null, tint = ext.subdued, modifier = Modifier.size(24.dp))
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Use my own key", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
-                    Spacer(Modifier.width(6.dp))
-                    Icon(Icons.Outlined.Lock, null, tint = ext.onOfflineContainer, modifier = Modifier.size(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(44.dp).clip(YapShapes.lg).background(cs.surfaceContainerHigh),
+                    contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.Key, null, tint = ext.subdued, modifier = Modifier.size(24.dp))
                 }
-                Text("Unlimited · BYOK · unlock required", fontSize = 13.sp, color = cs.onSurfaceVariant)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Use my own key", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                        Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Outlined.Lock, null, tint = ext.onOfflineContainer, modifier = Modifier.size(16.dp))
+                    }
+                    Text("Unlimited refines on your own Gemini key", fontSize = 13.sp, color = cs.onSurfaceVariant)
+                }
+                Text(if (whyLocked) "Hide" else "Why locked?", fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold, color = cs.primary)
+            }
+            if (whyLocked) {
+                Text(
+                    "On your own key Yap never pays for your refines, so this one is bought once " +
+                        "rather than monthly: $4.99 one-time, or free once five people you invited " +
+                        "have signed up and saved three notes each. Unlock it whenever you like in " +
+                        "Settings → API key (BYOK) — you don't need it to start.",
+                    fontSize = 13.sp, lineHeight = 19.sp, color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
             }
         }
         Spacer(Modifier.weight(1f))
@@ -744,28 +766,47 @@ private fun OnbSuggestedSetup(onFinish: () -> Unit, onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val context = androidx.compose.ui.platform.LocalContext.current
 
+    // What each row says for itself once its button has been pressed. Both system dialogs
+    // here can decline without showing anything, and a button that appears to do nothing
+    // reads as a broken app - a tester filed exactly that on 2026-09-08: "Home-screen
+    // widget failed to add".
+    var widgetHint by remember { mutableStateOf<String?>(null) }
+    var tileHint by remember { mutableStateOf<String?>(null) }
+    val manualWidget = "Your launcher wouldn't show the dialog. Long-press the home screen → Widgets → Yap."
+    val manualTile = "Pull down Quick Settings → edit (pencil) → drag Yap in."
+
     fun requestPinWidget() {
         val mgr = android.appwidget.AppWidgetManager.getInstance(context)
         val provider = android.content.ComponentName(context, com.mehdiacho.yap.widget.RecordWidgetProvider::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && mgr.isRequestPinAppWidgetSupported) {
+        // requestPinAppWidget returns false when the launcher refuses - and several do,
+        // including some that answer true to isRequestPinAppWidgetSupported. Discarding that
+        // Boolean is what turned a launcher's refusal into a button that did nothing at all.
+        val asked = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            mgr.isRequestPinAppWidgetSupported &&
             mgr.requestPinAppWidget(provider, null, null)
-        } else {
-            android.widget.Toast.makeText(context, "Long-press your home screen → Widgets → Yap",
-                android.widget.Toast.LENGTH_LONG).show()
-        }
+        widgetHint = if (asked) null else manualWidget
     }
     fun requestAddTile() {
         if (Build.VERSION.SDK_INT >= 33) {
             val sbm = context.getSystemService(android.app.StatusBarManager::class.java)
-            sbm?.requestAddTileService(
+            if (sbm == null) { tileHint = manualTile; return }
+            sbm.requestAddTileService(
                 android.content.ComponentName(context, com.mehdiacho.yap.tile.RecordTileService::class.java),
                 "Yap",
                 android.graphics.drawable.Icon.createWithResource(context, com.mehdiacho.yap.R.drawable.ic_tile_mic),
                 context.mainExecutor,
-            ) { }
+            ) { result ->
+                // Added, already there, or the user said no - all three mean the shade did
+                // its job. Anything else means it never asked, so say how to do it by hand.
+                tileHint = when (result) {
+                    android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED,
+                    android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED,
+                    android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_NOT_ADDED -> null
+                    else -> manualTile
+                }
+            }
         } else {
-            android.widget.Toast.makeText(context, "Open Quick Settings → edit tiles → add Yap",
-                android.widget.Toast.LENGTH_LONG).show()
+            tileHint = manualTile
         }
     }
 
@@ -794,6 +835,7 @@ private fun OnbSuggestedSetup(onFinish: () -> Unit, onBack: () -> Unit) {
                     }
                 },
                 title = "Home-screen widget", body = "Tap to record from your launcher.",
+                hint = widgetHint,
                 onAdd = ::requestPinWidget,
             )
             SetupRow(
@@ -804,6 +846,7 @@ private fun OnbSuggestedSetup(onFinish: () -> Unit, onBack: () -> Unit) {
                     }
                 },
                 title = "Quick Settings tile", body = "Record from the pull-down shade.",
+                hint = tileHint,
                 onAdd = ::requestAddTile,
             )
         }
@@ -817,21 +860,30 @@ private fun OnbSuggestedSetup(onFinish: () -> Unit, onBack: () -> Unit) {
 }
 
 @Composable
-private fun SetupRow(tile: @Composable () -> Unit, title: String, body: String, onAdd: () -> Unit) {
+private fun SetupRow(
+    tile: @Composable () -> Unit,
+    title: String,
+    body: String,
+    hint: String? = null,
+    onAdd: () -> Unit,
+) {
     val cs = MaterialTheme.colorScheme
-    Row(
-        Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainerLow).padding(18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        tile()
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
-            Text(body, fontSize = 13.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
+    Column(Modifier.fillMaxWidth().clip(YapShapes.panel).background(cs.surfaceContainerLow).padding(18.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            tile()
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                Text(body, fontSize = 13.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
+            }
+            Button(onClick = onAdd, shape = RoundedCornerShape(50),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+                Text("Add", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
-        Button(onClick = onAdd, shape = RoundedCornerShape(50),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-            Text("Add", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        hint?.let {
+            Text(it, fontSize = 13.sp, lineHeight = 18.sp, color = cs.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp))
         }
     }
 }
