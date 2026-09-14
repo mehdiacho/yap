@@ -43,7 +43,7 @@ export interface QueryOptions {
 }
 
 /**
- * Reads a page-at-a-time from `users/{uid}/sessions`, newest first.
+ * `users/{uid}/sessions` — read a page at a time, newest first, and write exactly one field.
  *
  * Only two things are pushed to the server: the `createdAt` ordering and an optional
  * `createdAt >=` bound. Both ride the automatic single-field index, so this server needs
@@ -51,7 +51,7 @@ export interface QueryOptions {
  * filtered here. That is a deliberate trade: a little more read volume in exchange for
  * never breaking because an index was not deployed alongside the code.
  */
-export class SessionReader {
+export class SessionStore {
   constructor(
     private readonly cfg: Config,
     private readonly tokens: TokenSource,
@@ -116,6 +116,46 @@ export class SessionReader {
     if (!res.ok) throw new Error(await describeError(res));
     return toRecord((await res.json()) as FsDocument);
   }
+
+  /**
+   * Set or remove `followUp` on one note, and nothing else.
+   *
+   * The update mask names only `followUp`, so every other field is left exactly as it is on
+   * the server — this never round-trips a copy of the note. With the field in the mask and
+   * absent from the body, Firestore deletes it, which is how `null` clears. The
+   * `currentDocument.exists` precondition stops a mistyped id from creating a stray note that
+   * holds nothing but a follow-up.
+   */
+  async setFollowUp(
+    id: string,
+    value: { state: string; note: string | null; updatedAt: number; by: string } | null,
+  ): Promise<boolean> {
+    const { idToken, uid } = await this.tokens.token();
+    const url =
+      `${this.base}/users/${uid}/sessions/${encodeURIComponent(id)}` +
+      "?updateMask.fieldPaths=followUp&currentDocument.exists=true";
+    const fields: Record<string, FsValue> = {};
+    if (value) {
+      fields.followUp = {
+        mapValue: {
+          fields: {
+            state: { stringValue: value.state },
+            note: value.note === null ? { nullValue: null } : { stringValue: value.note },
+            updatedAt: { integerValue: String(value.updatedAt) },
+            by: { stringValue: value.by },
+          },
+        },
+      };
+    }
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ fields }),
+    });
+    if (res.status === 404) return false;
+    if (!res.ok) throw new Error(await describeError(res));
+    return true;
+  }
 }
 
 function toRecord(doc: FsDocument): Record<string, unknown> {
@@ -125,7 +165,7 @@ function toRecord(doc: FsDocument): Record<string, unknown> {
 async function describeError(res: Response): Promise<string> {
   const body = await res.text();
   if (res.status === 403) {
-    return `Firestore refused the read (403). firestore.rules only allows a user their own notes, so this usually means the signed-in account is not the one that owns them. ${body}`;
+    return `Firestore refused the request (403). firestore.rules only allows a user their own notes, so this usually means the signed-in account is not the one that owns them. ${body}`;
   }
   return `Firestore request failed (${res.status}). ${body}`;
 }

@@ -336,6 +336,25 @@ fun SessionDetailScreen(
                     MetaChip("From $it", cs.surfaceContainerHigh, cs.onSurfaceVariant)
                 }
             }
+            // What became of this note, recorded by an agent over the MCP server. Only shown
+            // when there is one: a "no outcome yet" line on every note would be noise.
+            currentSession.followUp?.let { f ->
+                Spacer(Modifier.height(10.dp))
+                val label = when (f.state) {
+                    com.mehdiacho.yap.data.FollowUpState.PURSUED -> "Pursued"
+                    com.mehdiacho.yap.data.FollowUpState.DROPPED -> "Dropped"
+                    com.mehdiacho.yap.data.FollowUpState.CONVERTED -> "Converted"
+                    else -> f.state.lowercase().replaceFirstChar { it.uppercase() }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    MetaChip(label, cs.tertiaryContainer, cs.onTertiaryContainer, bold = true)
+                    f.note?.let {
+                        Spacer(Modifier.width(8.dp))
+                        Text(it, fontSize = 13.sp, lineHeight = 17.sp, color = ext.subdued,
+                            modifier = Modifier.weight(1f, fill = false))
+                    }
+                }
+            }
         }
 
         // Draft-only banner — "Not refined yet · Polish now" (design · draft-only)

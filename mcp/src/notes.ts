@@ -23,7 +23,26 @@ export interface Note {
   source: string | null;
   sourceRef: string | null;
   actionItems: ActionItem[];
+  followUp: FollowUp | null;
 }
+
+/**
+ * What became of a note: whether the idea in it was pursued, dropped, or turned into
+ * something concrete.
+ *
+ * Its own field because `status` belongs to the transcription pipeline. Written only by
+ * `set_follow_up`; the Android app reads and shows it but deliberately leaves it out of the
+ * whole-note save, so a stale copy on the phone cannot erase it.
+ */
+export interface FollowUp {
+  state: FollowUpState;
+  note: string | null;
+  updatedAt: number;
+  by: string | null;
+}
+
+export const FOLLOW_UP_STATES = ["PURSUED", "DROPPED", "CONVERTED"] as const;
+export type FollowUpState = (typeof FOLLOW_UP_STATES)[number];
 
 export interface ActionItem {
   id: string;
@@ -60,7 +79,26 @@ export function toNote(raw: Record<string, unknown>): Note {
         doneAt: typeof m.doneAt === "number" ? m.doneAt : null,
       };
     }),
+    followUp: toFollowUp(raw.followUp),
   };
+}
+
+function toFollowUp(v: unknown): FollowUp | null {
+  if (!v || typeof v !== "object") return null;
+  const m = v as Record<string, unknown>;
+  const state = FOLLOW_UP_STATES.find((s) => s === m.state);
+  if (!state) return null;
+  return {
+    state,
+    note: typeof m.note === "string" && m.note.trim() ? m.note : null,
+    updatedAt: num(m.updatedAt),
+    by: typeof m.by === "string" ? m.by : null,
+  };
+}
+
+export function describeFollowUp(f: FollowUp): string {
+  const what = f.state.toLowerCase();
+  return `${what}${f.note ? ` — ${f.note}` : ""}${f.updatedAt ? ` (${isoDate(f.updatedAt)})` : ""}`;
 }
 
 /**
@@ -90,6 +128,8 @@ export interface Filters {
   pinnedOnly?: boolean;
   includeTrashed?: boolean;
   until?: number;
+  /** "none" = no outcome recorded yet, "any" = some outcome, or one lowercase state. */
+  followUp?: string;
 }
 
 export function applyFilters(notes: Note[], f: Filters): Note[] {
@@ -100,6 +140,10 @@ export function applyFilters(notes: Note[], f: Filters): Note[] {
     if (!f.includeTrashed && n.trashedAt !== null) return false;
     if (f.until !== undefined && n.createdAt > f.until) return false;
     if (f.pinnedOnly && !n.pinned) return false;
+    if (f.followUp === "none" && n.followUp) return false;
+    if (f.followUp === "any" && !n.followUp) return false;
+    if (f.followUp && f.followUp !== "none" && f.followUp !== "any" &&
+        n.followUp?.state !== f.followUp.toUpperCase()) return false;
     return eq(n.category, f.category) && eq(n.topicCluster, f.topic);
   });
 }
@@ -125,6 +169,7 @@ export function summarize(n: Note): string {
   if (n.trashedAt !== null) flags.push("trashed");
   if (open > 0) flags.push(`${open} open action${open === 1 ? "" : "s"}`);
   if (!n.formattedText) flags.push("not formalized");
+  if (n.followUp) flags.push(`follow-up: ${n.followUp.state.toLowerCase()}`);
   if (flags.length) bits[1] += ` · ${flags.join(" · ")}`;
   bits.push(`  ${preview(body(n))}`);
   return bits.join("\n");

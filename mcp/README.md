@@ -1,8 +1,9 @@
-# yap-mcp — read-only MCP server over your notes
+# yap-mcp — MCP server over your notes
 
 Lets an agent read the Yap note history and reason across it: what was recorded, when,
-under which topic, and what action items came out of it. **Read-only.** Nothing here
-writes to Firestore.
+under which topic, and what action items came out of it. **One write:** `set_follow_up`
+records what became of a note, and touches no other field. Nothing else here writes to
+Firestore.
 
 ## Why a refresh token and not an admin key
 
@@ -73,11 +74,12 @@ until you do. Claude Code asks for approval the first time it sees this entry.
 
 | Tool | What it does |
 |---|---|
-| `list_notes` | Notes newest-first with previews. Filters: `since`, `until`, `category`, `topic`, `pinnedOnly`, `includeTrashed`. |
+| `list_notes` | Notes newest-first with previews. Filters: `since`, `until`, `category`, `topic`, `pinnedOnly`, `includeTrashed`, `followUp` (`none` / `any` / a state). |
 | `search_notes` | Literal case-insensitive substring match over title and both text bodies, same filters. |
 | `get_note` | One note in full — metadata, action items, and the formalized text if it exists, otherwise the raw transcript. Pass `transcript: true` to get the word-for-word transcript as well; the formalized text is a rewrite. |
 | `list_topics` | Every category and topic cluster with counts and date spans. The orientation tool — cheapest way to find out what is in there. |
 | `list_action_items` | Action items across all notes, with their source note. Open ones by default. |
+| `set_follow_up` | **The one write.** Marks a note `pursued`, `dropped` or `converted` with a sentence on what happened, or `clear`s it. PATCHes `followUp` with an update mask, so no other field is ever sent back. |
 
 Trashed notes are excluded everywhere unless asked for.
 
@@ -110,11 +112,19 @@ database. That was corrected on 2026-09-07; the contract now carries a **session
 as built** table that agrees with this. The Kotlin repository is still the authority if the
 two ever drift again.
 
+## `followUp`
+
+```
+followUp: { state: "PURSUED" | "DROPPED" | "CONVERTED", note: string | null, updatedAt: <epoch ms>, by: "agent" }
+```
+
+Its own field because `status` belongs to the transcription pipeline (`NEW` /
+`TRANSCRIBING` / `POLISHING` / `REFINED` / `DONE` / `FAILED` / `QUOTA` / `OFFLINE_PENDING`).
+The Android app shows it on the note and never writes it: it is left out of `toMap()`, and
+whole-note saves are merges, so a stale copy on the phone cannot erase an outcome recorded
+here. An app build older than that change still saves with a plain `set()` and **will** drop
+the field when it next saves that note.
+
 ## Not here yet
 
-- **Marking a note pursued / dropped / converted.** The motivating feature, and it needs a
-  new field before an agent can write one — `status` is already taken by the transcription
-  pipeline (`NEW` / `TRANSCRIBING` / `POLISHING` / `REFINED` / `DONE` / `FAILED` / `QUOTA` /
-  `OFFLINE_PENDING`), so overloading it would be a bug. It also needs
-  the app to display whatever gets written, or the agent is writing into a void.
 - **Reminders.** Nothing exists in the app or the backend for these yet.

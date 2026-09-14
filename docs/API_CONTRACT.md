@@ -35,6 +35,7 @@ before any client existed and **never matched the database**. There is no `tags`
 | `extraRecordings` | array | `{ audioPath, storagePath, durationMs, bookmarks }`. |
 | `audioPath`, `storagePath`, `videoPath`, `videoStoragePath` | string \| null | Local and Cloud Storage locations. |
 | `enrichVersion` | number | Which enrich pass produced the metadata. |
+| `followUp` | map \| absent | `{ state: PURSUED\|DROPPED\|CONVERTED, note, updatedAt, by }` — what became of the note. **Written only by the MCP server** (`set_follow_up`, an update-masked PATCH). The app reads and shows it but leaves it out of `toMap()` and saves notes with a merge, so it cannot erase it. |
 | `source`, `sourceApp`, `sourceRef` | string \| null | Provenance. `source` is `RECORDING`, `SHARED_TEXT`, `MERGED` or `UNKNOWN`; for `MERGED`, `sourceRef` is the comma-joined ids of the notes it came from. |
 
 ## Core flow (record → refine)

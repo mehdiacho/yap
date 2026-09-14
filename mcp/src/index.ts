@@ -5,10 +5,11 @@ import { z } from "zod";
 
 import { loadConfig } from "./config.js";
 import { loadCredentials, TokenSource } from "./auth.js";
-import { SessionReader } from "./firestore.js";
+import { SessionStore } from "./firestore.js";
 import {
   applyFilters,
   body,
+  describeFollowUp,
   isoDate,
   matches,
   summarize,
@@ -18,7 +19,7 @@ import {
 } from "./notes.js";
 
 const cfg = loadConfig();
-const reader = new SessionReader(cfg, new TokenSource(cfg, loadCredentials(cfg)));
+const reader = new SessionStore(cfg, new TokenSource(cfg, loadCredentials(cfg)));
 
 /**
  * One scan of the library, reused for a few seconds.
@@ -59,6 +60,13 @@ const dateFilters = {
   topic: z.string().optional().describe("Exact topic cluster. Case-insensitive."),
   pinnedOnly: z.boolean().optional().describe("Only notes the user pinned."),
   includeTrashed: z.boolean().optional().describe("Include trashed notes. Off by default."),
+  followUp: z
+    .enum(["none", "any", "pursued", "dropped", "converted"])
+    .optional()
+    .describe(
+      "Filter on the recorded outcome. 'none' = nobody has said what became of the note yet, " +
+        "which is the list worth reviewing.",
+    ),
 };
 
 function filtersOf(a: Record<string, unknown>): Filters {
@@ -68,6 +76,7 @@ function filtersOf(a: Record<string, unknown>): Filters {
     pinnedOnly: a.pinnedOnly as boolean | undefined,
     includeTrashed: a.includeTrashed as boolean | undefined,
     until: parseDate(a.until as string | undefined, true),
+    followUp: a.followUp as string | undefined,
   };
 }
 
@@ -173,6 +182,7 @@ server.registerTool(
     if (n.pinned) head.push("- pinned");
     if (n.trashedAt !== null) head.push(`- in trash since ${isoDate(n.trashedAt)}`);
     if (n.source) head.push(`- source: ${n.source}${n.sourceRef ? ` (${n.sourceRef})` : ""}`);
+    head.push(`- follow-up: ${n.followUp ? describeFollowUp(n.followUp) : "none recorded"}`);
 
     if (n.actionItems.length) {
       head.push("", "## Action items");
@@ -255,6 +265,38 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "set_follow_up",
+  {
+    title: "Record what became of a note",
+    description:
+      "Record whether the idea or plan in a note was pursued, dropped, or converted into " +
+      "something concrete, with one sentence on what happened. The user sees it on the note " +
+      "in the app. This is the only tool that writes, and it writes only this field — the " +
+      "note's text, title and everything else are untouched. Use state 'clear' to remove it. " +
+      "Record what the user told you or what the notes clearly show; never guess an outcome.",
+    inputSchema: {
+      id: z.string().min(1).describe("Note id."),
+      state: z.enum(["pursued", "dropped", "converted", "clear"]),
+      note: z
+        .string()
+        .max(500)
+        .optional()
+        .describe("What happened, in a sentence. E.g. 'Became the Tether app'."),
+    },
+  },
+  async ({ id, state, note }) => {
+    const value =
+      state === "clear"
+        ? null
+        : { state: state.toUpperCase(), note: note?.trim() || null, updatedAt: Date.now(), by: "agent" };
+    const ok = await reader.setFollowUp(id, value);
+    if (!ok) return text(`No note with id ${id}. Nothing was written.`);
+    cached = null; // the next read must see the write
+    return text(value ? `Recorded on ${id}: ${state}${value.note ? ` — ${value.note}` : ""}.` : `Cleared the follow-up on ${id}.`);
+  },
+);
+
 // stdout belongs to the protocol; anything written there corrupts the stream.
 await server.connect(new StdioServerTransport());
-console.error("yap-mcp ready (read-only)");
+console.error("yap-mcp ready");

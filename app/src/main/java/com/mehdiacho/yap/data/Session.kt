@@ -75,6 +75,26 @@ object SessionSource {
     const val UNKNOWN = "UNKNOWN"
 }
 
+/**
+ * What became of a note — whether the idea in it was pursued, dropped, or turned into something.
+ *
+ * Written by an agent through the MCP server (`mcp/`, the `set_follow_up` tool), not by this
+ * app, and kept out of [status], which belongs to the transcription pipeline. The app only
+ * shows it. See [FirestoreSessionRepository.upsert] for why saving a note cannot erase it.
+ */
+data class FollowUp(
+    val state: String,          // one of FollowUpState
+    val note: String? = null,   // one sentence on what happened
+    val updatedAt: Long = 0L,
+    val by: String? = null,     // "agent" today
+)
+
+object FollowUpState {
+    const val PURSUED = "PURSUED"
+    const val DROPPED = "DROPPED"
+    const val CONVERTED = "CONVERTED"
+}
+
 data class Session(
     val id: String,
     val title: String,
@@ -135,6 +155,8 @@ data class Session(
      * back to where a clip actually came from.
      */
     val sourceRef: String? = null,
+    /** Read-only here. Null until an agent records an outcome. */
+    val followUp: FollowUp? = null,
 ) {
     /** True once every task in the note is ticked (and there was at least one). */
     val allDone: Boolean get() = actionItems.isNotEmpty() && actionItems.all { it.done }

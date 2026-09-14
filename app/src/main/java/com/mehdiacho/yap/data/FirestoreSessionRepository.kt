@@ -110,8 +110,16 @@ class FirestoreSessionRepository {
         }
     }
 
+    /**
+     * Save a whole note.
+     *
+     * A merge, not a replace. [toMap] writes every field the app owns, nulls included, so for
+     * those the two are identical. The difference is fields the app does not own: `followUp`
+     * is written by the MCP server, and a plain set() from the copy this device happened to
+     * hold would silently delete an outcome recorded a minute earlier.
+     */
     suspend fun upsert(session: Session) {
-        awaitTask(col().document(session.id).set(session.toMap()))
+        awaitTask(col().document(session.id).set(session.toMap(), SetOptions.merge()))
     }
 
     suspend fun delete(id: String) {
@@ -168,6 +176,7 @@ class FirestoreSessionRepository {
         "source" to source,
         "sourceApp" to sourceApp,
         "sourceRef" to sourceRef,
+        // followUp is deliberately absent: the app reads it and never writes it. See upsert().
     )
 
     private fun DocumentSnapshot.toSession(): Session? {
@@ -231,6 +240,16 @@ class FirestoreSessionRepository {
             source = getString("source") ?: SessionSource.UNKNOWN,
             sourceApp = getString("sourceApp"),
             sourceRef = getString("sourceRef"),
+            followUp = (get("followUp") as? Map<*, *>)?.let { m ->
+                (m["state"] as? String)?.let { state ->
+                    FollowUp(
+                        state = state,
+                        note = (m["note"] as? String)?.takeIf { it.isNotBlank() },
+                        updatedAt = (m["updatedAt"] as? Number)?.toLong() ?: 0L,
+                        by = m["by"] as? String,
+                    )
+                }
+            },
         )
     }
 
