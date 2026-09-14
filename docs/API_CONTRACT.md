@@ -9,11 +9,39 @@
 - **Result channel = Firestore (realtime), not polling.** The client writes a pending session doc and **listens** to it; functions write results back. This makes offline-queue + live status trivial.
 - **Keys:** managed tier uses the server's Gemini key. **BYOK:** the client passes `{ provider, byokKey }` per request; the server uses it for that call and **does not store** it. Provider is `"gemini"` for now (multi-provider-ready).
 
+## The session document, as built
+
+**This is the shape in Firestore.** It is mapped by hand in `FirestoreSessionRepository.toMap()`
+in the Android app, which is the authority — not this document. An earlier version of this
+contract described a snake_case shape with `name`, `description` and `tags`; that was written
+before any client existed and **never matched the database**. There is no `tags` field, no
+`description` field, and no `raw_text`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `title` | string | What the contract elsewhere calls `name`. Defaults to "Untitled". |
+| `draftText` | string | The transcript. On-device draft first, replaced by the server transcription. |
+| `formattedText` | string \| null | The formalized version. **Null until the note is formalized** — readers should fall back to `draftText`. |
+| `status` | string | Uppercase: `NEW`, `OFFLINE_PENDING`, `TRANSCRIBING`, `POLISHING`, `REFINED`, `DONE`, `FAILED`, `QUOTA`. Not the lowercase `queued`/`refined` this doc used to claim. |
+| `statusReason`, `statusMessage` | string \| null | Why a `FAILED`/`QUOTA` note ended up there, and what to show the user. |
+| `createdAt` | number | **Epoch milliseconds**, not a Firestore Timestamp. |
+| `durationMs` | number | Audio length. 0 for text-only notes. |
+| `category`, `topicCluster` | string | Model-assigned. Default `Memo` / `General`. **Both fragment badly in practice** — the enrich step mints new labels instead of reusing existing ones, so neither is a reliable grouping key today. |
+| `trashedAt` | number \| null | Soft delete. Non-null means it is in the trash. |
+| `pinned` | boolean | |
+| `actionItems` | array | `{ id, text, done, doneAt }`. |
+| `wordTimings` | array | `{ text, startMs, endMs }`. |
+| `bookmarks` | array\<number\> | Millisecond offsets. |
+| `extraRecordings` | array | `{ audioPath, storagePath, durationMs, bookmarks }`. |
+| `audioPath`, `storagePath`, `videoPath`, `videoStoragePath` | string \| null | Local and Cloud Storage locations. |
+| `enrichVersion` | number | Which enrich pass produced the metadata. |
+| `source`, `sourceApp`, `sourceRef` | string \| null | Provenance. `source` is `RECORDING`, `SHARED_TEXT`, `MERGED` or `UNKNOWN`; for `MERGED`, `sourceRef` is the comma-joined ids of the notes it came from. |
+
 ## Core flow (record → refine)
 1. App uploads audio → Storage `users/{uid}/audio/{sessionId}.m4a` (Firebase Storage SDK; offline-queues automatically).
-2. App writes `users/{uid}/sessions/{sessionId}` = `{ status:"queued", draft_text, createdAt, source, ... }`.
+2. App writes `users/{uid}/sessions/{sessionId}` = `{ status:"NEW", draftText, createdAt, source, ... }` (see **The session document, as built** above — fields are camelCase).
 3. App calls **`transcribeSession`** (below).
-4. Function: verify Auth + Integrity + quota → download audio → run pipeline (chunk 4:30 + 5s buffer → per-chunk transcribe → 30s bridge-stitch → formalize → VTT if requested) → compute **refinement-delta score** vs `draft_text` → write `{ status:"refined", raw_text, formatted_text, name, description, tags, category, topicCluster, vtt?, refinement:{score,model,refinedAt} }` to the session doc → decrement usage.
+4. Function: verify Auth + Integrity + quota → download audio → run pipeline (chunk 4:30 + 5s buffer → per-chunk transcribe → 30s bridge-stitch → formalize → VTT if requested) → compute **refinement-delta score** vs `draft_text` → write `{ status:"DONE", draftText, formattedText, title, category, topicCluster, actionItems, wordTimings, ... }` to the session doc → decrement usage.
 5. App's Firestore listener updates the UI draft→polishing→refined. Optional FCM push on completion.
 
 ## Callable functions
