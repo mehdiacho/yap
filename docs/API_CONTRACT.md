@@ -23,12 +23,20 @@
 | **`transcribeSession`** | `{ sessionId, audioPath, clientDraft, options:{ vtt:bool, language, mode:"managed"\|"byok", provider, byokKey? }, integrityToken }` | Runs full pipeline; writes results to the session doc; decrements quota. Returns `{ ok, jobId }`. Heavy work async — client listens to the doc. |
 | **`refineSession`** | `{ sessionId, rawText, recentContext[], integrityToken }` | Re-runs formalization only ("Polish now" / manual re-formalize). Updates the session doc. |
 | **`smartReview`** | `{ blocks:[{versions[],activeIndex}], integrityToken }` | Ports `reviewAndPropagateEdits`. Returns `{ updatedBlocks:[{blockIndex,newText,flagged,reason}] }`. |
-| **`groupSessions`** | `{ sessionIds[], integrityToken }` | Ports `groupSessionsContextually`. Creates a new merged session; returns `{ newSessionId }`. |
+| **`groupSessions`** | `{ notes: [{ id, title, createdAt, text }] }` — 2..20, ≤120k chars total | Merges the notes into one document and returns its content: `{ name, description, tags, category, topicCluster, formattedText, rawText, sourceIds }`. The client maps `name` onto the note's `title`; `description` and `tags` are returned by the model but **not stored** — there are no such fields on a session. **The client creates the note**, not the function — see below. Text-only, so it does not consume the transcription quota. Source notes are never modified. |
 | **`validateProviderKey`** | `{ provider, key, integrityToken }` | Test call to the provider. Returns `{ valid:bool, providerLabel, error? }`. (No storage.) |
 | **`verifyPurchase`** | `{ purchaseToken, productId, type:"sub"\|"oneTime", integrityToken }` | Verifies with Google Play Developer API; sets entitlement (`plan` / `byok.unlocked`). Returns `{ entitled, plan }`. |
 | **`getModelManifest`** | `{ deviceTier:"high"\|"mid"\|"low", integrityToken }` | Returns on-device model file(s) to download: `{ models:[{id,url,sizeMB,sha256}] }`. (Files hosted in Storage.) |
 | **`referralStatus`** | `{ integrityToken }` | `{ code, completedCount, target:5, referred:[{status,reason}] }`. |
 | **`attributeReferral`** | `{ code, integrityToken }` | Called once at signup to attribute the inviter. Returns `{ ok }`. |
+
+> **`groupSessions`, as built.** This contract was written before the implementation and
+> described the function creating the merged session itself. It doesn't. The client sends the
+> note bodies it already has in memory (so the server does no Firestore reads), gets the merged
+> content back, and writes the new note through its own repository — the same shape as
+> `refineText`. That keeps the client the only writer of `users/{uid}/sessions` from the app
+> side; a second author would mean the repository seeing notes appear that it never asked for.
+> The new note is stored with `source: "MERGED"` and `sourceRef` = the comma-joined source ids.
 
 ## Firestore triggers (server-side, no client call)
 - **`onUserCreate`** — initialize `usage` (cycle, zeroed) + `referrals.code`.

@@ -5,9 +5,11 @@ import {
   transcribeAndFormalize,
   transcribeAndAppend,
   formalizeText,
+  groupNotes,
   reviewAndPropagate,
   judgeCorrectionOccurrences,
   extractActionItems,
+  NoteToGroup,
   ReviewBlock,
 } from "./gemini";
 
@@ -437,6 +439,100 @@ export const refineText = onCall(
     } catch (e: any) {
       const failure = classifyProviderError(e, byok);
       console.error("refineText failed", { byok, reason: failure.reason, message: e?.message });
+      throw new HttpsError(failure.httpsCode, failure.message);
+    }
+  }
+);
+
+/**
+ * groupSessions — "Group" in the Library's multi-select bar: merge several notes into one.
+ *
+ * Returns the merged note's content and lets the client create the document, the same way
+ * refineText does. The alternative — writing the new session here and returning its id —
+ * would put a second author on the sessions collection, and the client's repository would
+ * have to learn that some notes arrive without it asking. (API_CONTRACT.md describes the
+ * server-writes shape; it predates the implementation and is corrected there.)
+ *
+ * The source notes are not touched. Grouping adds a note, it never removes one.
+ *
+ * Text-only, so — like refineText and enrichNotes — it does not consume the per-minute
+ * transcription quota. The user already paid to transcribe this content once.
+ *
+ * Request:  { notes: [{ id, title, createdAt, text }] }   // 2..20
+ * Response: { name, description, tags, category, topicCluster, formattedText, sourceIds }
+ */
+const GROUP_MAX_NOTES = 20;
+/**
+ * Total input characters allowed across the selection.
+ *
+ * Sized against the OUTPUT budget, not the input one. A merge is close to length-preserving —
+ * that is the point of it — so the model has to be able to write back roughly what it was
+ * given, and 2.5-flash's output ceiling is the binding constraint long before its million-token
+ * context is. ~120k characters is ~30k tokens in and a comparable amount out, which leaves room
+ * for the thinking tokens that also come out of that budget.
+ *
+ * Overrunning it isn't silent, at least: a truncated response is invalid JSON, and
+ * parseFormalizeResponse falls back to the concatenated sources — the user gets everything
+ * they selected, unformatted, rather than a document that quietly stops halfway.
+ */
+const GROUP_MAX_CHARS = 120_000;
+
+export const groupSessions = onCall(
+  { region: "africa-south1", secrets: [GEMINI_API_KEY, BYOK_ENC_KEY], timeoutSeconds: 300 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+    const raw = request.data?.notes;
+    if (!Array.isArray(raw)) throw new HttpsError("invalid-argument", "notes required");
+
+    const notes: NoteToGroup[] = raw.flatMap((n: any) => {
+      const id = typeof n?.id === "string" ? n.id : null;
+      const text = typeof n?.text === "string" ? n.text.trim() : "";
+      if (!id || !text) return [];
+      return [{
+        id,
+        title: typeof n?.title === "string" && n.title.trim() ? n.title.trim() : "Untitled",
+        createdAt: Number(n?.createdAt) || 0,
+        text,
+      }];
+    });
+
+    // Two is the smallest thing that can be merged; one note "grouped" is just that note.
+    if (notes.length < 2) {
+      throw new HttpsError("invalid-argument", "Pick at least two notes with something in them.");
+    }
+    if (notes.length > GROUP_MAX_NOTES) {
+      throw new HttpsError(
+        "invalid-argument",
+        `That's more than ${GROUP_MAX_NOTES} notes at once — group them in smaller batches.`
+      );
+    }
+    const total = notes.reduce((sum, n) => sum + n.text.length, 0);
+    if (total > GROUP_MAX_CHARS) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Those notes are too long to merge in one pass — try fewer at a time."
+      );
+    }
+
+    const entitlement = await getEntitlement(request.auth.uid);
+    const { apiKey, byok } = await resolveGeminiKey(
+      request.auth.uid,
+      entitlement,
+      GEMINI_API_KEY.value()
+    );
+
+    try {
+      const merged = await groupNotes(notes, apiKey);
+      return { ...merged, sourceIds: notes.map((n) => n.id) };
+    } catch (e: any) {
+      const failure = classifyProviderError(e, byok);
+      console.error("groupSessions failed", {
+        byok,
+        count: notes.length,
+        reason: failure.reason,
+        message: e?.message,
+      });
       throw new HttpsError(failure.httpsCode, failure.message);
     }
   }

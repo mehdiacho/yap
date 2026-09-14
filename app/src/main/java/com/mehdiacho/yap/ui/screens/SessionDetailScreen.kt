@@ -572,9 +572,13 @@ fun SessionDetailScreen(
                     // existed, or left them thinking their audio had been mishandled. Say
                     // which of the two actually happened.
                     Text(
-                        if (currentSession.neverHadAudio)
-                            "Shared as text — there was no recording"
-                        else "Audio was discarded after transcription",
+                        when {
+                            currentSession.source == com.mehdiacho.yap.data.SessionSource.MERGED ->
+                                "Merged from ${currentSession.mergedFrom.size} notes — the recordings are on those"
+                            currentSession.neverHadAudio ->
+                                "Shared as text — there was no recording"
+                            else -> "Audio was discarded after transcription"
+                        },
                         fontSize = 13.sp,
                         color = ext.subdued,
                     )

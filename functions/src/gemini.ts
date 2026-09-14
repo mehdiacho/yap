@@ -584,6 +584,127 @@ export async function formalizeText(
   return formalize(ai, rawText);
 }
 
+/** One note going into a merge. [createdAt] is epoch ms; the order it was recorded matters. */
+export interface NoteToGroup {
+  id: string;
+  title: string;
+  createdAt: number;
+  text: string;
+}
+
+/**
+ * Weave several notes into one document — the Library's "Group" action.
+ *
+ * This is a merge, not a summary. Someone who recorded the same project four times across a
+ * week is asking for the one document they would have written if they had thought of
+ * everything at once; handing them a précis throws away the detail they recorded it for. So
+ * the prompt's first duty is to keep every substantive point, and its second is to stop the
+ * result reading like four notes stapled together.
+ *
+ * The sources are left untouched — grouping creates a new note and destroys nothing. That is
+ * a deliberate asymmetry: a merge that consumed its inputs would be the one action in the
+ * app a user could not undo by hand.
+ *
+ * Returns the same shape as [formalize], so the client stores a merged note exactly the way
+ * it stores a refined one.
+ */
+export async function groupNotes(
+  notes: NoteToGroup[],
+  apiKey: string
+): Promise<Omit<TranscriptionResult, "rawText">> {
+  const ai = new GoogleGenAI({ apiKey });
+
+  // Oldest first: "later supersedes earlier" is only a usable instruction if the model can
+  // see which is which, and recording order is the one piece of context the text itself lost.
+  const ordered = [...notes].sort((a, b) => a.createdAt - b.createdAt);
+  const sources = ordered
+    .map((n, i) => {
+      const when = new Date(n.createdAt).toISOString().slice(0, 10);
+      return `### Source ${i + 1} — "${n.title}" (${when})\n${n.text}`;
+    })
+    .join("\n\n");
+
+  const prompt = `You are merging several of one person's notes into a single document. They are all by the same author and were captured at different times.
+
+${sources}
+
+### What to produce
+ONE document that reads as though the author wrote it in a single sitting, knowing everything across all ${ordered.length} sources.
+
+### Rules — these matter more than brevity
+1. **This is a merge, not a summary.** Keep every substantive point, decision, number, name and open question. Length is not a problem; losing content is. Only filler, repetition and restatement may go.
+2. **Organise by subject, not by source.** Points about the same thing belong together even when they were recorded days apart. Never write "in the first note…" or reproduce the sources as separate sections.
+3. **Consolidate overlap.** Where sources repeat a point, state it once, in its fullest form.
+4. **Later supersedes earlier.** When a later source revises an earlier one, follow the later one. If the change is a real reversal worth knowing about, say so briefly in the prose ("originally X, later settled on Y") rather than silently dropping either.
+5. **Contradictions that are not resolved by time stay visible.** Present both and note the tension — don't pick a winner the author didn't pick.
+6. **Add nothing.** No invented conclusions, next steps or connective claims the sources don't support.
+
+### Fields
+1. **Name**: A short, descriptive title for the merged document (max 6 words).
+2. **Description**: One sentence describing what the merged document covers.
+3. **Tags**: 3 to 5 keyword strings drawn from across all sources.
+4. **Category**: The single best document type for the result. Examples: "Memo", "Brainstorm", "Call Log", "Action Items", "Meeting Notes", "Interview", "Lecture", "Journal".
+5. **TopicCluster**: The shared project/theme these notes belong to — grouping them is itself evidence there is one. Use "General" only if they genuinely have nothing in common.
+6. **FormattedText**: The merged document, in Markdown.
+
+### FormattedText markdown rules (strict):
+- Do NOT include a document title heading — the Name field is the title. Start with body content.
+- Section headers use exactly "## " (H2), sparingly — only when the content genuinely has sections.
+- Headings are single short lines. NEVER put body sentences, lists, or whole paragraphs inside a heading.
+- The bulk of the output must be plain paragraphs and lists — if most lines start with '#', the output is wrong.
+- For dialogue, use "**SPEAKER:** line" formatting. For action items, use a bullet list.
+
+Return ONLY a valid JSON object matching the schema. No markdown fences, no commentary.`;
+
+  const res = await callModel(ai, "group", {
+    model: MODEL,
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          description: { type: Type.STRING },
+          tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+          category: { type: Type.STRING },
+          topicCluster: { type: Type.STRING },
+          formattedText: { type: Type.STRING },
+        },
+        required: ["name", "description", "tags", "category", "topicCluster", "formattedText"],
+      },
+    },
+  });
+
+  // Falling back to the concatenated sources rather than to one note's text: if the model
+  // returns nothing parseable, the user should still get everything they selected, badly
+  // formatted, instead of a note that silently contains a fraction of what they merged.
+  const fallback = ordered.map((n) => n.text).join("\n\n---\n\n");
+  const first = parseFormalizeResponse(res.text, fallback);
+
+  if (markdownLooksBroken(first.formattedText)) {
+    console.warn("group: broken markdown detected, running repair pass");
+    try {
+      const repair = await callModel(ai, "groupRepair", {
+        model: MODEL,
+        contents:
+          `The following Markdown misuses headings (body text inside '#' lines, or nearly ` +
+          `every line is a heading). Rewrite it with correct structure: body content as plain ` +
+          `paragraphs and lists; at most a few short "## " section headers; no title heading. ` +
+          `Preserve the meaning and all content. Return ONLY the fixed Markdown.\n\n` +
+          first.formattedText,
+      });
+      const fixed = (repair.text || "").trim();
+      if (fixed && !markdownLooksBroken(fixed)) {
+        return { ...first, formattedText: fixed };
+      }
+    } catch (e: any) {
+      console.warn("group repair pass failed", { message: e?.message });
+    }
+  }
+  return first;
+}
+
 /**
  * Pull the actionable tasks out of a note.
  *

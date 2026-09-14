@@ -103,6 +103,26 @@ fun LibraryScreen(
     var expandedCards by remember { androidx.compose.runtime.mutableStateOf<Set<String>>(emptySet()) }
     var selection by remember { androidx.compose.runtime.mutableStateOf<Set<String>>(emptySet()) }
     var confirmTrash by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var confirmRedoFormalize by remember { androidx.compose.runtime.mutableStateOf(false) }
+
+    // Bulk-action state (multi-select · Group / Formalize).
+    val formalizeProgress by viewModel.formalizeProgress.collectAsState()
+    val grouping by viewModel.grouping.collectAsState()
+    val groupedNote by viewModel.groupedNote.collectAsState()
+    val chosen = sessions.filter { it.id in selection }
+    val bulkBusy = formalizeProgress != null || grouping
+
+    // A merge is something the user tapped and then waited for, so it opens its result — the
+    // one navigation post-capture auto-open got wrong by firing when nobody was waiting. The
+    // selection is dropped first: returning to five still-ticked notes would read as if the
+    // merge hadn't happened.
+    LaunchedEffect(groupedNote) {
+        groupedNote?.let { id ->
+            selection = emptySet()
+            viewModel.consumeGroupedNote()
+            onNavigateToDetail(id)
+        }
+    }
     var showSkeleton by remember { androidx.compose.runtime.mutableStateOf(false) } // debug preview
     val selecting = selection.isNotEmpty()
     val searching = query.isNotBlank() || searchFocused
@@ -110,8 +130,6 @@ fun LibraryScreen(
     val cs = MaterialTheme.colorScheme
     val ext = YapTheme.extended
     val context = androidx.compose.ui.platform.LocalContext.current
-    fun stub(what: String) =
-        android.widget.Toast.makeText(context, "$what coming soon", android.widget.Toast.LENGTH_SHORT).show()
 
     // Library · offline — banner + pending-count pill (recordings waiting to sync/refine).
     val (offline, recheckOnline) = rememberOfflineState()
@@ -261,6 +279,32 @@ fun LibraryScreen(
                             Text("Offline · showing cached notes", fontSize = 12.sp, color = ext.onOfflineContainer)
                         }
                     }
+                }
+            }
+
+            // Bulk-action progress. Deliberately outside the selecting/searching branches:
+            // Formalize clears the selection the moment it starts, and the run outlives
+            // whatever the user does next — a banner that vanished when they opened the
+            // search box would look like the work had stopped.
+            if (bulkBusy) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = edge).padding(top = 12.dp)
+                        .clip(YapShapes.lg).background(cs.secondaryContainer)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        color = cs.onSecondaryContainer,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        formalizeProgress?.let { (index, total) -> "Formalizing ${index + 1} of $total…" }
+                            ?: "Merging ${chosen.size} notes into one…",
+                        fontSize = 12.sp,
+                        color = cs.onSecondaryContainer,
+                    )
                 }
             }
 
@@ -465,8 +509,28 @@ fun LibraryScreen(
                         Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 16.dp, start = 14.dp, end = 14.dp),
                         horizontalArrangement = Arrangement.SpaceAround,
                     ) {
-                        SelectionAction(Icons.Outlined.Hub, "Group", cs.onPrimaryContainer) { stub("Group") }
-                        SelectionAction(Icons.Outlined.AutoAwesome, "Formalize", cs.onPrimaryContainer) { stub("Formalize") }
+                        // Group merges the selection into one new note, so one note is not a
+                        // thing it can do — enabled from two up.
+                        SelectionAction(
+                            Icons.Outlined.Hub, "Group", cs.onPrimaryContainer,
+                            enabled = selection.size >= 2 && !bulkBusy,
+                        ) { viewModel.groupSessions(chosen) }
+                        SelectionAction(
+                            Icons.Outlined.AutoAwesome, "Formalize", cs.onPrimaryContainer,
+                            enabled = !bulkBusy,
+                        ) {
+                            // Re-formalizing a note overwrites formatted text the user may
+                            // have edited by hand, so the default is to do only the ones that
+                            // have never been through it. Doing all of them is still one tap
+                            // away when that is genuinely what they meant.
+                            val needsWork = chosen.filter { it.formattedText.isNullOrBlank() }
+                            if (needsWork.isEmpty()) {
+                                confirmRedoFormalize = true
+                            } else {
+                                viewModel.formalizeSessions(needsWork, skipped = chosen.size - needsWork.size)
+                                selection = emptySet()
+                            }
+                        }
                         // Pin toggles: if every selected note is already pinned, unpin them.
                         val allPinned = selection.isNotEmpty() &&
                             sessions.filter { it.id in selection }.all { it.pinned }
@@ -506,6 +570,34 @@ fun LibraryScreen(
         SyncSheet(sessions = sessions, onSyncNow = { recheckOnline() }, onDismiss = { showSyncSheet = false })
     }
 
+    // Every selected note has been formalized before. Doing it again is a legitimate thing to
+    // want — it is how you redo a bad pass — but it overwrites the formatted text, including
+    // any block edits made by hand, so it asks rather than assuming.
+    if (confirmRedoFormalize) {
+        val n = chosen.size
+        AlertDialog(
+            onDismissRequest = { confirmRedoFormalize = false },
+            shape = YapShapes.dialog,
+            title = { Text(if (n == 1) "That note is already formalized" else "Those are already formalized") },
+            text = {
+                Text(
+                    "Running it again replaces the formatted text, including any edits you've " +
+                        "made to it. The original transcript is kept either way."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.formalizeSessions(chosen)
+                    selection = emptySet()
+                    confirmRedoFormalize = false
+                }) { Text("Formalize again") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRedoFormalize = false }) { Text("Cancel") }
+            },
+        )
+    }
+
     if (confirmTrash) {
         AlertDialog(
             onDismissRequest = { confirmTrash = false },
@@ -523,15 +615,26 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun SelectionAction(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
+private fun SelectionAction(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    /** Dimmed and inert when false — Group needs two notes, and nothing runs twice at once. */
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    // Dimming the colour rather than hiding the action: a button that disappears when you
+    // deselect a note leaves you wondering what you did, where a greyed one still says what
+    // it is and implies there is a condition to meet.
+    val shade = if (enabled) tint else tint.copy(alpha = 0.38f)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clip(YapShapes.lg).clickable { onClick() }
+        modifier = Modifier.clip(YapShapes.lg).clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 10.dp, vertical = 2.dp),
     ) {
-        Icon(icon, label, tint = tint, modifier = Modifier.size(23.dp))
+        Icon(icon, label, tint = shade, modifier = Modifier.size(23.dp))
         Spacer(Modifier.height(3.dp))
-        Text(label, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = tint)
+        Text(label, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = shade)
     }
 }
 

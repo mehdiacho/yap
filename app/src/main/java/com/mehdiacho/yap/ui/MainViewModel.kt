@@ -878,26 +878,154 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** "Polish now" — cloud-formalize a draft-only note's existing text (no audio round-trip). */
     fun polishSession(session: Session) {
-        viewModelScope.launch {
-            runCatching { repository.upsert(session.copy(status = "TRANSCRIBING")) }
-            try {
-                val r = TranscriptionClient.refineText(session.draftText)
-                val title = r.name.ifBlank { session.title }
-                repository.upsert(
-                    session.copy(
-                        title = title,
-                        formattedText = r.formattedText,
-                        category = r.category.ifBlank { session.category },
-                        topicCluster = r.topicCluster.ifBlank { session.topicCluster },
-                        status = "DONE",
-                        statusReason = null,
-                        statusMessage = null,
-                    )
+        viewModelScope.launch { polish(session, notify = true) }
+    }
+
+    /**
+     * Run one note through the formalize pass. True if it came back formatted.
+     *
+     * [notify] is off for bulk runs: a notification per note turns a five-note Formalize into
+     * five pings for something the user is already watching happen on screen.
+     */
+    private suspend fun polish(session: Session, notify: Boolean): Boolean {
+        runCatching { repository.upsert(session.copy(status = "TRANSCRIBING")) }
+        return try {
+            val r = TranscriptionClient.refineText(session.draftText)
+            val title = r.name.ifBlank { session.title }
+            repository.upsert(
+                session.copy(
+                    title = title,
+                    formattedText = r.formattedText,
+                    category = r.category.ifBlank { session.category },
+                    topicCluster = r.topicCluster.ifBlank { session.topicCluster },
+                    status = "DONE",
+                    statusReason = null,
+                    statusMessage = null,
                 )
-                com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
+            )
+            if (notify) com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), session.id, title)
+            true
+        } catch (e: Exception) {
+            Log.e("Yap", "polish failed: ${e.message}", e)
+            runCatching { repository.upsert(session) } // restore prior state
+            false
+        }
+    }
+
+    // ------------------------------------------------------- multi-select bulk actions
+
+    /** Progress of a bulk Formalize: null when idle, else done-count to total. */
+    private val _formalizeProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+    val formalizeProgress: StateFlow<Pair<Int, Int>?> = _formalizeProgress.asStateFlow()
+
+    /** True while a Group merge is in flight. One call, so there is no per-note count. */
+    private val _grouping = MutableStateFlow(false)
+    val grouping: StateFlow<Boolean> = _grouping.asStateFlow()
+
+    /**
+     * The note a Group just produced, for the Library to open. Consumed like [pendingOpen].
+     *
+     * Unlike post-capture auto-open — disabled because it hijacked whatever screen you were
+     * on — this navigation is the direct result of the user tapping Group and waiting for it,
+     * so landing on the merged note is the answer to what they asked, not an interruption.
+     */
+    private val _groupedNote = MutableStateFlow<String?>(null)
+    val groupedNote: StateFlow<String?> = _groupedNote.asStateFlow()
+    fun consumeGroupedNote() { _groupedNote.value = null }
+
+    /**
+     * Formalize several notes at once — the Library's multi-select "Formalize".
+     *
+     * Strictly sequential. Firing N calls at once would spike the provider's rate limit on
+     * the exact action a user is most likely to run over a big selection, and the failure
+     * would land on an arbitrary subset with no way to tell which.
+     *
+     * Notes with no text are skipped rather than sent: there is nothing to formalize, and the
+     * server rejects an empty draft anyway. Callers decide whether already-formatted notes
+     * belong in [sessions] — re-running one is legitimate (it is how you redo a bad pass) and
+     * this is not the layer that should be guessing about that.
+     */
+    fun formalizeSessions(sessions: List<Session>, skipped: Int = 0) {
+        if (_formalizeProgress.value != null) return // already running
+        val queue = sessions.filter { it.draftText.isNotBlank() }.sortedBy { it.createdAt }
+        if (queue.isEmpty()) {
+            _notice.value = "Those notes have no text to formalize."
+            return
+        }
+        // Claim the run here, not inside the coroutine. The guard above and the button's
+        // disabled state both key off this value, and neither can help during the frames
+        // between launching and the body running — long enough for a second tap to start a
+        // duplicate run over the same notes.
+        _formalizeProgress.value = 0 to queue.size
+        // The caller may have filtered out notes that were already formalized. Say so —
+        // "Formalized 2" after selecting 5 otherwise reads as three silent failures.
+        val alsoSkipped = if (skipped > 0) " $skipped w${if (skipped == 1) "as" else "ere"} already done." else ""
+        viewModelScope.launch {
+            var done = 0
+            try {
+                for ((index, note) in queue.withIndex()) {
+                    _formalizeProgress.value = index to queue.size
+                    if (polish(note, notify = false)) done++
+                }
+                val failed = queue.size - done
+                _notice.value = when {
+                    done > 0 && failed > 0 -> "Formalized $done. $failed didn't come back.$alsoSkipped"
+                    done > 0 -> "Formalized $done note${if (done == 1) "" else "s"}.$alsoSkipped"
+                    else -> "Couldn't formalize those notes."
+                }
             } catch (e: Exception) {
-                Log.e("Yap", "polish failed: ${e.message}", e)
-                runCatching { repository.upsert(session) } // restore prior state
+                Log.e("Yap", "bulk formalize failed: ${e.message}", e)
+                _notice.value = e.message?.takeIf { it.isNotBlank() }
+                    ?: "Couldn't finish. Anything already formalized is saved."
+            } finally {
+                _formalizeProgress.value = null
+            }
+        }
+    }
+
+    /**
+     * Merge several notes into one new note — the Library's multi-select "Group".
+     *
+     * The sources are left exactly as they were. A merge that consumed its inputs would be
+     * the one action here a user could not undo by hand, and "group" does not read like a
+     * word that deletes things. If they want the originals gone they can select and trash
+     * them, which is reversible for 30 days.
+     */
+    fun groupSessions(sessions: List<Session>) {
+        if (_grouping.value) return
+        val usable = sessions.filter { it.draftText.isNotBlank() || !it.formattedText.isNullOrBlank() }
+        if (usable.size < 2) {
+            _notice.value = "Pick at least two notes with something in them."
+            return
+        }
+        // Claimed synchronously — see formalizeSessions. It matters more here: a duplicate
+        // run doesn't just waste a call, it creates a second merged note the user never
+        // asked for and has to go and delete.
+        _grouping.value = true
+        viewModelScope.launch {
+            try {
+                val r = TranscriptionClient.groupSessions(usable)
+                val merged = Session(
+                    id = UUID.randomUUID().toString(),
+                    title = r.name.ifBlank { "Merged note" },
+                    draftText = r.rawText,
+                    formattedText = r.formattedText,
+                    status = "DONE",
+                    category = r.category.ifBlank { "Memo" },
+                    topicCluster = r.topicCluster.ifBlank { "General" },
+                    source = com.mehdiacho.yap.data.SessionSource.MERGED,
+                    // The trail back to what this was built from. Ids, not titles: titles get
+                    // edited and a merged note should still be able to say where it came from.
+                    sourceRef = usable.joinToString(",") { it.id },
+                )
+                repository.upsert(merged)
+                _groupedNote.value = merged.id
+            } catch (e: Exception) {
+                Log.e("Yap", "group failed: ${e.message}", e)
+                _notice.value = e.message?.takeIf { it.isNotBlank() }
+                    ?: "Couldn't merge those notes. Nothing was changed."
+            } finally {
+                _grouping.value = false
             }
         }
     }

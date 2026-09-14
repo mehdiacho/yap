@@ -338,6 +338,48 @@ object TranscriptionClient {
         )
     }
 
+    /**
+     * Merge several notes into one document — the Library's "Group" action.
+     *
+     * Sends the text rather than ids: the client already has every note in memory, so a
+     * server-side read would be a round trip to fetch what the caller is looking at. The
+     * sources are not modified; the caller creates a new note from what comes back.
+     *
+     * [rawText] on the result is the concatenated source text, so the merged note's Raw view
+     * and full-text search still contain everything that went into it.
+     */
+    suspend fun groupSessions(notes: List<Session>): TranscriptionResult {
+        ensureSignedIn()
+        // Prefer the formalized text where a note has one — it is the same content with the
+        // filler already removed, so the merge starts from the better copy of each source.
+        fun bodyOf(s: Session) = s.formattedText?.takeIf { it.isNotBlank() } ?: s.draftText
+        val payload = notes.map { s ->
+            hashMapOf(
+                "id" to s.id,
+                "title" to s.title,
+                "createdAt" to s.createdAt,
+                "text" to bodyOf(s).take(100_000),
+            )
+        }
+        val result = awaitTask(
+            functions.getHttpsCallable("groupSessions").call(hashMapOf("notes" to payload))
+        )
+        @Suppress("UNCHECKED_CAST")
+        val map = result.getData() as? Map<String, Any?> ?: emptyMap()
+        val combined = notes.sortedBy { it.createdAt }
+            .joinToString("\n\n---\n\n") { bodyOf(it) }
+        return TranscriptionResult(
+            rawText = combined,
+            name = map["name"] as? String ?: "Merged note",
+            description = map["description"] as? String ?: "",
+            tags = (map["tags"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
+            category = map["category"] as? String ?: "Memo",
+            topicCluster = map["topicCluster"] as? String ?: "General",
+            formattedText = map["formattedText"] as? String ?: combined,
+            storagePath = null,
+        )
+    }
+
     /** One occurrence the model thinks was deliberate; [reason] is short and shown inline. */
     data class OccurrenceVerdict(val index: Int, val intentional: Boolean, val reason: String)
 

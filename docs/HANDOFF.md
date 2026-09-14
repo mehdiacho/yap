@@ -113,7 +113,7 @@ Functions v2, Firestore, Storage, Auth) in `africa-south1`. Package `app.greenfo
 - Connectors / smart actions (calendar+contacts from action blocks) — consideration only.
 - Claude Design work: AMOLED palette, Library page rework, note-detail 3-dot menu decomposition.
 - R8/minification before production. Store-name final decision. App Check (Play Integrity) before
-  wide distribution. Remaining stub features (#4 block editing, #16 Moonshine, Group/Formalize,
+  wide distribution. Remaining stub features (#4 block editing, #16 Moonshine,
   notification restyle, 4×1 widget).
 
 ## Build / device notes

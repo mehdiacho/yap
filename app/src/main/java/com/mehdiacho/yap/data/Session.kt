@@ -54,6 +54,14 @@ object SessionSource {
     const val SHARED_VIDEO = "SHARED_VIDEO"
     /** Text sent in through the share sheet. Has no recording and never did. */
     const val SHARED_TEXT = "SHARED_TEXT"
+    /**
+     * Made by merging other notes together (Library → select → Group).
+     *
+     * Its sources keep existing and keep their audio; this note is the document written from
+     * them, and has no recording of its own. [Session.sourceRef] holds the ids it was built
+     * from, so the trail back is never guesswork.
+     */
+    const val MERGED = "MERGED"
     /** Rescued from disk by the orphan scan; the original context is gone. */
     const val RECOVERED = "RECOVERED"
     /**
@@ -137,11 +145,22 @@ data class Session(
     /**
      * True when this note is known never to have had a recording.
      *
-     * Only SHARED_TEXT qualifies. UNKNOWN deliberately does not: an old note might have had
-     * audio that has since been cleaned up, and saying "there was never a recording" about
-     * one that had one is the same false claim in the other direction.
+     * SHARED_TEXT and MERGED qualify — one arrived as text, the other was written from other
+     * notes. UNKNOWN deliberately does not: an old note might have had audio that has since
+     * been cleaned up, and saying "there was never a recording" about one that had one is the
+     * same false claim in the other direction.
+     *
+     * Callers that explain the absence to the user must distinguish the two — the reason
+     * differs, and so does the copy. See SessionDetailScreen.
      */
-    val neverHadAudio: Boolean get() = source == SessionSource.SHARED_TEXT
+    val neverHadAudio: Boolean
+        get() = source == SessionSource.SHARED_TEXT || source == SessionSource.MERGED
+
+    /** The notes this one was merged from, if it was. Empty for everything else. */
+    val mergedFrom: List<String>
+        get() = if (source == SessionSource.MERGED)
+            sourceRef?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+        else emptyList()
 
     val hasTasks: Boolean get() = actionItems.isNotEmpty()
     val tasksDone: Int get() = actionItems.count { it.done }
