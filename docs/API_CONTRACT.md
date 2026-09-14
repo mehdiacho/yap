@@ -26,7 +26,7 @@ before any client existed and **never matched the database**. There is no `tags`
 | `statusReason`, `statusMessage` | string \| null | Why a `FAILED`/`QUOTA` note ended up there, and what to show the user. |
 | `createdAt` | number | **Epoch milliseconds**, not a Firestore Timestamp. |
 | `durationMs` | number | Audio length. 0 for text-only notes. |
-| `category`, `topicCluster` | string | Model-assigned. Default `Memo` / `General`. **Both fragment badly in practice** — the enrich step mints new labels instead of reusing existing ones, so neither is a reliable grouping key today. |
+| `category`, `topicCluster` | string | Model-assigned. Default `Memo` / `General`. **Both fragmented badly** — formalize saw one note at a time and minted a new label each time. Since 2026-09-14 it is given the person's existing labels (`functions/src/labels.ts`) and cosmetic variants are snapped onto them, but notes written before that are still fragmented. |
 | `trashedAt` | number \| null | Soft delete. Non-null means it is in the trash. |
 | `pinned` | boolean | |
 | `actionItems` | array | `{ id, text, done, doneAt }`. |

@@ -48,6 +48,7 @@ export {
 import { getEntitlement, capForPlan } from "./accounts";
 import { BYOK_ENC_KEY, resolveGeminiKey } from "./byok";
 import { classifyProviderError } from "./providerErrors";
+import { existingLabels } from "./labels";
 
 // Set with: firebase functions:secrets:set GEMINI_API_KEY
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
@@ -251,6 +252,7 @@ export const transcribeSession = onCall(
       const result = await transcribeAndFormalize(audio, mimeType, apiKey, {
         wordTimings: wantWordTimings,
         durationSec: seconds,
+        labels: await existingLabels(request.auth.uid),
       });
 
       // The user can pick a category before they hit record ("this one's an app update").
@@ -437,7 +439,7 @@ export const refineText = onCall(
       GEMINI_API_KEY.value()
     );
     try {
-      return await formalizeText(draftText, apiKey);
+      return await formalizeText(draftText, apiKey, await existingLabels(request.auth.uid));
     } catch (e: any) {
       const failure = classifyProviderError(e, byok);
       console.error("refineText failed", { byok, reason: failure.reason, message: e?.message });
@@ -525,7 +527,7 @@ export const groupSessions = onCall(
     );
 
     try {
-      const merged = await groupNotes(notes, apiKey);
+      const merged = await groupNotes(notes, apiKey, await existingLabels(request.auth.uid));
       return { ...merged, sourceIds: notes.map((n) => n.id) };
     } catch (e: any) {
       const failure = classifyProviderError(e, byok);

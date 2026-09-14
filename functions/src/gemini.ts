@@ -8,6 +8,7 @@ import {
 } from "@google/genai";
 import { TimedTranscript, transcribeTimed, WordTiming } from "./transcribeWords";
 import { recordModelUsage } from "./costMeter";
+import { Labels, labelSection, NO_LABELS, snapLabels } from "./labels";
 
 // Swap here if you prefer a different tier (e.g. gemini-2.5-pro for accuracy).
 const MODEL = "gemini-2.5-flash";
@@ -145,7 +146,7 @@ export async function transcribeAndFormalize(
   audio: Buffer,
   mimeType: string,
   apiKey: string,
-  opts: { wordTimings?: boolean; durationSec?: number } = {}
+  opts: { wordTimings?: boolean; durationSec?: number; labels?: Labels } = {}
 ): Promise<TranscriptionResult> {
   const ai = new GoogleGenAI({ apiKey });
 
@@ -196,7 +197,7 @@ export async function transcribeAndFormalize(
   }
 
   // 2) Formalization (name / description / tags / category / topicCluster / formatted markdown)
-  const meta = await formalize(ai, rawText);
+  const meta = await formalize(ai, rawText, opts.labels);
   return { rawText, ...meta, ...(timed ? { words: timed.words } : {}) };
 }
 
@@ -466,7 +467,8 @@ Return ONLY JSON: {"verdicts":[{"index":number,"intentional":boolean,"reason":st
 
 async function formalize(
   ai: GoogleGenAI,
-  rawText: string
+  rawText: string,
+  labels: Labels = NO_LABELS
 ): Promise<Omit<TranscriptionResult, "rawText">> {
   const prompt = `You are an advanced transcription analysis system. Analyze the following RAW TRANSCRIPT and generate a cohesive, structured JSON response.
 
@@ -487,7 +489,7 @@ ${rawText}
 - Headings are single short lines. NEVER put body sentences, lists, or whole paragraphs inside a heading.
 - The bulk of the output must be plain paragraphs and lists — if most lines start with '#', the output is wrong.
 - For dialogue, use "**SPEAKER:** line" formatting. For action items, use a bullet list.
-
+${labelSection(labels)}
 Return ONLY a valid JSON object matching the schema. No markdown fences, no commentary.`;
 
   const res = await callModel(ai, "formalize", {
@@ -511,6 +513,7 @@ Return ONLY a valid JSON object matching the schema. No markdown fences, no comm
   });
 
   const first = parseFormalizeResponse(res.text, rawText);
+  snapLabels(first, labels);
 
   // Format verification: when heading structure is clearly broken (the "everything is a
   // heading" failure mode), do exactly one corrective repair pass on the markdown.
@@ -578,10 +581,11 @@ function markdownLooksBroken(md: string): boolean {
 /** Text-only refine for "Polish now" on draft-only notes (no audio round-trip). */
 export async function formalizeText(
   rawText: string,
-  apiKey: string
+  apiKey: string,
+  labels?: Labels
 ): Promise<Omit<TranscriptionResult, "rawText">> {
   const ai = new GoogleGenAI({ apiKey });
-  return formalize(ai, rawText);
+  return formalize(ai, rawText, labels);
 }
 
 /** One note going into a merge. [createdAt] is epoch ms; the order it was recorded matters. */
@@ -610,7 +614,8 @@ export interface NoteToGroup {
  */
 export async function groupNotes(
   notes: NoteToGroup[],
-  apiKey: string
+  apiKey: string,
+  labels: Labels = NO_LABELS
 ): Promise<Omit<TranscriptionResult, "rawText">> {
   const ai = new GoogleGenAI({ apiKey });
 
@@ -653,7 +658,7 @@ ONE document that reads as though the author wrote it in a single sitting, knowi
 - Headings are single short lines. NEVER put body sentences, lists, or whole paragraphs inside a heading.
 - The bulk of the output must be plain paragraphs and lists — if most lines start with '#', the output is wrong.
 - For dialogue, use "**SPEAKER:** line" formatting. For action items, use a bullet list.
-
+${labelSection(labels)}
 Return ONLY a valid JSON object matching the schema. No markdown fences, no commentary.`;
 
   const res = await callModel(ai, "group", {
@@ -681,6 +686,7 @@ Return ONLY a valid JSON object matching the schema. No markdown fences, no comm
   // formatted, instead of a note that silently contains a fraction of what they merged.
   const fallback = ordered.map((n) => n.text).join("\n\n---\n\n");
   const first = parseFormalizeResponse(res.text, fallback);
+  snapLabels(first, labels);
 
   if (markdownLooksBroken(first.formattedText)) {
     console.warn("group: broken markdown detected, running repair pass");
