@@ -18,7 +18,7 @@
 </head>
 <body>
 <h1>Yap — Privacy Policy</h1>
-<p class="muted">Effective: 13 July 2026 · Applies to the Yap Android app (package <code>app.greenforrest.yap</code>)</p>
+<p class="muted">Effective: 14 September 2026 · Applies to the Yap Android app (package <code>app.greenforrest.yap</code>), the Yap web app, and the Yap connector for Claude</p>
 
 <p>Yap is a voice idea-capture app: you record a thought, Yap transcribes it and turns it into an
 organized note. This policy explains what data the app handles, why, and the control you have
@@ -54,11 +54,24 @@ provide the features you use, we don't sell data, and we don't show ads.</p>
   <code>africa-south1</code> (Johannesburg) region. Data is encrypted in transit.</li>
   <li><b>Bring-your-own-key.</b> If you use your own AI provider key, it is stored only on your
   device and sent per-request; we never store it on our servers.</li>
+  <li><b>Connecting Yap to Claude (optional).</b> You can add Yap as a connector in Claude, the
+  AI assistant made by Anthropic. Nothing is shared unless you do this yourself and sign in to
+  Yap to approve it. Once connected, Claude can read your notes — titles, transcripts, formatted
+  text, categories, topics and action items — when you ask it to, and can record what became of a
+  note (pursued, dropped or converted) if you ask it to. Claude never receives your audio. What
+  Claude receives is handled under Anthropic's own terms and privacy policy, not ours.</li>
+  <li><b>How the connector works.</b> The connection runs through our server on Cloudflare Workers
+  at <code>yap-mcp.greenforrest.app</code>. To reach your notes on your behalf, it keeps a sign-in
+  token for your account, encrypted, together with your account ID and the name of the connected
+  app — not your email or name. Your notes pass through it on their way to Claude and are held
+  only briefly in memory; they are not stored there. It works under the same access rules as the
+  app, so it can reach only your own notes. Guest accounts cannot be connected.</li>
 </ul>
 
 <h2>What we don't do</h2>
 <ul>
   <li>No selling of personal data. No advertising, and no third-party advertising SDKs.</li>
+  <li>No sharing of your notes with any AI assistant unless you connect one yourself.</li>
   <li>No access to your contacts, location, photos, or messages.</li>
   <li>No recording unless you start one — the microphone is used only during an active
   recording session you initiate, shown by a persistent notification.</li>
@@ -75,6 +88,9 @@ provide the features you use, we don't sell data, and we don't show ads.</p>
   <li><b>Audio retention.</b> Settings let you keep audio, discard it after transcription, or
   auto-delete it after 30 days.</li>
   <li><b>On-device only mode.</b> Prevents audio from being sent to the cloud.</li>
+  <li><b>Disconnect Claude.</b> Remove the Yap connector in Claude's connector settings and
+  Claude can no longer read your notes. Deleting your Yap account, or signing out of Yap
+  everywhere, also invalidates the token the connector holds.</li>
 </ul>
 
 <h2>Retention</h2>

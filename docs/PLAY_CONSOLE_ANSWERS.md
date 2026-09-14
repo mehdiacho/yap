@@ -52,6 +52,13 @@ policies, and export.
 (Per Play policy, transfers to service providers processing on your behalf — Firebase, the
 Gemini API via our backend — do not count as "sharing"; we transfer to no one else.)
 
+**The Claude connector does not change this, as of 2026-09-14.** Notes reach Anthropic only when
+the person adds the Yap connector in Claude themselves and signs in to approve it. Play treats a
+transfer the user starts, where they reasonably expect the data to go to that third party, as
+not "sharing". The Worker in between (Cloudflare) is a service provider. The privacy policy
+discloses the connector either way. If Yap ever pushes notes to an AI service the user didn't
+connect, revisit this.
+
 | Data type | Collected | User-optional? | Purposes |
 |---|---|---|---|
 | Audio → **Voice or sound recordings** | Yes | Yes (only when user records; on-device-only mode exists) | App functionality |
