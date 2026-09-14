@@ -1,9 +1,9 @@
 {
   "name": "yap-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Read-only MCP server over a Yap user's notes.",
+  "description": "MCP server over a Yap user's notes: local over stdio, or remote as a Claude connector.",
   "bin": {
     "yap-mcp": "./dist/index.js"
   },
@@ -11,17 +11,24 @@
     "build": "tsc",
     "build:watch": "tsc --watch",
     "login": "node dist/login.js",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "worker:check": "tsc -p tsconfig.worker.json",
+    "worker:dev": "wrangler dev --local-protocol https --local-upstream localhost:8787",
+    "worker:deploy": "wrangler deploy"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@cfworker/json-schema": "^4.1.1",
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260914.1",
     "@types/node": "^22.9.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "wrangler": "^4.131.2"
   }
 }

@@ -1,5 +1,4 @@
-import type { Config } from "./config.js";
-import type { TokenSource } from "./auth.js";
+import type { TokenProvider } from "./token.js";
 
 /** A Firestore REST `Value`. Only the shapes Yap actually writes are handled. */
 type FsValue = Record<string, unknown>;
@@ -53,12 +52,12 @@ export interface QueryOptions {
  */
 export class SessionStore {
   constructor(
-    private readonly cfg: Config,
-    private readonly tokens: TokenSource,
+    private readonly projectId: string,
+    private readonly tokens: TokenProvider,
   ) {}
 
   private get base(): string {
-    return `https://firestore.googleapis.com/v1/projects/${this.cfg.projectId}/databases/(default)/documents`;
+    return `https://firestore.googleapis.com/v1/projects/${this.projectId}/databases/(default)/documents`;
   }
 
   async query(opts: QueryOptions): Promise<Record<string, unknown>[]> {
