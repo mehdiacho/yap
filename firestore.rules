@@ -24,6 +24,10 @@ service cloud.firestore {
     // something the next user should be able to page through, and the collection is flat, so
     // any client read rule would expose all of it.
 
+    // adminTags/{uid} has no rule and must not get one: it is our own labelling of accounts
+    // ("tester", "Play crawler", "our test") plus a private note about who someone is.
+    // Written and read only through the admin-gated callables.
+
     // byokKeys/{uid} likewise has NO rule, deliberately: it holds users' own provider API
     // keys (encrypted), and not even the owner may read one back. The readable summary
     // (byokActive / byokKeyHint) lives on entitlements/{uid} above. Do not add a rule here.

@@ -3,6 +3,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth, signIn, leave, call } from "./firebase.js";
 import Overview from "./views/Overview.jsx";
 import Users from "./views/Users.jsx";
+import Testers from "./views/Testers.jsx";
 import Subscriptions from "./views/Subscriptions.jsx";
 import Feedback from "./views/Feedback.jsx";
 import Activity from "./views/Activity.jsx";
@@ -11,7 +12,8 @@ import { Err } from "./ui.jsx";
 
 const TABS = [
   { id: "overview", label: "Overview", View: Overview },
-  { id: "users", label: "Users", View: Users },
+  { id: "users", label: "Accounts", View: Users },
+  { id: "testers", label: "Testers", View: Testers },
   { id: "subs", label: "Subscriptions", View: Subscriptions },
   { id: "feedback", label: "Feedback", View: Feedback },
   { id: "activity", label: "Activity", View: Activity },

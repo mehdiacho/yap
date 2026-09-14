@@ -41,6 +41,8 @@ export {
   adminListFeedback,
   adminUpdateFeedback,
   adminListUsers,
+  adminTagUser,
+  adminPurgeGuests,
   adminRecentActivity,
 } from "./admin";
 import { getEntitlement, capForPlan } from "./accounts";

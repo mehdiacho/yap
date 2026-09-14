@@ -31,8 +31,14 @@ export function Empty({ children }) {
   return <div className="empty">{children}</div>;
 }
 
-export function Pill({ tone, children }) {
-  return <span className={tone ? `pill ${tone}` : "pill"}>{children}</span>;
+/** `title` is the hover explanation. Activity has been passing one since it was written and
+ *  this dropped it on the floor, so a failed note's reason was never actually readable. */
+export function Pill({ tone, title, children }) {
+  return (
+    <span className={tone ? `pill ${tone}` : "pill"} title={title}>
+      {children}
+    </span>
+  );
 }
 
 /** Local time, because whoever is reading this is in one place and it is not UTC. */
