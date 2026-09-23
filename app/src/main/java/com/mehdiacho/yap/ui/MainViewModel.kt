@@ -26,6 +26,13 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
 
+/**
+ * How long "Add a recording" waits for the note's own transcription to land before merging
+ * into it anyway. Covers an ordinary recording's server run; recordings finished behind it
+ * queue for that long too, so it is not open-ended.
+ */
+private const val SETTLE_WAIT_MS = 3 * 60_000L
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = FirestoreSessionRepository()
 
@@ -596,12 +603,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * detail player pages through primary + appended clips with swipe dots.
      */
     private suspend fun appendRecording(
-        target: Session,
+        tapped: Session,
         clipPath: String,
         clipDurationMs: Long,
         clipBookmarks: List<Long>,
     ) {
-        runCatching { repository.upsert(target.copy(status = "TRANSCRIBING")) }
+        // `tapped` is the note as the screen showed it when "Add a recording" was pressed —
+        // possibly minutes ago, and possibly while that note was still transcribing. Merging
+        // into that copy and writing it back is how a finished transcript (title, text,
+        // tasks, cloud pointer) was replaced by the live draft on 2026-09-23. Work from the
+        // note as it stands now, and wait for its own transcription to land first.
+        val target = settled(tapped.id) ?: tapped
+        val priorStatus = target.status
+        runCatching { repository.setStatus(target.id, "TRANSCRIBING") }
         try {
             val clip = File(clipPath)
             val r = TranscriptionClient.appendTranscribe(
@@ -619,14 +633,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 bookmarks = clipBookmarks,
             )
 
-            val title = r.name.ifBlank { target.title }
+            // Re-read once more: the append call can take a minute, and a task ticked or a
+            // title edited in that time belongs in the result too.
+            val now = latest(target.id) ?: target
+            val title = r.name.takeIf { it.isNotBlank() && it != "Transcribing…" } ?: now.title
             repository.upsert(
-                target.copy(
+                now.copy(
                     title = title,
                     draftText = if (r.rawText.isBlank()) target.draftText
                         else target.draftText + "\n\n" + r.rawText,
                     formattedText = r.formattedText.ifBlank { target.formattedText },
-                    extraRecordings = target.extraRecordings + extra,
+                    extraRecordings = now.extraRecordings + extra,
                     status = "DONE",
                     statusReason = null,
                     statusMessage = null,
@@ -635,7 +652,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             com.mehdiacho.yap.ui.Notifier.refineDone(getApplication(), target.id, title)
         } catch (e: Exception) {
             Log.e("Yap", "append failed: ${e.message}", e)
-            runCatching { repository.upsert(target) } // restore the note to its prior state
+            // Put the status back and nothing else — the rest of the note was never touched.
+            runCatching { repository.setStatus(target.id, priorStatus) }
             // NEVER drop the audio. An append can fail for reasons the user can't predict
             // (clip over the inline-payload ceiling, network, quota); silently restoring the
             // note used to strand a complete recording on disk with nothing pointing at it.
@@ -777,6 +795,151 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Attempt.FAILED -> _notice.value = "Still couldn't transcribe that."
                 Attempt.DONE -> Unit // the note itself is the feedback
             }
+        }
+    }
+
+    /** The note as it stands in the database now, not as some screen last saw it. */
+    private suspend fun latest(id: String): Session? =
+        runCatching { repository.sessionById(id).first() }.getOrNull()
+
+    /**
+     * The note once it is no longer transcribing, or as it stands after [SETTLE_WAIT_MS].
+     *
+     * A note whose client gave up waiting is still being finished by the server, which writes
+     * the result onto it directly. Anything that merges into that note has to wait for it.
+     */
+    private suspend fun settled(id: String): Session? =
+        kotlinx.coroutines.withTimeoutOrNull(SETTLE_WAIT_MS) {
+            runCatching {
+                repository.sessionById(id).first { it == null || it.status != "TRANSCRIBING" }
+            }.getOrNull()
+        } ?: latest(id)
+
+    /** Notes being retranscribed right now, so a second tap doesn't start a second run. */
+    private val retranscribing = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /**
+     * "Retranscribe" from a note's menu: run the note's audio through transcription again and
+     * replace its text, whatever state it is in.
+     *
+     * "Try again" only appears on a note that failed. A note can also come out wrong without
+     * failing — cut short, overwritten, or transcribed before a model or prompt improved — and
+     * then there was no way to re-run it at all. The primary recording is transcribed first;
+     * clips added with "Add a recording" are then merged back in, in order, the same way they
+     * were the first time.
+     */
+    fun retranscribe(session: Session) {
+        if (!retranscribing.add(session.id)) {
+            _notice.value = "Already retranscribing this note."
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val before = latest(session.id) ?: session
+                when (transcribeExistingNote(before)) {
+                    Attempt.DONE -> {
+                        val missed = reappendExtras(session.id, before.extraRecordings)
+                        _notice.value = if (missed == 0) "Retranscribed."
+                        else "Retranscribed, but $missed added recording(s) couldn't be included."
+                    }
+                    Attempt.STILL_RUNNING -> {
+                        _notice.value = "Still transcribing — this one's long. It'll appear shortly."
+                        // The server finishes the primary recording on its own and writes only
+                        // that recording's text. Added clips have to be merged back after it
+                        // lands, or their words silently drop out of the note.
+                        if (before.extraRecordings.isNotEmpty()) {
+                            val landed = settled(session.id)
+                            if (landed?.status == "DONE") {
+                                val missed = reappendExtras(session.id, before.extraRecordings)
+                                _notice.value = if (missed == 0) "Retranscribed."
+                                else "Retranscribed, but $missed added recording(s) couldn't be included."
+                            } else {
+                                _notice.value = "The added recordings weren't retranscribed. Try again once the note has finished."
+                            }
+                        }
+                    }
+                    Attempt.NO_AUDIO -> _notice.value = "That note's recording isn't available."
+                    Attempt.QUOTA, Attempt.FAILED -> {
+                        // The note had text before this run; a failed re-run shouldn't turn it
+                        // into a failed note. Put its status and title back.
+                        latest(session.id)?.let { now ->
+                            runCatching {
+                                repository.upsert(
+                                    now.copy(
+                                        title = before.title,
+                                        status = before.status,
+                                        statusReason = before.statusReason,
+                                        statusMessage = before.statusMessage,
+                                    )
+                                )
+                            }
+                        }
+                        _notice.value = "Couldn't retranscribe that. The note is unchanged."
+                    }
+                }
+            } finally {
+                retranscribing.remove(session.id)
+            }
+        }
+    }
+
+    /** Merge each added clip back into a freshly retranscribed note. Returns how many failed. */
+    private suspend fun reappendExtras(
+        id: String,
+        extras: List<com.mehdiacho.yap.data.ExtraRecording>,
+    ): Int {
+        var missed = 0
+        for (extra in extras) {
+            val file = extra.audioPath?.let { File(it) }?.takeIf { it.exists() }
+                ?: extra.storagePath?.let { path ->
+                    runCatching {
+                        com.mehdiacho.yap.data.AudioCache.download(getApplication(), path)
+                    }.getOrNull()
+                }
+            val note = latest(id)
+            if (file == null || note == null) { missed++; continue }
+            runCatching {
+                val r = TranscriptionClient.appendTranscribe(
+                    file, extra.durationMs, note.title, note.draftText, note.formattedText ?: ""
+                )
+                val now = latest(id) ?: note
+                repository.upsert(
+                    now.copy(
+                        title = r.name.ifBlank { now.title },
+                        draftText = if (r.rawText.isBlank()) note.draftText
+                            else note.draftText + "\n\n" + r.rawText,
+                        formattedText = r.formattedText.ifBlank { note.formattedText },
+                    )
+                )
+            }.onFailure {
+                Log.e("Yap", "re-append of ${extra.audioPath ?: extra.storagePath} failed: ${it.message}", it)
+                missed++
+            }
+        }
+        return missed
+    }
+
+    /** "Download recording": copy the note's audio to Downloads/Yap on the phone. */
+    fun downloadRecording(session: Session) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _notice.value = "Saving the recording…"
+            val result = runCatching {
+                com.mehdiacho.yap.data.RecordingSaver.save(getApplication(), latest(session.id) ?: session)
+            }
+            _notice.value = result.fold(
+                onSuccess = { o ->
+                    when {
+                        o.saved == 0 -> "That note's recording isn't available to save."
+                        o.missing > 0 -> "Saved ${o.saved} recording(s) to ${o.folder}. ${o.missing} couldn't be found."
+                        o.saved == 1 -> "Saved to ${o.folder}."
+                        else -> "Saved ${o.saved} recordings to ${o.folder}."
+                    }
+                },
+                onFailure = {
+                    Log.e("Yap", "download recording failed: ${it.message}", it)
+                    "Couldn't save the recording: ${it.message ?: "unknown error"}"
+                },
+            )
         }
     }
 

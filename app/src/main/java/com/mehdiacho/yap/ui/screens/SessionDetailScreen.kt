@@ -102,6 +102,7 @@ fun SessionDetailScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var showEditTitle by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showRetranscribeConfirm by remember { mutableStateOf(false) }
     var titleDraft by remember { mutableStateOf("") }
     var editingBody by remember { mutableStateOf(false) }
     var bodyDraft by remember { mutableStateOf("") }
@@ -245,6 +246,22 @@ fun SessionDetailScreen(
                                 ).show()
                             }
                         })
+                    // Anything with audio behind it. A merged note or shared text never had
+                    // a recording of its own, so neither action means anything there.
+                    val hasAudio = currentSession.audioPath != null ||
+                        currentSession.storagePath != null ||
+                        currentSession.extraRecordings.isNotEmpty()
+                    val recorded = hasAudio &&
+                        currentSession.source != com.mehdiacho.yap.data.SessionSource.SHARED_TEXT &&
+                        currentSession.source != com.mehdiacho.yap.data.SessionSource.MERGED
+                    if (recorded && currentSession.status != "TRANSCRIBING") {
+                        DropdownMenuItem(text = { Text("Retranscribe") },
+                            onClick = { menuOpen = false; showRetranscribeConfirm = true })
+                    }
+                    if (recorded) {
+                        DropdownMenuItem(text = { Text("Download recording") },
+                            onClick = { menuOpen = false; viewModel.downloadRecording(currentSession) })
+                    }
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text("Delete", color = cs.error) },
                         onClick = { menuOpen = false; showDeleteConfirm = true })
@@ -265,6 +282,26 @@ fun SessionDetailScreen(
                     }) { Text("Save") }
                 },
                 dismissButton = { TextButton(onClick = { showEditTitle = false }) { Text("Cancel") } }
+            )
+        }
+        if (showRetranscribeConfirm) {
+            AlertDialog(
+                onDismissRequest = { showRetranscribeConfirm = false },
+                shape = YapShapes.dialog,
+                title = { Text("Retranscribe this note?") },
+                text = {
+                    Text(
+                        "Yap will transcribe the recording again and replace the note's text, " +
+                            "title and topic. Edits you made to the text will be replaced."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showRetranscribeConfirm = false
+                        viewModel.retranscribe(currentSession)
+                    }) { Text("Retranscribe") }
+                },
+                dismissButton = { TextButton(onClick = { showRetranscribeConfirm = false }) { Text("Cancel") } }
             )
         }
         if (showDeleteConfirm) {

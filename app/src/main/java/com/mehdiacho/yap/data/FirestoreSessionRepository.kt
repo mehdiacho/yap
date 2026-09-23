@@ -140,6 +140,15 @@ class FirestoreSessionRepository {
         )
     }
 
+    /**
+     * Set only the pipeline status of a note, for the same reason as [setVideoStoragePath]:
+     * a long-running step marks the note busy while other writers (the server, the note's
+     * own first transcription) may still be filling it in.
+     */
+    suspend fun setStatus(sessionId: String, status: String) {
+        awaitTask(col().document(sessionId).set(mapOf("status" to status), SetOptions.merge()))
+    }
+
     private fun Session.toMap(): Map<String, Any?> = mapOf(
         "title" to title,
         "draftText" to draftText,
