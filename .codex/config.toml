@@ -1,0 +1,3 @@
+[mcp_servers.yap]
+command = "node"
+args = ["mcp/dist/index.js"]
