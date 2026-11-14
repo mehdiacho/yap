@@ -1,0 +1,7 @@
+{
+  "name": "Terminal-U Transcriber",
+  "description": "A cyberpunk-themed audio analysis and transcription dashboard powered by Gemini 2.5.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
